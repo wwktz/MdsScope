@@ -1,0 +1,7 @@
+build/
+ca.properties
+environment/*
+!environment/
+!environment/init.toml
+!environment/init.webscp
+output/

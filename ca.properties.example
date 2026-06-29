@@ -1,0 +1,5 @@
+#ca.properties
+ApiUrl=http\://YOUR_API_HOST\:YOUR_API_PORT/api
+Authorization_Prefix=Bearer
+Charset=UTF-8
+Token=

@@ -1,0 +1,339 @@
+# MdsScope
+
+MdsScope is a C++/Qt desktop application for browsing WebScope-style shot
+configuration files (`*.webscp`) and plotting MDSplus signal data through MDSIP.
+
+The project is developed as a native C++/Qt implementation of the EAST MDSplus
+data viewing workflow described by Yang and Xiao (2012).
+
+https://doi.org/10.1016/j.fusengdes.2012.09.015
+
+It is intended to be a transparent, open-source alternative to older Java 8 based
+WebScope-style clients, which can be difficult to maintain on newer Java
+runtimes. Although the default example configuration targets EAST-style MDSplus
+signals, the tool can also be used with other tokamak MDSplus deployments by
+changing the MDSIP server, tree, and signal names in the configuration files.
+
+## Features
+
+- Load WebScope-style environment files from the user configuration directory.
+- Display multiple synchronized plotting panels.
+- Fetch signal data from MDSIP servers.
+- Switch between thin and full data read modes.
+- Apply shot numbers globally across panels.
+- Optional HTTP metadata support for latest shot and top-bar shot summary.
+- Follow the system light/dark preference on GNOME via the desktop portal.
+
+## Requirements
+
+MdsScope requires:
+
+- CMake 3.16 or newer
+- A C++23 compiler
+- Qt 6.4 or newer with Core, Widgets, Network, Concurrent, and DBus
+
+The current development machine uses:
+
+```text
+GCC/G++ 15.2.0
+CMake 4.2.3
+Qt 6.10.2
+```
+
+Older compiler and Qt versions may work as long as they support C++23 and the
+required Qt 6 modules.
+
+### Dependency Installation
+
+Debian / Ubuntu:
+
+```bash
+sudo apt update
+sudo apt install build-essential cmake qt6-base-dev qt6-base-dev-tools
+```
+
+Fedora:
+
+```bash
+sudo dnf install gcc-c++ cmake qt6-qtbase-devel
+```
+
+macOS with Homebrew:
+
+```bash
+brew install cmake qt
+```
+
+If CMake cannot find Qt on macOS, pass Qt's CMake prefix explicitly:
+
+```bash
+cmake -S . -B build -DCMAKE_PREFIX_PATH="$(brew --prefix qt)"
+```
+
+Windows with MSYS2 UCRT64:
+
+```bash
+pacman -Syu
+pacman -S --needed mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-qt6-base
+```
+
+Windows with Visual Studio:
+
+Install Visual Studio with the C++ desktop workload, install Qt 6 from the Qt
+online installer, then configure with a matching generator and Qt prefix, for
+example:
+
+```powershell
+cmake -S . -B build -DCMAKE_PREFIX_PATH="C:\Qt\6.10.2\msvc2022_64"
+cmake --build build --config Release
+```
+
+## Build and Install
+
+```bash
+cmake -S . -B build
+cmake --build build -j
+cmake --install build --prefix "$HOME/opt/mdsscope"
+```
+
+Run the installed application:
+
+```bash
+~/opt/mdsscope/bin/MdsScope
+```
+
+Run the converter:
+
+```bash
+~/opt/mdsscope/bin/transfer --help
+```
+
+For development without installing, run the build-tree binaries directly:
+
+```bash
+./build/MdsScope
+./build/transfer --help
+```
+
+## Configuration
+
+### Environment Files
+
+MdsScope uses two environment directories with different roles:
+
+```text
+~/opt/mdsscope/share/mdsscope/environment/
+```
+
+This is the installed template/default configuration directory. It is copied
+from the repository `environment/` directory during `cmake --install`. Treat it
+as application data; upgrades may replace it.
+
+```text
+~/.config/mdsscope/environment/
+```
+
+This is the user configuration directory. The GUI loads from and saves to this
+directory by default.
+
+MdsScope keeps user-editable files under:
+
+```text
+~/.config/mdsscope/
+  ca.properties
+  mdsscope_ui.ini
+  mdsscope_credentials.ini
+  environment/
+```
+
+On first run, MdsScope creates `~/.config/mdsscope/environment/` and copies
+template `*.toml` and `*.webscp` files from the source tree or installed
+`share/mdsscope/environment/` directory when the user environment directory is
+empty.
+
+MdsScope supports two configuration formats:
+
+- `*.toml`: the recommended native MdsScope format
+- `*.webscp`: legacy WebScope-compatible format
+
+On startup, MdsScope loads `~/.config/mdsscope/environment/init.toml` first. If
+that file is missing, it tries `init.webscp`. If neither default file exists,
+the first `*.toml` or `*.webscp` file sorted by name is loaded.
+
+When saving from the GUI, MdsScope writes both formats with the same base name:
+
+- saving `example.toml` also writes `example.webscp`
+- saving `example.webscp` also writes `example.toml`
+
+This keeps the native format and the legacy compatibility format synchronized.
+The Open dialog remembers the last selected file filter, so users can choose to
+browse native TOML files, legacy WEBSCP files, or both.
+
+Example TOML:
+
+```toml
+version = 1
+
+[[panels]]
+column = 1
+row = 1
+title = "Plasma current"
+x_label = "s"
+y_label = "kA"
+extraction_points = 2000
+grid = true
+custom_x_range = false
+custom_y_range = false
+
+[[panels.signals]]
+tree = "pcs_east"
+server = "202.127.204.12"
+y = "\\pcrl01"
+x = ""
+color = "#2364aa"
+manual_color = false
+```
+
+The native TOML format intentionally does not store a normal panel shot number.
+Panels use the current shot shown in the MdsScope UI. The `shot` field under
+`[[panels.signals]]` is only for an explicit per-signal shot override, for
+example when comparing one signal against another shot.
+
+When converting from legacy `.webscp`, MdsScope treats the most common
+`shot_txt` value as the old default shot and omits it from TOML. If a panel or
+signal clearly uses a different shot, that value is preserved as a signal-level
+`shot` override.
+
+### Converting Legacy `.webscp` Files
+
+Convert one file:
+
+```bash
+./build/transfer ~/.config/mdsscope/environment/init.webscp
+```
+
+Convert all `.webscp` files in one directory:
+
+```bash
+./build/transfer ~/.config/mdsscope/environment
+```
+
+Write converted TOML files to another directory:
+
+```bash
+./build/transfer --out-dir converted ~/.config/mdsscope/environment
+```
+
+Convert recursively:
+
+```bash
+./build/transfer --recursive ~/.config/mdsscope/environment
+```
+
+### Optional HTTP Metadata API
+
+MDSplus signal fetching is done through MDSIP and does not require
+`ca.properties`, an HTTP token, or a login.
+
+The optional HTTP API is only used for features such as latest shot lookup and
+top-bar shot summary values such as the small `Ip`, `Pulse`, `It`, and `Time`
+display. Those values are convenience metadata only; plots continue to load from
+MDSIP without this file. To enable the optional metadata features, create a local
+`ca.properties` file from the example:
+
+```bash
+mkdir -p ~/.config/mdsscope
+cp ca.properties.example ~/.config/mdsscope/ca.properties
+```
+
+Then fill in your local API endpoint and token:
+
+```properties
+ApiUrl=http\://YOUR_API_HOST\:YOUR_API_PORT/api
+Authorization_Prefix=Bearer
+Charset=UTF-8
+Token=YOUR_TOKEN
+```
+
+`ca.properties` is ignored by Git and should not be committed.
+
+### Data Export
+
+Data export writes files under an `output/` subdirectory of the selected base
+directory. The default base directory is:
+
+```text
+~/Downloads/mdsscope
+```
+
+So the default export location is:
+
+```text
+~/Downloads/mdsscope/output/
+```
+
+## Benchmark Mode
+
+MdsScope includes a simple benchmark mode for MDS data loading:
+
+```bash
+./build/MdsScope --benchmark environment/your_config.webscp --summary
+```
+
+Useful options:
+
+```text
+--shot SHOT_NUMBER
+--full
+--repeat N
+--summary
+--prewarm
+```
+
+For headless environments:
+
+```bash
+QT_QPA_PLATFORM=offscreen ./build/MdsScope --benchmark environment/your_config.webscp --summary
+```
+
+## Repository Hygiene
+
+Do not commit:
+
+- `ca.properties`
+- access tokens
+- private API endpoints
+- local credential files
+- build artifacts
+
+Use `ca.properties.example` as the public template.
+
+## References
+
+The original EAST web-based MDSplus/WebScope workflow is described in:
+
+Yang, F.; Xiao, B. J. A web based MDSplus data analysis and visualization
+system for EAST. Fusion Engineering and Design 2012, 87(12), 2161-2165.
+
+https://doi.org/10.1016/j.fusengdes.2012.09.015
+
+## License
+
+MdsScope is licensed under the GNU General Public License version 3. See
+`COPYING` for the full license text.
+
+## Disclaimer
+
+This software is provided for research, engineering, and data visualization
+workflows. It is provided "as is", without warranty of any kind, express or
+implied, including but not limited to warranties of correctness, reliability,
+fitness for a particular purpose, or non-infringement.
+
+The authors and contributors are not responsible for incorrect analysis,
+operational decisions, data loss, service disruption, unauthorized access, or
+any other direct or indirect consequences arising from use of this software.
+
+Users are responsible for ensuring they have permission to access any MDSIP
+servers, HTTP APIs, shot data, configuration files, and credentials used with
+this application. Do not publish private endpoints, tokens, credentials, or
+restricted experimental data.
