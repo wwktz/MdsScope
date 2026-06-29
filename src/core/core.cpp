@@ -34,11 +34,6 @@ static void seedUserConfigFiles(const QString& rootPath)
     QDir().mkpath(configDir);
 
     copyFileIfMissing(QDir(rootPath).filePath("ca.properties"), QDir(configDir).filePath("ca.properties"));
-    copyFileIfMissing(QDir(rootPath).filePath("spaceText.properties"), QDir(configDir).filePath("ca.properties"));
-    copyFileIfMissing(QDir(rootPath).filePath("wwkscope_ui.ini"), QDir(configDir).filePath("mdsscope_ui.ini"));
-    copyFileIfMissing(QDir(rootPath).filePath("webscope_ui.ini"), QDir(configDir).filePath("mdsscope_ui.ini"));
-    copyFileIfMissing(QDir(rootPath).filePath("wwkscope_credentials.ini"), QDir(configDir).filePath("mdsscope_credentials.ini"));
-    copyFileIfMissing(QDir(rootPath).filePath("webscope_credentials.ini"), QDir(configDir).filePath("mdsscope_credentials.ini"));
 }
 
 QString appEnvironmentDir(const QString& rootPath)
@@ -73,34 +68,10 @@ QString defaultExportBaseDir()
     return path;
 }
 
-QString credentialsPath(const QString& rootPath)
-{
-    seedUserConfigFiles(rootPath);
-    const QString path = QDir(appConfigDir()).filePath("mdsscope_credentials.ini");
-    const QString oldPath = QDir(rootPath).filePath("wwkscope_credentials.ini");
-    const QString legacy = QDir(rootPath).filePath("webscope_credentials.ini");
-    if (!QFile::exists(path) && QFile::exists(oldPath)) {
-        QFile::copy(oldPath, path);
-    }
-    if (!QFile::exists(path) && QFile::exists(legacy)) {
-        QFile::copy(legacy, path);
-    }
-    return path;
-}
-
 QString uiSettingsPath(const QString& rootPath)
 {
     seedUserConfigFiles(rootPath);
-    const QString path = QDir(appConfigDir()).filePath("mdsscope_ui.ini");
-    const QString oldPath = QDir(rootPath).filePath("wwkscope_ui.ini");
-    const QString legacy = QDir(rootPath).filePath("webscope_ui.ini");
-    if (!QFile::exists(path) && QFile::exists(oldPath)) {
-        QFile::copy(oldPath, path);
-    }
-    if (!QFile::exists(path) && QFile::exists(legacy)) {
-        QFile::copy(legacy, path);
-    }
-    return path;
+    return QDir(appConfigDir()).filePath("mdsscope_ui.ini");
 }
 
 FontSettings& fontSettings()
@@ -217,11 +188,6 @@ QHash<QString, QString> readApiProperties(const QString& rootPath)
             properties.insert(it.key(), it.value());
         }
     };
-
-    const QString legacyPath = QDir(rootPath).filePath("spaceText.properties");
-    if (QFile::exists(legacyPath)) {
-        merge(readKeyValueFile(legacyPath));
-    }
 
     const QString oldPath = QDir(rootPath).filePath("ca.properties");
     if (QFile::exists(oldPath)) {

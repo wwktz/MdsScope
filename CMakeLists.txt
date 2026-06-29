@@ -74,7 +74,3 @@ install(FILES
     environment/init.webscp
     DESTINATION ${CMAKE_INSTALL_DATADIR}/mdsscope/environment
 )
-
-install(FILES ca.properties.example
-    DESTINATION ${CMAKE_INSTALL_DATADIR}/mdsscope
-)

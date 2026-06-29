@@ -142,7 +142,6 @@ MdsScope keeps user-editable files under:
 ~/.config/mdsscope/
   ca.properties
   mdsscope_ui.ini
-  mdsscope_credentials.ini
   environment/
 ```
 
@@ -303,7 +302,6 @@ Do not commit:
 - `ca.properties`
 - access tokens
 - private API endpoints
-- local credential files
 - build artifacts
 
 Use `ca.properties.example` as the public template.
@@ -334,6 +332,6 @@ operational decisions, data loss, service disruption, unauthorized access, or
 any other direct or indirect consequences arising from use of this software.
 
 Users are responsible for ensuring they have permission to access any MDSIP
-servers, HTTP APIs, shot data, configuration files, and credentials used with
-this application. Do not publish private endpoints, tokens, credentials, or
-restricted experimental data.
+servers, HTTP APIs, shot data, configuration files, and tokens used with this
+application. Do not publish private endpoints, tokens, or restricted
+experimental data.

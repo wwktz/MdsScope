@@ -94,7 +94,6 @@ void traceMdsLine(const QString& line);
 QString appConfigDir();
 QString appEnvironmentDir(const QString& rootPath);
 QString defaultExportBaseDir();
-QString credentialsPath(const QString& rootPath);
 QString uiSettingsPath(const QString& rootPath);
 FontSettings& fontSettings();
 void loadFontSettings(const QString& rootPath);

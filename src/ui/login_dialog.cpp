@@ -30,7 +30,6 @@ LoginDialog::LoginDialog(QString rootPath, QWidget* parent)
     connect(loginButton_, &QPushButton::clicked, this, &LoginDialog::tryLogin);
     connect(cancel, &QPushButton::clicked, this, &QDialog::reject);
     loadProperties();
-    loadSavedCredentials();
 }
 
 void LoginDialog::loadProperties()
@@ -49,13 +48,6 @@ void LoginDialog::loadProperties()
     if (hasToken) {
         QTimer::singleShot(0, this, &QDialog::accept);
     }
-}
-
-void LoginDialog::loadSavedCredentials()
-{
-    QSettings settings(credentialsPath(rootPath_), QSettings::IniFormat);
-    userEdit_->setText(settings.value("login/username").toString());
-    passwordEdit_->setText(settings.value("login/password").toString());
 }
 
 void LoginDialog::tryLogin()
@@ -121,18 +113,10 @@ void LoginDialog::tryLogin()
     if (ok && !token.isEmpty()) {
         properties_.insert("Token", token);
         saveToken(token);
-        saveCredentials();
         accept();
         return;
     }
     QMessageBox::warning(this, "Login", "Failed to login.");
-}
-
-void LoginDialog::saveCredentials() const
-{
-    QSettings settings(credentialsPath(rootPath_), QSettings::IniFormat);
-    settings.setValue("login/username", userEdit_->text().trimmed());
-    settings.setValue("login/password", passwordEdit_->text());
 }
 
 bool LoginDialog::saveToken(const QString& token)

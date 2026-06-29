@@ -134,8 +134,6 @@ private:
     void loadProperties();
     void tryLogin();
     bool saveToken(const QString& token);
-    void saveCredentials() const;
-    void loadSavedCredentials();
 
     QString rootPath_;
     QString propertiesPath_;
