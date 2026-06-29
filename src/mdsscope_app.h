@@ -133,10 +133,8 @@ public:
 private:
     void loadProperties();
     void tryLogin();
-    bool saveToken(const QString& token);
 
     QString rootPath_;
-    QString propertiesPath_;
     QHash<QString, QString> properties_;
     QLineEdit* userEdit_ = nullptr;
     QLineEdit* passwordEdit_ = nullptr;
@@ -267,6 +265,8 @@ private:
     void applyShot();
     void stepShot(int delta);
     void latestShot();
+    void openLoginDialog();
+    void applyLoginSuccessStatus(const QString& statusText);
     void fetchLatestShotAsync();
     void updateShotControlsFromConfig(const QString& preferredShot = {});
     void setAllPlotShots(const QString& shot);

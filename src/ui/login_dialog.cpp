@@ -3,17 +3,48 @@
 LoginDialog::LoginDialog(QString rootPath, QWidget* parent)
     : QDialog(parent), rootPath_(std::move(rootPath))
 {
-    setWindowTitle("MdsScope Login");
-    propertiesPath_ = apiPropertiesPath(rootPath_);
+    setWindowTitle("Login");
+    setModal(true);
+    setFixedWidth(420);
+    setStyleSheet(
+        "QDialog { background: palette(base); }"
+        "QLabel#title { font-size: 24px; font-weight: 600; color: palette(text); }"
+        "QLabel#subtitle { color: palette(mid); }"
+        "QLabel#status { color: #b91c1c; }"
+        "QLineEdit { min-height: 32px; padding: 4px 8px; border: 1px solid palette(mid); border-radius: 4px; }"
+        "QLineEdit:focus { border: 1px solid palette(highlight); }"
+        "QPushButton { min-height: 32px; padding: 4px 14px; border-radius: 4px; }"
+        "QPushButton#primary { background: palette(highlight); color: palette(highlighted-text); border: 1px solid palette(highlight); }");
 
     auto* layout = new QVBoxLayout(this);
+    layout->setContentsMargins(28, 24, 28, 24);
+    layout->setSpacing(8);
+
+    auto* title = new QLabel("MdsScope", this);
+    title->setObjectName("title");
+    layout->addWidget(title);
+
+    auto* subtitle = new QLabel("Sign in to access EAST shot metadata.", this);
+    subtitle->setObjectName("subtitle");
+    layout->addWidget(subtitle);
+
     statusLabel_ = new QLabel(this);
+    statusLabel_->setObjectName("status");
     statusLabel_->setWordWrap(true);
+    statusLabel_->hide();
     layout->addWidget(statusLabel_);
 
+    layout->addSpacing(8);
+
     auto* form = new QFormLayout;
+    form->setLabelAlignment(Qt::AlignLeft);
+    form->setFormAlignment(Qt::AlignLeft | Qt::AlignTop);
+    form->setHorizontalSpacing(16);
+    form->setVerticalSpacing(10);
     userEdit_ = new QLineEdit(this);
+    userEdit_->setPlaceholderText("Username");
     passwordEdit_ = new QLineEdit(this);
+    passwordEdit_->setPlaceholderText("Password");
     passwordEdit_->setEchoMode(QLineEdit::Password);
     form->addRow("Username", userEdit_);
     form->addRow("Password", passwordEdit_);
@@ -21,32 +52,40 @@ LoginDialog::LoginDialog(QString rootPath, QWidget* parent)
 
     auto* buttons = new QHBoxLayout;
     buttons->addStretch();
-    loginButton_ = new QPushButton("Login", this);
     auto* cancel = new QPushButton("Cancel", this);
-    buttons->addWidget(loginButton_);
+    loginButton_ = new QPushButton("Login", this);
+    loginButton_->setObjectName("primary");
     buttons->addWidget(cancel);
+    buttons->addWidget(loginButton_);
     layout->addLayout(buttons);
 
     connect(loginButton_, &QPushButton::clicked, this, &LoginDialog::tryLogin);
+    connect(passwordEdit_, &QLineEdit::returnPressed, this, &LoginDialog::tryLogin);
+    connect(userEdit_, &QLineEdit::returnPressed, passwordEdit_, qOverload<>(&QWidget::setFocus));
     connect(cancel, &QPushButton::clicked, this, &QDialog::reject);
     loadProperties();
 }
 
 void LoginDialog::loadProperties()
 {
-    properties_ = readApiProperties(rootPath_);
-    if (properties_.isEmpty()) {
+    properties_ = readApiSettings(rootPath_);
+    if (properties_.value("ApiUrl").trimmed().isEmpty()) {
         statusLabel_->setText("Missing API configuration.");
+        statusLabel_->show();
         loginButton_->setEnabled(false);
         return;
     }
-    const QString api = properties_.value("ApiUrl");
-    const bool hasToken = !properties_.value("Token").isEmpty();
-    const QString configSource = QFile::exists(propertiesPath_) ? propertiesPath_ : "built-in defaults";
-    statusLabel_->setText(QString("Config: %1\nAPI: %2\nToken: %3")
-                              .arg(configSource, api, hasToken ? "present" : "not present"));
-    if (hasToken) {
-        QTimer::singleShot(0, this, &QDialog::accept);
+    CachedAuth auth;
+    if (loadCachedAuth(&auth)) {
+        userEdit_->setText(auth.userName);
+        passwordEdit_->setText(auth.password);
+    }
+    statusLabel_->clear();
+    statusLabel_->hide();
+    if (userEdit_->text().trimmed().isEmpty()) {
+        userEdit_->setFocus();
+    } else {
+        passwordEdit_->setFocus();
     }
 }
 
@@ -54,100 +93,22 @@ void LoginDialog::tryLogin()
 {
     const QString api = properties_.value("ApiUrl");
     const QString charset = properties_.value("Charset", "UTF-8");
-    const bool hasToken = !properties_.value("Token").isEmpty();
 
-    if (userEdit_->text().trimmed().isEmpty() && hasToken) {
+    if (api.trimmed().isEmpty()) {
+        QMessageBox::warning(this, "Login", "Missing API URL.");
+        return;
+    }
+
+    const QString userName = userEdit_->text().trimmed();
+    const QString password = passwordEdit_->text();
+    const ApiLoginResult result = requestApiToken(api, charset, userName, password);
+    if (result.ok && !result.token.isEmpty()) {
+        saveCachedAuth(CachedAuth{userName, password, result.token});
         accept();
         return;
     }
-    if (api.isEmpty()) {
-        QMessageBox::warning(this, "Login", "ApiUrl is missing.");
-        return;
-    }
-
-    QNetworkAccessManager manager;
-    QNetworkRequest request(QUrl(api + "/login"));
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json; charset=" + charset);
-    request.setRawHeader("User-Agent", "MdsScope/0.1");
-    request.setTransferTimeout(5000);
-
-    QJsonObject payload;
-    payload.insert("userName", userEdit_->text().trimmed());
-    payload.insert("password", passwordEdit_->text());
-
-    QEventLoop loop;
-    QTimer timer;
-    timer.setSingleShot(true);
-    QNetworkReply* reply = manager.post(request, QJsonDocument(payload).toJson(QJsonDocument::Compact));
-    connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-    connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
-    timer.start(5000);
-    loop.exec();
-
-    if (!timer.isActive()) {
-        reply->abort();
-        reply->deleteLater();
-        if (hasToken) {
-            accept();
-            return;
-        }
-        QMessageBox::warning(this, "Login", "Login request timed out.");
-        return;
-    }
-
-    const QByteArray body = reply->readAll();
-    const auto error = reply->error();
-    reply->deleteLater();
-    if (error != QNetworkReply::NoError) {
-        if (hasToken) {
-            accept();
-            return;
-        }
-        QMessageBox::warning(this, "Login", "Login request failed.");
-        return;
-    }
-
-    const QJsonObject json = QJsonDocument::fromJson(body).object();
-    const bool ok = json.value("code").toString() == "20000" || json.value("code").toInt() == 20000;
-    const QString token = json.value("data").toObject().value("token").toString();
-    if (ok && !token.isEmpty()) {
-        properties_.insert("Token", token);
-        saveToken(token);
-        accept();
-        return;
-    }
-    QMessageBox::warning(this, "Login", "Failed to login.");
-}
-
-bool LoginDialog::saveToken(const QString& token)
-{
-    QFile in(propertiesPath_);
-    QStringList lines;
-    bool found = false;
-    if (in.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        while (!in.atEnd()) {
-            QString line = QString::fromUtf8(in.readLine());
-            if (line.trimmed().startsWith("Token=") || line.trimmed().startsWith("Token:")) {
-                line = "Token=" + token + "\n";
-                found = true;
-            }
-            lines.push_back(line);
-        }
-    }
-    if (!found) {
-        if (lines.isEmpty()) {
-            lines.push_back("ApiUrl=" + properties_.value("ApiUrl") + "\n");
-            lines.push_back("Authorization_Prefix=" + properties_.value("Authorization_Prefix", "Bearer") + "\n");
-            lines.push_back("Charset=" + properties_.value("Charset", "UTF-8") + "\n");
-        }
-        lines.push_back("Token=" + token + "\n");
-    }
-    QFile out(propertiesPath_);
-    if (!out.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
-        return false;
-    }
-    for (const QString& line : std::as_const(lines)) {
-        out.write(line.toUtf8());
-    }
-    return true;
+    QMessageBox::warning(this, "Login", result.error.isEmpty() ? QStringLiteral("Failed to login.") : result.error);
+    userEdit_->clear();
+    passwordEdit_->clear();
+    userEdit_->setFocus();
 }

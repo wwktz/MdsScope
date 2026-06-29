@@ -12,6 +12,7 @@
 #include <QComboBox>
 #include <QColorDialog>
 #include <QCheckBox>
+#include <QCryptographicHash>
 #include <QDataStream>
 #include <QDateTime>
 #include <QDir>
@@ -84,14 +85,27 @@ constexpr int kNetworkTimeoutMs = 2500;
 
 struct FontSettings {
     QString family = QStringLiteral("Times New Roman");
-    int legendSize = 10;
-    int axisSize = 10;
-    int unitSize = 10;
-    int uiSize = 9;
+    int legendSize = 14;
+    int axisSize = 14;
+    int unitSize = 14;
+    int uiSize = 14;
+};
+
+struct ApiLoginResult {
+    bool ok = false;
+    QString token;
+    QString error;
+};
+
+struct CachedAuth {
+    QString userName;
+    QString password;
+    QString token;
 };
 
 void traceMdsLine(const QString& line);
 QString appConfigDir();
+QString appCacheDir();
 QString appEnvironmentDir(const QString& rootPath);
 QString defaultExportBaseDir();
 QString uiSettingsPath(const QString& rootPath);
@@ -99,8 +113,17 @@ FontSettings& fontSettings();
 void loadFontSettings(const QString& rootPath);
 void saveFontSettings(const QString& rootPath);
 QHash<QString, QString> readKeyValueFile(const QString& path);
-QString apiPropertiesPath(const QString& rootPath);
-QHash<QString, QString> readApiProperties(const QString& rootPath);
+QString apiUrlPath(const QString& rootPath);
+QString readApiUrl(const QString& rootPath);
+QHash<QString, QString> readApiSettings(const QString& rootPath);
+bool tokenExpiresSoon(const QString& token);
+QString authCachePath();
+bool loadCachedAuth(CachedAuth* auth);
+bool saveCachedAuth(const CachedAuth& auth);
+ApiLoginResult requestApiToken(const QString& api,
+                               const QString& charset,
+                               const QString& userName,
+                               const QString& password);
 QString firstShotLikeText(const QString& text);
 QString firstShotFromJsonValue(const QJsonValue& value);
 QString colorForIndex(int index);

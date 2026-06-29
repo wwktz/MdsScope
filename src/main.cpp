@@ -1,4 +1,5 @@
 #include "mdsscope_app.h"
+#include "mdsscope_internal.h"
 
 #include <QApplication>
 #include <QCoreApplication>
@@ -129,6 +130,27 @@ QDir runtimeRootDir()
     }
     return QDir(QCoreApplication::applicationDirPath());
 }
+
+bool ensureApiLoginBeforeMain(const QString& rootPath)
+{
+    QHash<QString, QString> properties = readApiSettings(rootPath);
+    CachedAuth auth;
+    if (loadCachedAuth(&auth) && !auth.token.trimmed().isEmpty() && !tokenExpiresSoon(auth.token)) {
+        return true;
+    }
+
+    const QString api = properties.value("ApiUrl").trimmed();
+    if (!api.isEmpty() && (!auth.userName.isEmpty() || !auth.password.isEmpty())) {
+        ApiLoginResult result = requestApiToken(api, properties.value("Charset", "UTF-8"), auth.userName, auth.password);
+        if (result.ok) {
+            auth.token = result.token;
+            return saveCachedAuth(auth);
+        }
+    }
+
+    LoginDialog dialog(rootPath);
+    return dialog.exec() == QDialog::Accepted;
+}
 }
 
 int main(int argc, char* argv[])
@@ -173,6 +195,11 @@ int main(int argc, char* argv[])
                                                        args.contains("--prewarm")));
         }
         return code;
+    }
+
+    if (!ensureApiLoginBeforeMain(workDir.absolutePath())) {
+        shutdownMdsScopeWorkers();
+        return 1;
     }
 
     MainWindow window(workDir.absolutePath());

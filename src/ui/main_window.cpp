@@ -1107,6 +1107,7 @@ void MainWindow::buildUi()
     addAction(saveAction);
     toolbar->addAction(style()->standardIcon(QStyle::SP_DialogSaveButton), "Export data", this, &MainWindow::openExportDataDialog);
     toolbar->addAction(style()->standardIcon(QStyle::SP_BrowserReload), "Refresh", this, &MainWindow::refreshData);
+    toolbar->addAction(style()->standardIcon(QStyle::SP_DialogApplyButton), "Login", this, &MainWindow::openLoginDialog);
     toolbar->addSeparator();
     toolbar->addAction(gearIcon(), "Layout setup", this, &MainWindow::openLayoutSetupDialog);
     toolbar->addSeparator();
@@ -1688,6 +1689,30 @@ void MainWindow::latestShot()
     fetchLatestShotAsync();
 }
 
+void MainWindow::openLoginDialog()
+{
+    LoginDialog dialog(rootPath_, this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    applyLoginSuccessStatus("Login token saved");
+}
+
+void MainWindow::applyLoginSuccessStatus(const QString& statusText)
+{
+    latestShot_.clear();
+    pendingTopSummaryShot_.clear();
+    topSummaryShot_.clear();
+    topSummaryIp_.clear();
+    topSummaryPulse_.clear();
+    topSummaryIt_.clear();
+    topSummaryTime_.clear();
+    ++topSummaryGeneration_;
+    updateTopInfoLabels();
+    setStatus(statusText);
+}
+
 void MainWindow::fetchLatestShotAsync()
 {
     if (latestShotFetchRunning_) {
@@ -1775,7 +1800,7 @@ QString MainWindow::maxShotInConfig() const
 
 QString MainWindow::latestShotFromApi() const
 {
-    const auto properties = readApiProperties(rootPath_);
+    const auto properties = readApiSettings(rootPath_);
     const QString api = properties.value("ApiUrl");
     const QString token = properties.value("Token");
     const QString prefix = properties.value("Authorization_Prefix", properties.value("Init_Prefix", "Bearer"));
@@ -1839,7 +1864,7 @@ bool MainWindow::loadShotSummaryFromApi(const QString& shot,
                                         QString* it,
                                         QString* time) const
 {
-    const auto properties = readApiProperties(rootPath_);
+    const auto properties = readApiSettings(rootPath_);
     const QString api = properties.value("ApiUrl");
     const QString token = properties.value("Token");
     const QString prefix = properties.value("Authorization_Prefix", properties.value("Init_Prefix", "Bearer"));

@@ -10,9 +10,8 @@ https://doi.org/10.1016/j.fusengdes.2012.09.015
 
 It is intended to be a transparent, open-source alternative to older Java 8 based
 WebScope-style clients, which can be difficult to maintain on newer Java
-runtimes. Although the default example configuration targets EAST-style MDSplus
-signals, the tool can also be used with other tokamak MDSplus deployments by
-changing the MDSIP server, tree, and signal names in the configuration files.
+runtimes. The application is currently EAST-specific: the bundled signal
+configuration, MDSIP defaults, login flow, and HTTP metadata API target EAST.
 
 ## Features
 
@@ -21,7 +20,7 @@ changing the MDSIP server, tree, and signal names in the configuration files.
 - Fetch signal data from MDSIP servers.
 - Switch between thin and full data read modes.
 - Apply shot numbers globally across panels.
-- Optional HTTP metadata support for latest shot and top-bar shot summary.
+- EAST HTTP metadata support for latest shot and top-bar shot summary.
 - Follow the system light/dark preference on GNOME via the desktop portal.
 
 ## Requirements
@@ -140,10 +139,18 @@ MdsScope keeps user-editable files under:
 
 ```text
 ~/.config/mdsscope/
-  ca.properties
   mdsscope_ui.ini
   environment/
 ```
+
+Login credentials and tokens are cached under:
+
+```text
+~/.cache/mdsscope/auth.cache
+```
+
+The cache file is not plaintext; it stores the username, password, and token in
+an encrypted local cache bound to the current machine/user.
 
 On first run, MdsScope creates `~/.config/mdsscope/environment/` and copies
 template `*.toml` and `*.webscp` files from the source tree or installed
@@ -229,32 +236,20 @@ Convert recursively:
 ./build/transfer --recursive ~/.config/mdsscope/environment
 ```
 
-### Optional HTTP Metadata API
+### EAST HTTP Metadata API
 
-MDSplus signal fetching is done through MDSIP and does not require
-`ca.properties`, an HTTP token, or a login.
+The EAST HTTP metadata endpoint is stored in the repository `APIurl` file. The
+file is installed to `share/mdsscope/APIurl` by `cmake --install` and contains a
+comment citing the public reference for the EAST data-service workflow.
 
-The optional HTTP API is only used for features such as latest shot lookup and
-top-bar shot summary values such as the small `Ip`, `Pulse`, `It`, and `Time`
-display. Those values are convenience metadata only; plots continue to load from
-MDSIP without this file. To enable the optional metadata features, create a local
-`ca.properties` file from the example:
+On startup, MdsScope reads `APIurl`, checks the local encrypted auth cache, and
+opens the login dialog before the main window if a valid token is not available.
+After successful login, MdsScope caches the returned token and the entered
+credentials in `~/.cache/mdsscope/auth.cache`. Later starts reuse the cached
+token, or refresh it automatically with cached credentials when it expires.
 
-```bash
-mkdir -p ~/.config/mdsscope
-cp ca.properties.example ~/.config/mdsscope/ca.properties
-```
-
-Then fill in your local API endpoint and token:
-
-```properties
-ApiUrl=http\://YOUR_API_HOST\:YOUR_API_PORT/api
-Authorization_Prefix=Bearer
-Charset=UTF-8
-Token=YOUR_TOKEN
-```
-
-`ca.properties` is ignored by Git and should not be committed.
+The HTTP API is used for latest shot lookup and the top-bar `Ip`, `Pulse`, `It`,
+and `Time` summary. Plot data continues to come from EAST MDSIP.
 
 ### Data Export
 
@@ -299,12 +294,12 @@ QT_QPA_PLATFORM=offscreen ./build/MdsScope --benchmark environment/your_config.w
 
 Do not commit:
 
-- `ca.properties`
 - access tokens
-- private API endpoints
+- local auth caches
 - build artifacts
 
-Use `ca.properties.example` as the public template.
+The EAST API URL is intentionally stored in `APIurl`; do not commit personal
+tokens or cache files.
 
 ## References
 

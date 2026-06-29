@@ -1,5 +1,5 @@
 build/
-ca.properties
+build*/
 environment/*
 !environment/
 !environment/init.toml
