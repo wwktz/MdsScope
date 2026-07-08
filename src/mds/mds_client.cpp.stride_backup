@@ -1438,7 +1438,7 @@ private:
         ThinSampling sampling;
         UniformTimebase fastTimebase;
         const QString xExpr = sig.xExpr.trimmed();
-        const bool serverSideThin = (readMode == DataReadMode::Thin || readMode == DataReadMode::Medium) && kUseServerSideThin;
+        const bool serverSideThin = readMode == DataReadMode::Thin && kUseServerSideThin;
         SignalSpec fastSig = sig;
         const ScaledSignalExpr scaledExpr = scaledSimpleSignalExpr(sig.yExpr);
         if (scaledExpr.valid) {
@@ -1497,7 +1497,7 @@ private:
             // spikes perfectly (0% loss) at ~1.8s/signal vs stride-sampling's ~1.3s
             // but 91% bucket miss rate. With 8-way parallel the wall-clock is ~6-7s
             // for 34 signals (vs Java's ~7s), faster than Java and spike-preserving.
-            SignalSeries envelope = fetchEastFullEnvelopeSignalOnOpenSocket(socket, plot, fastSig, maxPoints, readMode, error);
+            SignalSeries envelope = fetchEastFullEnvelopeSignalOnOpenSocket(socket, plot, fastSig, maxPoints, error);
             if (envelope.hasData()) {
                 applySeriesScale(&envelope, sig.yExpr, scaledExpr.scale);
                 return envelope;
@@ -1657,14 +1657,15 @@ private:
         return result;
     }
 
-    // Oversampled envelope for thin/medium modes:
-    // - Thin (DataReadMode::Thin): SetTimeContext 20k-pt averaging, ~4s, fast preview
-    // - Medium (DataReadMode::Medium): stride 20k-pt sampling, ~8-11s, preserves spike amplitude
+    // High-resolution stride envelope: sample at kOversample*maxPoints resolution
+    // using data(\sig)[1:*:step_fine]. Server still reads all 11M points (same
+    // cost as the 2000-pt stride path), but we get ~10x more real measured values.
+    // No averaging artifacts — the renderer's min/max bucketing works on actual
+    // samples, so real spikes appear at full amplitude with no fake spikes.
     SignalSeries fetchEastFullEnvelopeSignalOnOpenSocket(QTcpSocket& socket,
                                                          const PlotSpec& plot,
                                                          const SignalSpec& sig,
                                                          int maxPoints,
-                                                         DataReadMode readMode,
                                                          QString* error) const
     {
         SignalSeries result;
@@ -1679,61 +1680,39 @@ private:
             return result;
         }
 
-        // Only use envelope when sampling ratio is high enough.
+        // Only use envelope when the base sampling step is large enough that
+        // stride-sampling at kOversample resolution is meaningfully better.
         static constexpr int kOversample = 10;
-        if (plan.sampling.step <= 4) {
+        if (plan.sampling.step <= kOversample) {
             return result;
         }
 
-        const int oversampledPoints = maxPoints * kOversample;
-        const double start = plan.timebase.start;
-        const double end = start + static_cast<double>(plan.sampling.sourceCount - 1) * plan.timebase.step;
+        const int fineSampledPoints = maxPoints * kOversample;
+        const int fineStep = std::max(1, plan.sampling.sourceCount / fineSampledPoints);
 
-        if (readMode == DataReadMode::Medium) {
-            // Medium mode: stride sampling at high resolution (real measured values)
-            const int fineStep = std::max(1, plan.sampling.sourceCount / oversampledPoints);
-            const QString sampledExpr = QString("( _jscope_0 = (data(%1)[1:*:%2]), fs_float(_jscope_0))")
-                                            .arg(sig.yExpr.trimmed()).arg(fineStep);
-            const double sampledStart = start + plan.timebase.step; // [1:*:step] skips index 0
-            const double sampledStep = plan.timebase.step * static_cast<double>(fineStep);
+        const QString yExpr = sig.yExpr.trimmed();
+        const QString sampledExpr = QString("( _jscope_0 = (data(%1)[1:*:%2]), fs_float(_jscope_0))")
+                                        .arg(yExpr).arg(fineStep);
+        
+        const double sampledStart = plan.timebase.start + plan.timebase.step; // [1:*:step] skips index 0
+        const double sampledStep = plan.timebase.step * static_cast<double>(fineStep);
 
-            const Message yMessage = value(socket, sampledExpr, &localError);
-            result = makeSeriesUniformXFromMessage(result.name, yMessage, sampledStart, sampledStep, oversampledPoints, &localError);
-            if (!result.hasData()) {
-                if (error) error->clear();
-                return result;
-            }
-            traceMdsLine(QString("east_envelope_signal shot=%1 tree=%2 y=%3 method=stride points=%4")
-                             .arg(plot.shot, sig.experiment, sig.yExpr)
-                             .arg(result.pointCount()));
-        } else {
-            // Thin mode: SetTimeContext averaging (fast but spike amplitude slightly attenuated)
-            const double delta = (end - start) / static_cast<double>(oversampledPoints - 1);
-            value(socket,
-                  QString("SetTimeContext(%1,%2,%3)")
-                      .arg(start, 0, 'g', 12)
-                      .arg(end,   0, 'g', 12)
-                      .arg(delta, 0, 'g', 12),
-                  &localError);
-            if (!localError.isEmpty()) {
-                value(socket, "SetTimeContext()", &localError);
-                return result;
-            }
-
-            const Message yMessage = value(socket,
-                                           QString("( _jscope_0 = (%1), fs_float(_jscope_0))").arg(sig.yExpr.trimmed()),
-                                           &localError);
-            value(socket, "SetTimeContext()", &localError);
-
-            result = makeSeriesUniformXFromMessage(result.name, yMessage, start, delta, oversampledPoints, &localError);
-            if (!result.hasData()) {
-                if (error) error->clear();
-                return result;
-            }
-            traceMdsLine(QString("east_envelope_signal shot=%1 tree=%2 y=%3 method=STC points=%4")
-                             .arg(plot.shot, sig.experiment, sig.yExpr)
-                             .arg(result.pointCount()));
+        const Message yMessage = value(socket, sampledExpr, &localError);
+        
+        // Use the existing message decoder which handles all dtype/endian issues correctly
+        result = makeSeriesUniformXFromMessage(result.name,
+                                               yMessage,
+                                               sampledStart,
+                                               sampledStep,
+                                               fineSampledPoints,  // return up to this many points
+                                               &localError);
+        if (!result.hasData()) {
+            if (error) error->clear();
+            return result;
         }
+        traceMdsLine(QString("east_envelope_signal shot=%1 tree=%2 y=%3 fineStep=%4 points=%5")
+                         .arg(plot.shot, sig.experiment, sig.yExpr)
+                         .arg(fineStep).arg(result.pointCount()));
         if (error) error->clear();
         return result;
     }
