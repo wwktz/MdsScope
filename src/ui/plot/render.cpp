@@ -279,17 +279,11 @@ void PlotWidget::renderBasePlot(QPainter& painter) const
             continue;
         }
         QVector<QPoint> polyline;
-        polyline.reserve(displayPoints.size() + 1);
-        QPointF pixel = dataToPixel(displayPoints.front(), view, pr);
-        polyline.push_back(QPoint(qRound(pixel.x()), qRound(pixel.y())));
-        const int pointCount = static_cast<int>(displayPoints.size());
-        const int stride = std::max(1, pointCount / std::max(1, static_cast<int>(pr.width() * 2)));
-        for (int p = stride; p < displayPoints.size(); p += stride) {
-            pixel = dataToPixel(displayPoints[p], view, pr);
+        polyline.reserve(displayPoints.size());
+        for (const QPointF& point : displayPoints) {
+            const QPointF pixel = dataToPixel(point, view, pr);
             polyline.push_back(QPoint(qRound(pixel.x()), qRound(pixel.y())));
         }
-        pixel = dataToPixel(displayPoints.back(), view, pr);
-        polyline.push_back(QPoint(qRound(pixel.x()), qRound(pixel.y())));
         painter.setPen(QPen(seriesColor(i), 1));
         painter.drawPolyline(polyline.constData(), polyline.size());
     }

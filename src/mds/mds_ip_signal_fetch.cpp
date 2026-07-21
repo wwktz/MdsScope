@@ -495,7 +495,12 @@ SignalSeries MdsIpClient::fetchSavedEastSignalOnOpenSocket(QTcpSocket& socket,
 
         const QString xExpr = QString("( _jscope_1 = (dim_of(%1)), ft_float(_jscope_1))").arg(savedExpr);
         const QVector<double> x = numericValue(socket, xExpr, &localError);
-        result = makeSeries(result.name, y, x, maxPoints);
+        // Saved EAST signals are already prepared server-side. Keep every
+        // downloaded sample as the source series so Point mode, export, and
+        // zoomed views can use the actual data. PlotWidget performs its own
+        // pixel-width min/max reduction while painting, so retaining the
+        // samples here does not make it draw the complete array.
+        result = makeSeries(result.name, y, x, 0);
         if (!result.hasData()) {
             if (error) {
                 error->clear();
@@ -503,9 +508,10 @@ SignalSeries MdsIpClient::fetchSavedEastSignalOnOpenSocket(QTcpSocket& socket,
             return {};
         }
 
-        traceMdsLine(QString("east_saved_signal shot=%1 tree=%2 y=%3 saved=%4 points=%5")
+        traceMdsLine(QString("east_saved_signal shot=%1 tree=%2 y=%3 saved=%4 points=%5 display_target=%6")
                          .arg(plot.shot, sig.experiment, sig.yExpr, savedExpr)
-                         .arg(result.pointCount()));
+                         .arg(result.pointCount())
+                         .arg(maxPoints));
         if (error) {
             error->clear();
         }

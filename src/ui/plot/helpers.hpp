@@ -87,83 +87,116 @@ void considerIndexedYRange(const SignalSeries& series,
     }
 }
 
-inline QVector<QPointF> displayUniformPointsUsingMinMaxIndex(const SignalSeries& series,
-                                                      int startIndex,
-                                                      int endIndex,
-                                                      double pixelWidth)
+template <typename ValueAt>
+bool findIndexedYExtrema(const SignalSeries& series,
+                         int startIndex,
+                         int endIndex,
+                         ValueAt valueAt,
+                         int* minIndex,
+                         int* maxIndex)
 {
-    const int visibleCount = endIndex - startIndex + 1;
-    const int targetPoints = std::max(2, static_cast<int>(pixelWidth * 2.0));
-    const int buckets = std::max(1, targetPoints / 2);
-    QVector<QPointF> out;
-    out.reserve(std::min(visibleCount, buckets * 2));
+    if (!minIndex || !maxIndex || startIndex > endIndex) {
+        return false;
+    }
 
-    auto valueAt = [&](int index) {
-        return static_cast<double>(series.uniformY[index]);
+    int edgeMinIndex = -1;
+    int edgeMaxIndex = -1;
+    auto considerEdge = [&](int index) {
+        const double y = valueAt(index);
+        if (!std::isfinite(y)) {
+            return;
+        }
+        if (edgeMinIndex < 0 || y < valueAt(edgeMinIndex)) {
+            edgeMinIndex = index;
+        }
+        if (edgeMaxIndex < 0 || y > valueAt(edgeMaxIndex)) {
+            edgeMaxIndex = index;
+        }
     };
 
-    for (int b = 0; b < buckets; ++b) {
-        const int bucketStart = startIndex + static_cast<int>((static_cast<qint64>(b) * visibleCount) / buckets);
-        const int bucketEnd = startIndex + static_cast<int>((static_cast<qint64>(b + 1) * visibleCount) / buckets) - 1;
-        if (bucketEnd < bucketStart) {
-            continue;
+    const int blockSize = series.minMaxBlockSize;
+    if (blockSize <= 0 || series.minYBlocks.isEmpty() || series.maxYBlocks.isEmpty()) {
+        for (int i = startIndex; i <= endIndex; ++i) {
+            considerEdge(i);
         }
-
-        double minY = std::numeric_limits<double>::infinity();
-        double maxY = -std::numeric_limits<double>::infinity();
-        considerIndexedYRange(series, bucketStart, bucketEnd, valueAt, &minY, &maxY);
-        if (!std::isfinite(minY) || !std::isfinite(maxY)) {
-            continue;
+        if (edgeMinIndex < 0 || edgeMaxIndex < 0) {
+            return false;
         }
-
-        const double x = series.uniformStart
-                         + (static_cast<double>(bucketStart + bucketEnd) * 0.5) * series.uniformStep;
-        if (minY == maxY) {
-            out.push_back(QPointF(x, minY));
-        } else {
-            out.push_back(QPointF(x, minY));
-            out.push_back(QPointF(x, maxY));
-        }
+        *minIndex = edgeMinIndex;
+        *maxIndex = edgeMaxIndex;
+        return true;
     }
-    return out;
-}
 
-inline QVector<QPointF> displayPointSeriesUsingMinMaxIndex(const SignalSeries& series,
-                                                    int startIndex,
-                                                    int endIndex,
-                                                    double pixelWidth)
-{
-    const int visibleCount = endIndex - startIndex + 1;
-    const int targetPoints = std::max(2, static_cast<int>(pixelWidth * 2.0));
-    const int buckets = std::max(1, targetPoints / 2);
-    QVector<QPointF> out;
-    out.reserve(std::min(visibleCount, buckets * 2));
+    const int originalStart = startIndex;
+    const int originalEnd = endIndex;
+    while (startIndex <= endIndex && startIndex % blockSize != 0) {
+        considerEdge(startIndex++);
+    }
 
-    auto valueAt = [&](int index) {
-        return series.points[index].y();
+    int minBlock = -1;
+    int maxBlock = -1;
+    double minBlockValue = std::numeric_limits<double>::infinity();
+    double maxBlockValue = -std::numeric_limits<double>::infinity();
+    while (startIndex + blockSize - 1 <= endIndex) {
+        const int block = startIndex / blockSize;
+        if (block >= 0 && block < series.minYBlocks.size() && block < series.maxYBlocks.size()) {
+            const double blockMin = series.minYBlocks[block];
+            const double blockMax = series.maxYBlocks[block];
+            if (std::isfinite(blockMin) && blockMin < minBlockValue) {
+                minBlockValue = blockMin;
+                minBlock = block;
+            }
+            if (std::isfinite(blockMax) && blockMax > maxBlockValue) {
+                maxBlockValue = blockMax;
+                maxBlock = block;
+            }
+        }
+        startIndex += blockSize;
+    }
+    while (startIndex <= endIndex) {
+        considerEdge(startIndex++);
+    }
+
+    auto resolveBlock = [&](int block, bool findMinimum) {
+        int resolved = -1;
+        if (block < 0) {
+            return resolved;
+        }
+        const int begin = std::max(originalStart, block * blockSize);
+        const int end = std::min(originalEnd + 1, begin + blockSize);
+        for (int i = begin; i < end; ++i) {
+            const double y = valueAt(i);
+            if (!std::isfinite(y)) {
+                continue;
+            }
+            if (resolved < 0
+                || (findMinimum ? y < valueAt(resolved) : y > valueAt(resolved))) {
+                resolved = i;
+            }
+        }
+        return resolved;
     };
 
-    for (int b = 0; b < buckets; ++b) {
-        const int bucketStart = startIndex + static_cast<int>((static_cast<qint64>(b) * visibleCount) / buckets);
-        const int bucketEnd = startIndex + static_cast<int>((static_cast<qint64>(b + 1) * visibleCount) / buckets) - 1;
-        if (bucketEnd < bucketStart) {
-            continue;
-        }
-
-        double minY = std::numeric_limits<double>::infinity();
-        double maxY = -std::numeric_limits<double>::infinity();
-        considerIndexedYRange(series, bucketStart, bucketEnd, valueAt, &minY, &maxY);
-        if (!std::isfinite(minY) || !std::isfinite(maxY)) {
-            continue;
-        }
-
-        const double x = (series.points[bucketStart].x() + series.points[bucketEnd].x()) * 0.5;
-        if (minY == maxY) {
-            out.push_back(QPointF(x, minY));
-        } else {
-            out.push_back(QPointF(x, minY));
-            out.push_back(QPointF(x, maxY));
-        }
+    const int blockMinIndex = resolveBlock(minBlock, true);
+    const int blockMaxIndex = resolveBlock(maxBlock, false);
+    int resolvedMin = edgeMinIndex;
+    int resolvedMax = edgeMaxIndex;
+    if (blockMinIndex >= 0
+        && (resolvedMin < 0
+            || valueAt(blockMinIndex) < valueAt(resolvedMin)
+            || (valueAt(blockMinIndex) == valueAt(resolvedMin) && blockMinIndex < resolvedMin))) {
+        resolvedMin = blockMinIndex;
     }
-    return out;
+    if (blockMaxIndex >= 0
+        && (resolvedMax < 0
+            || valueAt(blockMaxIndex) > valueAt(resolvedMax)
+            || (valueAt(blockMaxIndex) == valueAt(resolvedMax) && blockMaxIndex < resolvedMax))) {
+        resolvedMax = blockMaxIndex;
+    }
+    if (resolvedMin < 0 || resolvedMax < 0) {
+        return false;
+    }
+    *minIndex = resolvedMin;
+    *maxIndex = resolvedMax;
+    return true;
 }

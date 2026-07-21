@@ -374,10 +374,6 @@ private:
 
     static ThinSampling thinSampling(QTcpSocket& socket, const QString& yExpr, int maxPoints, QString* error);
 
-    static void minMaxDownsample(SignalSeries* series, int maxPoints);
-
-    static void buildUniformOverview(SignalSeries* series, int maxPoints = 4000);
-
     static SignalSeries makeSeries(QString name, const QVector<double>& y, const QVector<double>& x, int maxPoints);
 
     static SignalSeries makeSeriesUniformX(QString name,

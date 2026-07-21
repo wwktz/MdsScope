@@ -4,6 +4,123 @@
 #include "mdsscope_internal.hpp"
 #include "helpers.hpp"
 
+namespace {
+
+template <typename PointAt>
+QVector<QPointF> pixelColumnEnvelope(const SignalSeries& series,
+                                     int sourceCount,
+                                     const QRectF& view,
+                                     double pixelWidth,
+                                     PointAt pointAt)
+{
+    if (sourceCount <= 0 || !view.isValid() || view.width() <= 0.0
+        || !std::isfinite(pixelWidth) || pixelWidth <= 0.0) {
+        return {};
+    }
+
+    const bool reversed = pointAt(0).x() > pointAt(sourceCount - 1).x();
+    auto sourceIndex = [sourceCount, reversed](int logicalIndex) {
+        return reversed ? sourceCount - 1 - logicalIndex : logicalIndex;
+    };
+    auto logicalPointAt = [&](int logicalIndex) {
+        return pointAt(sourceIndex(logicalIndex));
+    };
+    auto lowerBound = [&](double x) {
+        int low = 0;
+        int high = sourceCount;
+        while (low < high) {
+            const int middle = low + (high - low) / 2;
+            if (logicalPointAt(middle).x() < x) {
+                low = middle + 1;
+            } else {
+                high = middle;
+            }
+        }
+        return low;
+    };
+    auto upperBound = [&](double x) {
+        int low = 0;
+        int high = sourceCount;
+        while (low < high) {
+            const int middle = low + (high - low) / 2;
+            if (x < logicalPointAt(middle).x()) {
+                high = middle;
+            } else {
+                low = middle + 1;
+            }
+        }
+        return low;
+    };
+
+    const int visibleBegin = lowerBound(view.left());
+    const int visibleEnd = upperBound(view.right());
+    const int columns = std::max(1, static_cast<int>(std::ceil(pixelWidth)));
+    QVector<QPointF> out;
+    out.reserve(std::min(sourceCount, columns * 4 + 2));
+
+    auto appendIfFinite = [&](const QPointF& point) {
+        if (std::isfinite(point.x()) && std::isfinite(point.y())) {
+            out.push_back(point);
+        }
+    };
+
+    // Keep one real sample on either side so a segment crossing a view edge
+    // remains connected after clipping.
+    if (visibleBegin > 0) {
+        appendIfFinite(logicalPointAt(visibleBegin - 1));
+    }
+
+    int bucketBegin = visibleBegin;
+    auto valueAt = [&](int index) {
+        return pointAt(index).y();
+    };
+    for (int column = 0; column < columns && bucketBegin < visibleEnd; ++column) {
+        const int bucketEnd = column + 1 == columns
+                                  ? visibleEnd
+                                  : std::min(visibleEnd,
+                                             lowerBound(view.left()
+                                                        + view.width() * static_cast<double>(column + 1)
+                                                              / static_cast<double>(columns)));
+        if (bucketEnd <= bucketBegin) {
+            continue;
+        }
+
+        const int firstSource = sourceIndex(bucketBegin);
+        const int lastSource = sourceIndex(bucketEnd - 1);
+        const int sourceBegin = std::min(firstSource, lastSource);
+        const int sourceEnd = std::max(firstSource, lastSource);
+        int minIndex = -1;
+        int maxIndex = -1;
+        if (findIndexedYExtrema(series, sourceBegin, sourceEnd, valueAt, &minIndex, &maxIndex)) {
+            QVector<int> representativeIndexes{
+                firstSource,
+                minIndex,
+                maxIndex,
+                lastSource,
+            };
+            std::sort(representativeIndexes.begin(), representativeIndexes.end(), [&](int lhs, int rhs) {
+                const int lhsLogical = reversed ? sourceCount - 1 - lhs : lhs;
+                const int rhsLogical = reversed ? sourceCount - 1 - rhs : rhs;
+                return lhsLogical < rhsLogical;
+            });
+            representativeIndexes.erase(
+                std::unique(representativeIndexes.begin(), representativeIndexes.end()),
+                representativeIndexes.end());
+            for (int index : representativeIndexes) {
+                appendIfFinite(pointAt(index));
+            }
+        }
+        bucketBegin = bucketEnd;
+    }
+
+    if (visibleEnd < sourceCount) {
+        appendIfFinite(logicalPointAt(visibleEnd));
+    }
+    return out;
+}
+
+} // namespace
+
 void PlotWidget::resetScale(bool repaint)
 {
     hasView_ = false;
@@ -246,149 +363,15 @@ QPointF PlotWidget::pixelToData(const QPointF& p, const QRectF& view, const QRec
 QVector<QPointF> PlotWidget::displayPointsForSeries(const SignalSeries& series, const QRectF& view, double pixelWidth) const
 {
     if (!series.hasUniformData()) {
-        if (series.points.isEmpty()) {
-            return {};
-        }
-
-        auto lowerByX = [](const QPointF& point, double x) {
-            return point.x() < x;
-        };
-        const auto beginIt = std::lower_bound(series.points.cbegin(), series.points.cend(), view.left(), lowerByX);
-        const auto endIt = std::upper_bound(series.points.cbegin(), series.points.cend(), view.right(), [](double x, const QPointF& point) {
-            return x < point.x();
-        });
-        int startIndex = static_cast<int>(std::distance(series.points.cbegin(), beginIt));
-        int endIndex = static_cast<int>(std::distance(series.points.cbegin(), endIt)) - 1;
-        if (endIndex < startIndex) {
-            const int nearest = std::clamp(startIndex, 0, static_cast<int>(series.points.size()) - 1);
-            return QVector<QPointF>{series.points[nearest]};
-        }
-        if (startIndex > 0) {
-            --startIndex;
-        }
-        if (endIndex + 1 < series.points.size()) {
-            ++endIndex;
-        }
-
-        const int visibleCount = endIndex - startIndex + 1;
-        const int targetPoints = std::max(2, static_cast<int>(pixelWidth * 2.0));
-        if (series.minMaxBlockSize > 0
-            && !series.minYBlocks.isEmpty()
-            && visibleCount > targetPoints * 8
-            && visibleCount > series.minMaxBlockSize * 8) {
-            return displayPointSeriesUsingMinMaxIndex(series, startIndex, endIndex, pixelWidth);
-        }
-        if (visibleCount <= targetPoints) {
-            QVector<QPointF> out;
-            out.reserve(visibleCount);
-            for (int i = startIndex; i <= endIndex; ++i) {
-                out.push_back(series.points[i]);
-            }
-            return out;
-        }
-
-        const int buckets = std::max(1, targetPoints / 2);
-        QVector<QPointF> out;
-        out.reserve(std::min(visibleCount, buckets * 2));
-        for (int b = 0; b < buckets; ++b) {
-            const int bucketStart = startIndex + static_cast<int>((static_cast<qint64>(b) * visibleCount) / buckets);
-            const int bucketEnd = startIndex + static_cast<int>((static_cast<qint64>(b + 1) * visibleCount) / buckets);
-            if (bucketEnd <= bucketStart) {
-                continue;
-            }
-            int minIndex = bucketStart;
-            int maxIndex = bucketStart;
-            for (int i = bucketStart + 1; i < bucketEnd; ++i) {
-                if (series.points[i].y() < series.points[minIndex].y()) {
-                    minIndex = i;
-                }
-                if (series.points[i].y() > series.points[maxIndex].y()) {
-                    maxIndex = i;
-                }
-            }
-            if (minIndex == maxIndex) {
-                out.push_back(series.points[minIndex]);
-            } else if (minIndex < maxIndex) {
-                out.push_back(series.points[minIndex]);
-                out.push_back(series.points[maxIndex]);
-            } else {
-                out.push_back(series.points[maxIndex]);
-                out.push_back(series.points[minIndex]);
-            }
-        }
-        return out;
+        return pixelColumnEnvelope(series,
+                                   series.points.size(),
+                                   view,
+                                   pixelWidth,
+                                   [&](int index) { return series.points[index]; });
     }
-    const int n = series.uniformY.size();
-    if (n <= 0 || !std::isfinite(series.uniformStep) || series.uniformStep == 0.0) {
-        return {};
-    }
-
-    const double firstX = series.uniformStart;
-    const double lastX = series.uniformStart + static_cast<double>(n - 1) * series.uniformStep;
-    const double minDataX = std::min(firstX, lastX);
-    const double maxDataX = std::max(firstX, lastX);
-    if (view.right() < minDataX || view.left() > maxDataX) {
-        return {};
-    }
-
-    int startIndex = static_cast<int>(std::floor((view.left() - series.uniformStart) / series.uniformStep));
-    int endIndex = static_cast<int>(std::ceil((view.right() - series.uniformStart) / series.uniformStep));
-    if (series.uniformStep < 0) {
-        startIndex = static_cast<int>(std::floor((view.right() - series.uniformStart) / series.uniformStep));
-        endIndex = static_cast<int>(std::ceil((view.left() - series.uniformStart) / series.uniformStep));
-    }
-    startIndex = std::clamp(startIndex, 0, n - 1);
-    endIndex = std::clamp(endIndex, 0, n - 1);
-    if (endIndex < startIndex) {
-        std::swap(startIndex, endIndex);
-    }
-
-    const int visibleCount = endIndex - startIndex + 1;
-    const int targetPoints = std::max(2, static_cast<int>(pixelWidth * 2.0));
-    if (series.minMaxBlockSize > 0
-        && !series.minYBlocks.isEmpty()
-        && visibleCount > targetPoints * 8
-        && visibleCount > series.minMaxBlockSize * 8) {
-        return displayUniformPointsUsingMinMaxIndex(series, startIndex, endIndex, pixelWidth);
-    }
-
-    if (visibleCount <= targetPoints) {
-        QVector<QPointF> out;
-        out.reserve(visibleCount);
-        for (int i = startIndex; i <= endIndex; ++i) {
-            out.push_back(series.pointAt(i));
-        }
-        return out;
-    }
-
-    const int buckets = std::max(1, targetPoints / 2);
-    QVector<QPointF> out;
-    out.reserve(std::min(visibleCount, buckets * 2));
-    for (int b = 0; b < buckets; ++b) {
-        const int bucketStart = startIndex + static_cast<int>((static_cast<qint64>(b) * visibleCount) / buckets);
-        const int bucketEnd = startIndex + static_cast<int>((static_cast<qint64>(b + 1) * visibleCount) / buckets);
-        if (bucketEnd <= bucketStart) {
-            continue;
-        }
-        int minIndex = bucketStart;
-        int maxIndex = bucketStart;
-        for (int i = bucketStart + 1; i < bucketEnd; ++i) {
-            if (series.uniformY[i] < series.uniformY[minIndex]) {
-                minIndex = i;
-            }
-            if (series.uniformY[i] > series.uniformY[maxIndex]) {
-                maxIndex = i;
-            }
-        }
-        if (minIndex == maxIndex) {
-            out.push_back(series.pointAt(minIndex));
-        } else if (minIndex < maxIndex) {
-            out.push_back(series.pointAt(minIndex));
-            out.push_back(series.pointAt(maxIndex));
-        } else {
-            out.push_back(series.pointAt(maxIndex));
-            out.push_back(series.pointAt(minIndex));
-        }
-    }
-    return out;
+    return pixelColumnEnvelope(series,
+                               series.uniformY.size(),
+                               view,
+                               pixelWidth,
+                               [&](int index) { return series.pointAt(index); });
 }

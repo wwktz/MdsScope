@@ -11,25 +11,26 @@ double localXResolution(const SignalSeries& series, double x)
     if (series.hasUniformData() && std::isfinite(series.uniformStep) && series.uniformStep != 0.0) {
         return std::abs(series.uniformStep);
     }
-    if (series.points.size() < 2) {
+    const QVector<QPointF>& pointSamples = series.points;
+    if (pointSamples.size() < 2) {
         return qQNaN();
     }
 
-    const auto it = std::lower_bound(series.points.cbegin(), series.points.cend(), x, [](const QPointF& point, double value) {
+    const auto it = std::lower_bound(pointSamples.cbegin(), pointSamples.cend(), x, [](const QPointF& point, double value) {
         return point.x() < value;
     });
-    const int index = std::clamp(static_cast<int>(std::distance(series.points.cbegin(), it)),
+    const int index = std::clamp(static_cast<int>(std::distance(pointSamples.cbegin(), it)),
                                  0,
-                                 static_cast<int>(series.points.size()) - 1);
+                                 static_cast<int>(pointSamples.size()) - 1);
     double resolution = std::numeric_limits<double>::infinity();
     if (index > 0) {
-        const double step = std::abs(series.points[index].x() - series.points[index - 1].x());
+        const double step = std::abs(pointSamples[index].x() - pointSamples[index - 1].x());
         if (step > 0.0) {
             resolution = std::min(resolution, step);
         }
     }
-    if (index + 1 < series.points.size()) {
-        const double step = std::abs(series.points[index + 1].x() - series.points[index].x());
+    if (index + 1 < pointSamples.size()) {
+        const double step = std::abs(pointSamples[index + 1].x() - pointSamples[index].x());
         if (step > 0.0) {
             resolution = std::min(resolution, step);
         }
@@ -92,8 +93,12 @@ QString formatPointX(double value, const SignalSeries& series)
     return QString::number(value, 'g', 16);
 }
 
-QString pointReadoutText(const SignalSeries& series, const QPointF& point)
+QString pointReadoutText(const SignalSeries& series, const QPointF& point, bool detailed)
 {
+    if (!detailed) {
+        return QStringLiteral("%1, %2")
+            .arg(QString::number(point.x(), 'g', 6), QString::number(point.y(), 'g', 6));
+    }
     // Point-mode values are for inspection, not lossless export. Uniform Y
     // data is stored as float, so showing more than seven digits exposes its
     // binary representation rather than meaningful signal precision.
@@ -215,27 +220,28 @@ bool PlotWidget::nearestPointForSeries(int seriesIndex,
             }
         }
     } else if (!s.points.isEmpty()) {
+        const QVector<QPointF>& pointSamples = s.points;
         int lo = 0;
-        int hi = s.points.size();
+        int hi = pointSamples.size();
         while (lo < hi) {
             const int mid = lo + (hi - lo) / 2;
-            if (s.points[mid].x() < dataX) {
+            if (pointSamples[mid].x() < dataX) {
                 lo = mid + 1;
             } else {
                 hi = mid;
             }
         }
         if (!pixelPos) {
-            int index = std::clamp(lo, 0, static_cast<int>(s.points.size()) - 1);
-            if (index > 0 && std::abs(s.points[index - 1].x() - dataX) <= std::abs(s.points[index].x() - dataX)) {
+            int index = std::clamp(lo, 0, static_cast<int>(pointSamples.size()) - 1);
+            if (index > 0 && std::abs(pointSamples[index - 1].x() - dataX) <= std::abs(pointSamples[index].x() - dataX)) {
                 --index;
             }
-            acceptPointByX(s.points[index]);
+            acceptPointByX(pointSamples[index]);
         } else {
             const int begin = std::max(0, lo - 8);
-            const int end = std::min(static_cast<int>(s.points.size()) - 1, lo + 8);
+            const int end = std::min(static_cast<int>(pointSamples.size()) - 1, lo + 8);
             for (int i = begin; i <= end; ++i) {
-                considerPoint(s.points[i]);
+                considerPoint(pointSamples[i]);
             }
         }
     }
@@ -313,7 +319,7 @@ bool PlotWidget::updateHoverForSeriesX(int seriesIndex, double dataX, bool lockS
         return changed;
     }
 
-    const QString valueText = pointReadoutText(series_[seriesIndex], point);
+    const QString valueText = pointReadoutText(series_[seriesIndex], point, largeDisplayMode_);
     const QString nextText = valueText;
     const bool nextLocked = lockSeries ? true : hoverSeriesLocked_;
     const bool changed = hoverSeriesIndex_ != seriesIndex
@@ -346,22 +352,23 @@ bool PlotWidget::stepActivePoint(int delta)
         index = std::clamp(index + delta, 0, static_cast<int>(s.uniformY.size()) - 1);
         nextX = s.uniformStart + static_cast<double>(index) * s.uniformStep;
     } else if (!s.points.isEmpty()) {
+        const QVector<QPointF>& pointSamples = s.points;
         int lo = 0;
-        int hi = s.points.size();
+        int hi = pointSamples.size();
         while (lo < hi) {
             const int mid = lo + (hi - lo) / 2;
-            if (s.points[mid].x() < hoverData_.x()) {
+            if (pointSamples[mid].x() < hoverData_.x()) {
                 lo = mid + 1;
             } else {
                 hi = mid;
             }
         }
-        int index = std::clamp(lo, 0, static_cast<int>(s.points.size()) - 1);
-        if (index > 0 && std::abs(s.points[index - 1].x() - hoverData_.x()) <= std::abs(s.points[index].x() - hoverData_.x())) {
+        int index = std::clamp(lo, 0, static_cast<int>(pointSamples.size()) - 1);
+        if (index > 0 && std::abs(pointSamples[index - 1].x() - hoverData_.x()) <= std::abs(pointSamples[index].x() - hoverData_.x())) {
             --index;
         }
-        index = std::clamp(index + delta, 0, static_cast<int>(s.points.size()) - 1);
-        nextX = s.points[index].x();
+        index = std::clamp(index + delta, 0, static_cast<int>(pointSamples.size()) - 1);
+        nextX = pointSamples[index].x();
     }
 
     if (!std::isfinite(nextX)) {
@@ -417,7 +424,7 @@ void PlotWidget::setSyncedPointX(double x, int seriesIndex)
         return;
     }
     if (next.visible) {
-        next.text = pointReadoutText(series_[seriesIndex], point);
+        next.text = pointReadoutText(series_[seriesIndex], point, largeDisplayMode_);
     }
 
     QRect dirty = syncedPointDirtyRect(syncedPoint_).united(syncedPointDirtyRect(next));
