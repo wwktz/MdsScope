@@ -156,6 +156,8 @@ struct PointReadout {
     QPointF data;
     QString text;
     QColor color = QColor("#333333");
+    int placementIndex = -1;
+    bool needsBackground = false;
 };
 
 class LoginDialog final : public QDialog {
@@ -245,6 +247,7 @@ private:
     QRectF pointReadoutTextRect(const PointReadout& readout,
                                 const QFontMetrics& metrics,
                                 bool* needsBackground = nullptr) const;
+    void updatePointReadoutPlacement(PointReadout& readout) const;
     QRect selectionBorderDirtyRect() const;
     QRect zoomRubberBandDirtyRect(const QRectF& band) const;
     QRect syncedPointDirtyRect(const PointReadout& readout) const;

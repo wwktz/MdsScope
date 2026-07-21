@@ -425,6 +425,8 @@ void PlotWidget::setSyncedPointX(double x, int seriesIndex)
     }
     if (next.visible) {
         next.text = pointReadoutText(series_[seriesIndex], point, largeDisplayMode_);
+        next.placementIndex = syncedPoint_.placementIndex;
+        updatePointReadoutPlacement(next);
     }
 
     QRect dirty = syncedPointDirtyRect(syncedPoint_).united(syncedPointDirtyRect(next));

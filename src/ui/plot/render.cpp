@@ -51,6 +51,53 @@ QRectF PlotWidget::pointReadoutTextRect(const PointReadout& readout,
         nearPoint(false, false),
     };
 
+    const int placementIndex = std::clamp(readout.placementIndex, 0, 3);
+    QRectF result = candidates[placementIndex];
+    if (result.left() < available.left()) {
+        result.moveLeft(available.left());
+    } else if (result.right() > available.right()) {
+        result.moveRight(available.right());
+    }
+    if (result.top() < available.top()) {
+        result.moveTop(available.top());
+    } else if (result.bottom() > available.bottom()) {
+        result.moveBottom(available.bottom());
+    }
+    if (needsBackground) {
+        *needsBackground = readout.needsBackground;
+    }
+    return result;
+}
+
+void PlotWidget::updatePointReadoutPlacement(PointReadout& readout) const
+{
+    constexpr double kGap = 5.0;
+    constexpr double kHorizontalPadding = 12.0;
+    constexpr double kVerticalPadding = 4.0;
+    const QRectF available = pointReadoutArea(readout);
+    if (available.isEmpty() || readout.text.isEmpty()) {
+        readout.placementIndex = -1;
+        readout.needsBackground = false;
+        return;
+    }
+
+    const QFontMetrics metrics(pointReadoutFont(font()));
+    const double width = std::min<double>(metrics.horizontalAdvance(readout.text) + kHorizontalPadding,
+                                          available.width());
+    const double height = std::min<double>(metrics.height() + kVerticalPadding, available.height());
+    auto nearPoint = [&](bool right, bool below) {
+        return QRectF(right ? readout.pixel.x() + kGap : readout.pixel.x() - kGap - width,
+                      below ? readout.pixel.y() + kGap : readout.pixel.y() - kGap - height,
+                      width,
+                      height);
+    };
+    const std::array<QRectF, 4> candidates{
+        nearPoint(true, true),
+        nearPoint(false, true),
+        nearPoint(true, false),
+        nearPoint(false, false),
+    };
+
     QVector<QRectF> obstacles;
     const FontSettings& fonts = fontSettings();
     if (!spec_.title.trimmed().isEmpty()) {
@@ -83,9 +130,8 @@ QRectF PlotWidget::pointReadoutTextRect(const PointReadout& readout,
                                 .adjusted(-2, -2, 2, 2));
     }
 
-    QRectF best;
-    double bestScore = std::numeric_limits<double>::infinity();
-    bool bestNeedsBackground = false;
+    std::array<double, 4> scores{};
+    std::array<bool, 4> backgrounds{};
     const bool preferRight = readout.pixel.x() <= available.center().x();
     const bool preferBelow = readout.pixel.y() <= available.center().y();
     for (int i = 0; i < candidates.size(); ++i) {
@@ -115,36 +161,48 @@ QRectF PlotWidget::pointReadoutTextRect(const PointReadout& readout,
         const double directionPenalty = (right == preferRight ? 0.0 : 8.0)
                                         + (below == preferBelow ? 0.0 : 8.0);
         const double pointCoveredPenalty = rect.contains(readout.pixel) ? 1'000'000.0 : 0.0;
+        const int backgroundCurveThreshold = std::max(
+            8,
+            qRound(rect.width() * rect.height() * 0.01));
         const double score = overflow * 1'000'000.0
                              + overlapArea * 10'000.0
                              + curvePixels * 2'500.0
                              + distance
                              + directionPenalty
                              + pointCoveredPenalty;
-        if (score < bestScore) {
-            best = rect;
-            bestScore = score;
-            bestNeedsBackground = overflow > 0.0
-                                  || overlapArea > 0.0
-                                  || curvePixels > 0
-                                  || pointCoveredPenalty > 0.0;
-        }
+        scores[i] = score;
+        backgrounds[i] = overflow > 0.0
+                         || overlapArea > 0.0
+                         || curvePixels > backgroundCurveThreshold
+                         || pointCoveredPenalty > 0.0;
     }
 
-    if (best.left() < available.left()) {
-        best.moveLeft(available.left());
-    } else if (best.right() > available.right()) {
-        best.moveRight(available.right());
+    const int current = readout.placementIndex;
+    int chosen = -1;
+    // Keep a clear placement stable. Switch only when the current placement
+    // needs a background and another nearby placement does not.
+    if (current >= 0 && current < backgrounds.size() && !backgrounds[current]) {
+        chosen = current;
     }
-    if (best.top() < available.top()) {
-        best.moveTop(available.top());
-    } else if (best.bottom() > available.bottom()) {
-        best.moveBottom(available.bottom());
+    if (chosen < 0) {
+        double bestCleanScore = std::numeric_limits<double>::infinity();
+        for (int i = 0; i < backgrounds.size(); ++i) {
+            if (!backgrounds[i] && scores[i] < bestCleanScore) {
+                chosen = i;
+                bestCleanScore = scores[i];
+            }
+        }
     }
-    if (needsBackground) {
-        *needsBackground = bestNeedsBackground;
+    if (chosen < 0 && current >= 0 && current < backgrounds.size()) {
+        chosen = current;
     }
-    return best;
+    if (chosen < 0) {
+        chosen = static_cast<int>(std::distance(scores.begin(),
+                                                std::min_element(scores.begin(), scores.end())));
+    }
+
+    readout.placementIndex = chosen;
+    readout.needsBackground = backgrounds[chosen];
 }
 
 QRect PlotWidget::syncedPointDirtyRect(const PointReadout& readout) const
