@@ -7,6 +7,7 @@
 #include <QFutureWatcher>
 #include <QColor>
 #include <QHash>
+#include <QImage>
 #include <QMainWindow>
 #include <QPixmap>
 #include <QPointF>
@@ -241,6 +242,9 @@ private:
     void drawZoomRubberBand(QPainter& painter) const;
     void drawSelectionBorder(QPainter& painter) const;
     QRectF pointReadoutArea(const PointReadout& readout) const;
+    QRectF pointReadoutTextRect(const PointReadout& readout,
+                                const QFontMetrics& metrics,
+                                bool* needsBackground = nullptr) const;
     QRect selectionBorderDirtyRect() const;
     QRect zoomRubberBandDirtyRect(const QRectF& band) const;
     QRect syncedPointDirtyRect(const PointReadout& readout) const;
@@ -271,6 +275,7 @@ private:
     QString hoverText_;
     PointReadout syncedPoint_;
     mutable QPixmap baseCache_;
+    mutable QImage curveOccupancyMask_;
     mutable QSize baseCacheSize_;
     mutable bool baseCacheDirty_ = true;
     int hoverSeriesIndex_ = -1;

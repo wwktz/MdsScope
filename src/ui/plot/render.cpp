@@ -14,49 +14,120 @@ QFont pointReadoutFont(const QFont& baseFont)
     return pointFont;
 }
 
-QRectF pointReadoutTextRect(const PointReadout& readout,
-                            const QRectF& available,
-                            const QFontMetrics& metrics)
+} // namespace
+
+QRectF PlotWidget::pointReadoutArea(const PointReadout& readout) const
+{
+    constexpr double kInset = 3.0;
+    return readout.plotRect.adjusted(kInset, kInset, -kInset, -kInset);
+}
+
+QRectF PlotWidget::pointReadoutTextRect(const PointReadout& readout,
+                                        const QFontMetrics& metrics,
+                                        bool* needsBackground) const
 {
     constexpr double kGap = 5.0;
     constexpr double kHorizontalPadding = 12.0;
     constexpr double kVerticalPadding = 4.0;
-
+    const QRectF available = pointReadoutArea(readout);
     if (available.isEmpty()) {
         return {};
     }
 
-    const double textWidth = metrics.horizontalAdvance(readout.text) + kHorizontalPadding;
-    const double width = std::min(textWidth, available.width());
+    const double width = std::min<double>(metrics.horizontalAdvance(readout.text) + kHorizontalPadding,
+                                          available.width());
     const double height = std::min<double>(metrics.height() + kVerticalPadding, available.height());
+    auto nearPoint = [&](bool right, bool below) {
+        return QRectF(right ? readout.pixel.x() + kGap : readout.pixel.x() - kGap - width,
+                      below ? readout.pixel.y() + kGap : readout.pixel.y() - kGap - height,
+                      width,
+                      height);
+    };
+
+    const std::array<QRectF, 4> candidates{
+        nearPoint(true, true),
+        nearPoint(false, true),
+        nearPoint(true, false),
+        nearPoint(false, false),
+    };
+
+    QVector<QRectF> obstacles;
+    const FontSettings& fonts = fontSettings();
+    if (!spec_.title.trimmed().isEmpty()) {
+        QFont titleFont(fonts.family, fonts.legendSize + (largeDisplayMode_ ? 4 : 0));
+        titleFont.setBold(true);
+        const QFontMetrics titleMetrics(titleFont);
+        obstacles.push_back(QRectF(readout.plotRect.left() + 8,
+                                   readout.plotRect.top() + 2,
+                                   readout.plotRect.width() - 16,
+                                   std::max(14, titleMetrics.height()))
+                                .adjusted(-2, -1, 2, 1));
+    }
+    if (!legendLabels_.isEmpty()) {
+        const QFont legendFont(fonts.family, fonts.legendSize + (largeDisplayMode_ ? 4 : 0));
+        const QFontMetrics legendMetrics(legendFont);
+        int legendWidth = 0;
+        for (const QString& label : legendLabels_) {
+            legendWidth = std::max(legendWidth, legendMetrics.horizontalAdvance(label));
+        }
+        legendWidth += 20;
+        const int lineHeight = std::max(10, legendMetrics.height());
+        const QRectF legendArea = readout.plotRect.adjusted(2, 2, -2, -2);
+        const double legendW = std::min<double>(legendWidth, std::max(1.0, legendArea.width()));
+        const double legendH = std::min<double>(legendLabels_.size() * lineHeight + 4,
+                                                std::max(1.0, legendArea.height()));
+        obstacles.push_back(QRectF(legendArea.right() - legendW - 1,
+                                   legendArea.top() + 1,
+                                   legendW,
+                                   legendH)
+                                .adjusted(-2, -2, 2, 2));
+    }
+
+    QRectF best;
+    double bestScore = std::numeric_limits<double>::infinity();
+    bool bestNeedsBackground = false;
     const bool preferRight = readout.pixel.x() <= available.center().x();
     const bool preferBelow = readout.pixel.y() <= available.center().y();
-
-    auto candidate = [&](bool right, bool below) {
-        const double left = right ? readout.pixel.x() + kGap : readout.pixel.x() - kGap - width;
-        const double top = below ? readout.pixel.y() + kGap : readout.pixel.y() - kGap - height;
-        return QRectF(left, top, width, height);
-    };
-    const std::array<QRectF, 4> candidates = {
-        candidate(preferRight, preferBelow),
-        candidate(!preferRight, preferBelow),
-        candidate(preferRight, !preferBelow),
-        candidate(!preferRight, !preferBelow),
-    };
-
-    QRectF best = candidates.front();
-    double bestOverflow = std::numeric_limits<double>::infinity();
-    for (const QRectF& rect : candidates) {
+    for (int i = 0; i < candidates.size(); ++i) {
+        const QRectF& rect = candidates[i];
         const double overflow = std::max(0.0, available.left() - rect.left())
                                 + std::max(0.0, rect.right() - available.right())
                                 + std::max(0.0, available.top() - rect.top())
                                 + std::max(0.0, rect.bottom() - available.bottom());
-        if (overflow < bestOverflow) {
-            best = rect;
-            bestOverflow = overflow;
+        double overlapArea = 0.0;
+        for (const QRectF& obstacle : obstacles) {
+            const QRectF overlap = rect.intersected(obstacle);
+            overlapArea += overlap.width() * overlap.height();
         }
-        if (overflow == 0.0) {
-            break;
+        int curvePixels = 0;
+        if (!curveOccupancyMask_.isNull()) {
+            const QRect sampleRect = rect.toAlignedRect().intersected(curveOccupancyMask_.rect());
+            for (int y = sampleRect.top(); y <= sampleRect.bottom(); ++y) {
+                const QRgb* scanLine = reinterpret_cast<const QRgb*>(curveOccupancyMask_.constScanLine(y));
+                for (int x = sampleRect.left(); x <= sampleRect.right(); ++x) {
+                    curvePixels += qAlpha(scanLine[x]) != 0 ? 1 : 0;
+                }
+            }
+        }
+        const double distance = QLineF(readout.pixel, rect.center()).length();
+        const bool right = i == 0 || i == 2;
+        const bool below = i == 0 || i == 1;
+        const double directionPenalty = (right == preferRight ? 0.0 : 8.0)
+                                        + (below == preferBelow ? 0.0 : 8.0);
+        const double pointCoveredPenalty = rect.contains(readout.pixel) ? 1'000'000.0 : 0.0;
+        const double score = overflow * 1'000'000.0
+                             + overlapArea * 10'000.0
+                             + curvePixels * 2'500.0
+                             + distance
+                             + directionPenalty
+                             + pointCoveredPenalty;
+        if (score < bestScore) {
+            best = rect;
+            bestScore = score;
+            bestNeedsBackground = overflow > 0.0
+                                  || overlapArea > 0.0
+                                  || curvePixels > 0
+                                  || pointCoveredPenalty > 0.0;
         }
     }
 
@@ -70,42 +141,10 @@ QRectF pointReadoutTextRect(const PointReadout& readout,
     } else if (best.bottom() > available.bottom()) {
         best.moveBottom(available.bottom());
     }
+    if (needsBackground) {
+        *needsBackground = bestNeedsBackground;
+    }
     return best;
-}
-
-} // namespace
-
-QRectF PlotWidget::pointReadoutArea(const PointReadout& readout) const
-{
-    constexpr double kInset = 3.0;
-    QRectF available = readout.plotRect.adjusted(kInset, kInset, -kInset, -kInset);
-    if (available.isEmpty()) {
-        return {};
-    }
-
-    const FontSettings& fonts = fontSettings();
-    double overlayBottom = available.top();
-    if (!spec_.title.trimmed().isEmpty()) {
-        QFont titleFont(fonts.family, fonts.legendSize + (largeDisplayMode_ ? 4 : 0));
-        titleFont.setBold(true);
-        overlayBottom = std::max(overlayBottom,
-                                 readout.plotRect.top() + QFontMetrics(titleFont).height() + 6.0);
-    }
-    if (!legendLabels_.isEmpty()) {
-        const QFont legendFont(fonts.family, fonts.legendSize + (largeDisplayMode_ ? 4 : 0));
-        const int lineHeight = std::max(10, QFontMetrics(legendFont).height());
-        const double legendHeight = std::min<double>(
-            legendLabels_.size() * lineHeight + 6,
-            std::max(0.0, readout.plotRect.height() - 4.0));
-        overlayBottom = std::max(overlayBottom, readout.plotRect.top() + legendHeight + 3.0);
-    }
-
-    constexpr double kMinimumReadoutHeight = 18.0;
-    const double maximumTop = available.bottom() - kMinimumReadoutHeight;
-    if (maximumTop > available.top()) {
-        available.setTop(std::min(overlayBottom, maximumTop));
-    }
-    return available;
 }
 
 QRect PlotWidget::syncedPointDirtyRect(const PointReadout& readout) const
@@ -123,7 +162,7 @@ QRect PlotWidget::syncedPointDirtyRect(const PointReadout& readout) const
                                3));
     if (readout.showText && !readout.text.isEmpty()) {
         const QFontMetrics metrics(pointReadoutFont(font()));
-        dirty = dirty.united(pointReadoutTextRect(readout, pointReadoutArea(readout), metrics).toAlignedRect());
+        dirty = dirty.united(pointReadoutTextRect(readout, metrics).toAlignedRect());
     }
     return dirty.adjusted(-2, -2, 2, 2).intersected(rect());
 }
@@ -144,11 +183,20 @@ void PlotWidget::drawSyncedPoint(QPainter& painter) const
         const QFont pointFont = pointReadoutFont(font());
         painter.setFont(pointFont);
         const QFontMetrics metrics(pointFont);
-        const QRectF textRect = pointReadoutTextRect(syncedPoint_, pointReadoutArea(syncedPoint_), metrics);
+        bool needsBackground = false;
+        const QRectF textRect = pointReadoutTextRect(syncedPoint_, metrics, &needsBackground);
         const QString displayText = metrics.elidedText(
             syncedPoint_.text,
             Qt::ElideMiddle,
             std::max(1, static_cast<int>(textRect.width() - 8.0)));
+        if (needsBackground) {
+            QColor background = palette().color(QPalette::Base);
+            background.setAlpha(180);
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(background);
+            painter.drawRect(textRect);
+            painter.setBrush(Qt::NoBrush);
+        }
         painter.setPen(syncedPoint_.color);
         const QRectF drawRect = textRect.width() > 8.0 ? textRect.adjusted(4, 0, -4, 0) : textRect;
         painter.drawText(drawRect,
@@ -268,6 +316,15 @@ void PlotWidget::renderBasePlot(QPainter& painter) const
         }
     }
 
+    if (curveOccupancyMask_.size() != size()) {
+        curveOccupancyMask_ = QImage(size(), QImage::Format_ARGB32_Premultiplied);
+    }
+    curveOccupancyMask_.fill(Qt::transparent);
+    QPainter occupancyPainter(&curveOccupancyMask_);
+    occupancyPainter.setRenderHint(QPainter::Antialiasing, false);
+    occupancyPainter.setClipRect(pr.adjusted(1, 1, -1, -1));
+    occupancyPainter.setPen(QPen(Qt::white, 1));
+
     painter.setClipRect(pr.adjusted(1, 1, -1, -1));
     for (int i = 0; i < series_.size(); ++i) {
         if (i < spec_.signalSpecs.size() && spec_.signalSpecs[i].hidden) {
@@ -286,7 +343,9 @@ void PlotWidget::renderBasePlot(QPainter& painter) const
         }
         painter.setPen(QPen(seriesColor(i), 1));
         painter.drawPolyline(polyline.constData(), polyline.size());
+        occupancyPainter.drawPolyline(polyline.constData(), polyline.size());
     }
+    occupancyPainter.end();
     painter.setClipping(false);
 
     painter.setPen(textColor);
