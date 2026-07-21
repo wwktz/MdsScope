@@ -321,6 +321,31 @@ void MainWindow::showPanelContextMenu(PlotWidget* plot, int column, int row, con
     menu.addSeparator();
     QAction* panelSetupAction = menu.addAction("Panel Setup");
     QAction* dataSourceAction = menu.addAction("Data Source Setup");
+    QMenu* rateMenu = menu.addMenu("Rate");
+    QAction* thinRateAction = rateMenu->addAction("Thin");
+    QAction* mediumRateAction = rateMenu->addAction("Medium");
+    QAction* fullRateAction = rateMenu->addAction("Full");
+    const QVector<QPair<QAction*, DataReadMode>> rateActions = {
+        {thinRateAction, DataReadMode::Thin},
+        {mediumRateAction, DataReadMode::Medium},
+        {fullRateAction, DataReadMode::Full},
+    };
+    const bool validPanel = column >= 0 && row >= 0
+                            && column < config_.columns.size()
+                            && row < config_.columns[column].size();
+    rateMenu->setEnabled(validPanel && !config_.columns[column][row].signalSpecs.isEmpty());
+    if (validPanel && !config_.columns[column][row].signalSpecs.isEmpty()) {
+        const DataReadMode firstMode = config_.columns[column][row].signalSpecs.front().readMode;
+        const bool uniformMode = std::all_of(config_.columns[column][row].signalSpecs.cbegin(),
+                                             config_.columns[column][row].signalSpecs.cend(),
+                                             [firstMode](const SignalSpec& sig) {
+                                                 return sig.readMode == firstMode;
+                                             });
+        for (const auto& [action, mode] : rateActions) {
+            action->setCheckable(true);
+            action->setChecked(uniformMode && mode == firstMode);
+        }
+    }
     QAction* exportDataAction = menu.addAction("Export Data");
     menu.addSeparator();
     QAction* resetCurrentAction = menu.addAction("Reset Current Scale");
@@ -340,6 +365,15 @@ void MainWindow::showPanelContextMenu(PlotWidget* plot, int column, int row, con
         panelSetupForCurrentPanel();
     } else if (chosen == dataSourceAction) {
         dataSourceSetupForCurrentPanel();
+    } else if (chosen == thinRateAction || chosen == mediumRateAction || chosen == fullRateAction) {
+        const DataReadMode mode = chosen == fullRateAction ? DataReadMode::Full
+                                  : chosen == mediumRateAction ? DataReadMode::Medium
+                                                               : DataReadMode::Thin;
+        PlotSpec& panel = config_.columns[column][row];
+        for (SignalSpec& sig : panel.signalSpecs) {
+            sig.readMode = mode;
+        }
+        refreshOne(column, row, -1, mode);
     } else if (chosen == exportDataAction) {
         exportCurrentPanelData();
     } else if (chosen == resetCurrentAction) {

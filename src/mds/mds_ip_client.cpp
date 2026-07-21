@@ -290,6 +290,12 @@ bool& MdsIpClient::currentPreserveConnectionsOnCancel()
         return preserve;
     }
 
+int& MdsIpClient::currentReadIdleTimeoutMs()
+{
+        thread_local int timeoutMs = kNetworkTimeoutMs;
+        return timeoutMs;
+    }
+
 bool MdsIpClient::shouldAbortForCurrentCancel()
 {
         return currentCanceled() && !currentPreserveConnectionsOnCancel();

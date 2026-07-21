@@ -232,6 +232,7 @@ private:
     void drawSyncedPoint(QPainter& painter) const;
     void drawZoomRubberBand(QPainter& painter) const;
     void drawSelectionBorder(QPainter& painter) const;
+    QRectF pointReadoutArea(const PointReadout& readout) const;
     QRect selectionBorderDirtyRect() const;
     QRect zoomRubberBandDirtyRect(const QRectF& band) const;
     QRect syncedPointDirtyRect(const PointReadout& readout) const;
@@ -352,6 +353,7 @@ private:
     QString refreshKey(DataReadMode readMode) const;
     QString panelRefreshKey(int column, int row, int signal, DataReadMode readMode) const;
     void refreshOne(int column, int row, int signal);
+    void refreshOne(int column, int row, int signal, DataReadMode readMode);
     void queueLoadedSignal(LoadedSignal item);
     void flushQueuedLoadedSignals();
     void applyLoadedSignal(LoadedSignal item);
@@ -450,6 +452,7 @@ private:
     int pendingPanelColumn_ = -1;
     int pendingPanelRow_ = -1;
     int pendingPanelSignal_ = -1;
+    DataReadMode pendingPanelReadMode_ = DataReadMode::Thin;
     bool singlePanelMaximized_ = false;
     int maximizedColumn_ = -1;
     int maximizedRow_ = -1;

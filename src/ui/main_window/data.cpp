@@ -292,12 +292,13 @@ void MainWindow::startPendingFetchIfIdle()
         const int column = pendingPanelColumn_;
         const int row = pendingPanelRow_;
         const int signal = pendingPanelSignal_;
+        const DataReadMode readMode = pendingPanelReadMode_;
         pendingPanelRefresh_ = false;
         pendingPanelColumn_ = -1;
         pendingPanelRow_ = -1;
         pendingPanelSignal_ = -1;
         queuedPanelRefreshKey_.clear();
-        refreshOne(column, row, signal);
+        refreshOne(column, row, signal, readMode);
         return;
     }
     maybeStartDeferredRefresh();
@@ -370,6 +371,14 @@ QString MainWindow::panelRefreshKey(int column, int row, int signal, DataReadMod
 
 void MainWindow::refreshOne(int column, int row, int signal)
 {
+    const DataReadMode readMode = dataModeCombo_
+                                      ? static_cast<DataReadMode>(dataModeCombo_->currentData().toInt())
+                                      : DataReadMode::Thin;
+    refreshOne(column, row, signal, readMode);
+}
+
+void MainWindow::refreshOne(int column, int row, int signal, DataReadMode readMode)
+{
     if (column < 0 || row < 0 || column >= config_.columns.size() || row >= config_.columns[column].size()) {
         return;
     }
@@ -377,9 +386,6 @@ void MainWindow::refreshOne(int column, int row, int signal)
         return;
     }
 
-    const DataReadMode readMode = dataModeCombo_
-                                      ? static_cast<DataReadMode>(dataModeCombo_->currentData().toInt())
-                                      : DataReadMode::Thin;
     const QString key = panelRefreshKey(column, row, signal, readMode);
 
     cancelPrewarmConnections();
@@ -402,6 +408,7 @@ void MainWindow::refreshOne(int column, int row, int signal)
         pendingPanelColumn_ = column;
         pendingPanelRow_ = row;
         pendingPanelSignal_ = signal;
+        pendingPanelReadMode_ = readMode;
         queuedPanelRefreshKey_ = key;
         activePanelRefreshKey_.clear();
         setStatus(QString("Panel refresh queued: col %1 row %2").arg(column + 1).arg(row + 1));
@@ -439,9 +446,12 @@ void MainWindow::refreshOne(int column, int row, int signal)
     queuedPanelRefreshKey_.clear();
     panelCancel_ = std::make_shared<std::atomic_bool>(false);
     const auto cancel = panelCancel_;
+    const QString rate = readModeKey(readMode);
     setStatus(singleSignalRefresh
-                  ? QString("Fetching signal data: col %1 row %2 source %3").arg(column + 1).arg(row + 1).arg(signal + 1)
-                  : QString("Fetching panel data: col %1 row %2").arg(column + 1).arg(row + 1));
+                  ? QString("Fetching signal data (%1): col %2 row %3 source %4")
+                        .arg(rate).arg(column + 1).arg(row + 1).arg(signal + 1)
+                  : QString("Fetching panel data (%1): col %2 row %3")
+                        .arg(rate).arg(column + 1).arg(row + 1));
     panelWatcher_.setFuture(QtConcurrent::run([fetchSnapshot, readMode, singleSignalRefresh, cancel] {
         QVector<LoadedSignal> loaded = fetchMdsSignals(fetchSnapshot, readMode, {}, cancel, true);
         for (LoadedSignal& item : loaded) {

@@ -114,7 +114,7 @@ QStringList uniformAxisValues(const QVector<double>& values)
     };
 
     labels = formatted(decimals);
-    while (!scientific && decimals < 6) {
+    while (decimals < 15) {
         QSet<QString> seen;
         bool duplicate = false;
         for (const QString& label : labels) {

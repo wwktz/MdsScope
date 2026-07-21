@@ -20,6 +20,10 @@ SignalSeries MdsIpClient::fetchSignalOnOpenSocket(QTcpSocket& socket,
                                      const QHash<QString, UniformTimebase>* timebaseCache,
                                      QString* error) const
 {
+        // Full reads may legitimately spend a long time in server-side
+        // evaluation or transfer. Keep them cancellable, but do not impose an
+        // arbitrary idle deadline. Other modes retain the normal idle timeout.
+        CurrentReadTimeoutGuard readTimeoutGuard(readMode == DataReadMode::Full ? 0 : kNetworkTimeoutMs);
         QElapsedTimer timer;
         timer.start();
         SignalSeries result = fetchSignalOnOpenSocketImpl(socket, plot, sig, readMode, maxPoints, timebaseCache, error);

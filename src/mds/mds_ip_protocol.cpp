@@ -59,11 +59,15 @@ bool MdsIpClient::writeMessage(QTcpSocket& socket, const QByteArray& packet, QSt
 
 bool MdsIpClient::readFully(QTcpSocket& socket, QByteArray* out, qsizetype size, QString* error)
 {
-        QElapsedTimer timer;
-        timer.start();
+        const int idleTimeoutMs = currentReadIdleTimeoutMs();
+        QElapsedTimer idleTimer;
+        idleTimer.start();
         out->reserve(size);
         while (out->size() < size) {
-            if (shouldAbortForCurrentCancel()) {
+            // A cancellation during a partial MDSIP response cannot preserve
+            // this socket safely: unread bytes would desynchronize the next
+            // request. Clean-boundary cancellation is handled by fetchGroup.
+            if (currentCanceled()) {
                 socket.abort();
                 *error = "operation canceled";
                 return false;
@@ -78,7 +82,7 @@ bool MdsIpClient::readFully(QTcpSocket& socket, QByteArray* out, qsizetype size,
                         *error = socket.errorString();
                         return false;
                     }
-                    if (timer.elapsed() >= kNetworkTimeoutMs) {
+                    if (idleTimeoutMs > 0 && idleTimer.elapsed() >= idleTimeoutMs) {
                         // A timed-out read leaves a partial response buffered; abort
                         // so the socket is not reused with stale bytes (which would
                         // misalign the next request's response).
@@ -89,7 +93,13 @@ bool MdsIpClient::readFully(QTcpSocket& socket, QByteArray* out, qsizetype size,
                     continue;
                 }
             }
-            out->append(socket.read(size - out->size()));
+            const QByteArray chunk = socket.read(size - out->size());
+            if (!chunk.isEmpty()) {
+                out->append(chunk);
+                // This is an inactivity timeout, not a total-transfer timeout.
+                // A slow response remains valid as long as bytes keep arriving.
+                idleTimer.restart();
+            }
         }
         return true;
     }

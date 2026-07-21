@@ -4,6 +4,110 @@
 #include "mdsscope_internal.hpp"
 #include "helpers.hpp"
 
+namespace {
+
+QFont pointReadoutFont(const QFont& baseFont)
+{
+    QFont pointFont = baseFont;
+    pointFont.setPointSize(std::max(8, pointFont.pointSize() + 1));
+    pointFont.setBold(false);
+    return pointFont;
+}
+
+QRectF pointReadoutTextRect(const PointReadout& readout,
+                            const QRectF& available,
+                            const QFontMetrics& metrics)
+{
+    constexpr double kGap = 5.0;
+    constexpr double kHorizontalPadding = 12.0;
+    constexpr double kVerticalPadding = 4.0;
+
+    if (available.isEmpty()) {
+        return {};
+    }
+
+    const double textWidth = metrics.horizontalAdvance(readout.text) + kHorizontalPadding;
+    const double width = std::min(textWidth, available.width());
+    const double height = std::min<double>(metrics.height() + kVerticalPadding, available.height());
+    const bool preferRight = readout.pixel.x() <= available.center().x();
+    const bool preferBelow = readout.pixel.y() <= available.center().y();
+
+    auto candidate = [&](bool right, bool below) {
+        const double left = right ? readout.pixel.x() + kGap : readout.pixel.x() - kGap - width;
+        const double top = below ? readout.pixel.y() + kGap : readout.pixel.y() - kGap - height;
+        return QRectF(left, top, width, height);
+    };
+    const std::array<QRectF, 4> candidates = {
+        candidate(preferRight, preferBelow),
+        candidate(!preferRight, preferBelow),
+        candidate(preferRight, !preferBelow),
+        candidate(!preferRight, !preferBelow),
+    };
+
+    QRectF best = candidates.front();
+    double bestOverflow = std::numeric_limits<double>::infinity();
+    for (const QRectF& rect : candidates) {
+        const double overflow = std::max(0.0, available.left() - rect.left())
+                                + std::max(0.0, rect.right() - available.right())
+                                + std::max(0.0, available.top() - rect.top())
+                                + std::max(0.0, rect.bottom() - available.bottom());
+        if (overflow < bestOverflow) {
+            best = rect;
+            bestOverflow = overflow;
+        }
+        if (overflow == 0.0) {
+            break;
+        }
+    }
+
+    if (best.left() < available.left()) {
+        best.moveLeft(available.left());
+    } else if (best.right() > available.right()) {
+        best.moveRight(available.right());
+    }
+    if (best.top() < available.top()) {
+        best.moveTop(available.top());
+    } else if (best.bottom() > available.bottom()) {
+        best.moveBottom(available.bottom());
+    }
+    return best;
+}
+
+} // namespace
+
+QRectF PlotWidget::pointReadoutArea(const PointReadout& readout) const
+{
+    constexpr double kInset = 3.0;
+    QRectF available = readout.plotRect.adjusted(kInset, kInset, -kInset, -kInset);
+    if (available.isEmpty()) {
+        return {};
+    }
+
+    const FontSettings& fonts = fontSettings();
+    double overlayBottom = available.top();
+    if (!spec_.title.trimmed().isEmpty()) {
+        QFont titleFont(fonts.family, fonts.legendSize + (largeDisplayMode_ ? 4 : 0));
+        titleFont.setBold(true);
+        overlayBottom = std::max(overlayBottom,
+                                 readout.plotRect.top() + QFontMetrics(titleFont).height() + 6.0);
+    }
+    if (!legendLabels_.isEmpty()) {
+        const QFont legendFont(fonts.family, fonts.legendSize + (largeDisplayMode_ ? 4 : 0));
+        const int lineHeight = std::max(10, QFontMetrics(legendFont).height());
+        const double legendHeight = std::min<double>(
+            legendLabels_.size() * lineHeight + 6,
+            std::max(0.0, readout.plotRect.height() - 4.0));
+        overlayBottom = std::max(overlayBottom, readout.plotRect.top() + legendHeight + 3.0);
+    }
+
+    constexpr double kMinimumReadoutHeight = 18.0;
+    const double maximumTop = available.bottom() - kMinimumReadoutHeight;
+    if (maximumTop > available.top()) {
+        available.setTop(std::min(overlayBottom, maximumTop));
+    }
+    return available;
+}
+
 QRect PlotWidget::syncedPointDirtyRect(const PointReadout& readout) const
 {
     if (!readout.visible || !readout.plotRect.contains(readout.pixel)) {
@@ -18,17 +122,8 @@ QRect PlotWidget::syncedPointDirtyRect(const PointReadout& readout) const
                                std::max(1, qRound(readout.plotRect.width())),
                                3));
     if (readout.showText && !readout.text.isEmpty()) {
-        QRect textRect(qRound(readout.pixel.x()) + 4, qRound(readout.pixel.y()) - 20, 188, 22);
-        if (textRect.right() > qRound(readout.plotRect.right())) {
-            textRect.moveRight(qRound(readout.pixel.x()) - 4);
-        }
-        if (textRect.left() < qRound(readout.plotRect.left())) {
-            textRect.moveLeft(qRound(readout.plotRect.left()) + 2);
-        }
-        if (textRect.top() < qRound(readout.plotRect.top())) {
-            textRect.moveTop(qRound(readout.pixel.y()) + 4);
-        }
-        dirty = dirty.united(textRect);
+        const QFontMetrics metrics(pointReadoutFont(font()));
+        dirty = dirty.united(pointReadoutTextRect(readout, pointReadoutArea(readout), metrics).toAlignedRect());
     }
     return dirty.adjusted(-2, -2, 2, 2).intersected(rect());
 }
@@ -46,22 +141,19 @@ void PlotWidget::drawSyncedPoint(QPainter& painter) const
     painter.drawLine(QPointF(syncedPoint_.plotRect.left(), syncedPoint_.pixel.y()),
                      QPointF(syncedPoint_.plotRect.right(), syncedPoint_.pixel.y()));
     if (syncedPoint_.showText && !syncedPoint_.text.isEmpty()) {
-        QRectF textRect(syncedPoint_.pixel.x() + 4, syncedPoint_.pixel.y() - 20, 188, 22);
-        if (textRect.right() > syncedPoint_.plotRect.right()) {
-            textRect.moveRight(syncedPoint_.pixel.x() - 4);
-        }
-        if (textRect.left() < syncedPoint_.plotRect.left()) {
-            textRect.moveLeft(syncedPoint_.plotRect.left() + 2);
-        }
-        if (textRect.top() < syncedPoint_.plotRect.top()) {
-            textRect.moveTop(syncedPoint_.pixel.y() + 4);
-        }
-        QFont pointFont = painter.font();
-        pointFont.setPointSize(std::max(8, pointFont.pointSize() + 1));
-        pointFont.setBold(false);
+        const QFont pointFont = pointReadoutFont(font());
         painter.setFont(pointFont);
+        const QFontMetrics metrics(pointFont);
+        const QRectF textRect = pointReadoutTextRect(syncedPoint_, pointReadoutArea(syncedPoint_), metrics);
+        const QString displayText = metrics.elidedText(
+            syncedPoint_.text,
+            Qt::ElideMiddle,
+            std::max(1, static_cast<int>(textRect.width() - 8.0)));
         painter.setPen(syncedPoint_.color);
-        painter.drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter, syncedPoint_.text);
+        const QRectF drawRect = textRect.width() > 8.0 ? textRect.adjusted(4, 0, -4, 0) : textRect;
+        painter.drawText(drawRect,
+                         Qt::AlignLeft | Qt::AlignVCenter,
+                         displayText);
     }
     painter.restore();
 }
@@ -218,7 +310,7 @@ void PlotWidget::renderBasePlot(QPainter& painter) const
     }
 
     const int yTickCount = std::clamp(static_cast<int>(pr.height() / 34.0) + 1, 3, 6);
-    const int xTickCount = std::clamp(static_cast<int>(pr.width() / 78.0) + 1, 3, 7);
+    const int preferredXTickCount = std::clamp(static_cast<int>(pr.width() / 78.0) + 1, 3, 7);
     const QString yUnit = spec_.yLabel.trimmed().isEmpty() ? QStringLiteral("a.u.") : spec_.yLabel.trimmed();
     const QFontMetrics axisFm(axisFont);
     const double yLabelLeft = pr.left() + 4.0;
@@ -243,7 +335,7 @@ void PlotWidget::renderBasePlot(QPainter& painter) const
     QVector<QRectF> yLabelRects;
     yLabelRects.reserve(yTickCount);
     QVector<QRectF> axisLabelRects;
-    axisLabelRects.reserve(yTickCount + xTickCount + 1);
+    axisLabelRects.reserve(yTickCount + preferredXTickCount + 1);
     for (int i = 0; i < yTickCount; ++i) {
         const double ratio = yTickCount == 1 ? 0.0 : static_cast<double>(i) / static_cast<double>(yTickCount - 1);
         const double yPixel = pr.top() + pr.height() * ratio;
@@ -310,31 +402,101 @@ void PlotWidget::renderBasePlot(QPainter& painter) const
 
     painter.setPen(textColor);
     QVector<double> xTickPixels;
-    xTickPixels.reserve(xTickCount);
     QVector<double> xValues;
-    xValues.reserve(xTickCount);
-    for (int i = 0; i < xTickCount; ++i) {
-        const double ratio = xTickCount == 1 ? 0.0 : static_cast<double>(i) / static_cast<double>(xTickCount - 1);
-        const double xValue = view.left() + view.width() * ratio;
-        xValues.push_back(xValue);
-        const double xPixel = pr.left() + pr.width() * ratio;
-        xTickPixels.push_back(xPixel);
+    QStringList xLabels;
+    int xTickCount = preferredXTickCount;
+    for (; xTickCount >= 3; --xTickCount) {
+        xTickPixels.clear();
+        xValues.clear();
+        xTickPixels.reserve(xTickCount);
+        xValues.reserve(xTickCount);
+        for (int i = 0; i < xTickCount; ++i) {
+            const double ratio = static_cast<double>(i) / static_cast<double>(xTickCount - 1);
+            xValues.push_back(view.left() + view.width() * ratio);
+            xTickPixels.push_back(pr.left() + pr.width() * ratio);
+        }
+        xLabels = uniformAxisValues(xValues);
+
+        bool labelsFit = true;
+        double previousRight = pr.left();
+        for (int i = 0; i < xTickCount; ++i) {
+            const double labelWidth = axisFm.horizontalAdvance(xLabels.value(i)) + 4.0;
+            double left = xTickPixels[i] - labelWidth * 0.5;
+            if (i == 0) {
+                left = pr.left();
+            } else if (i == xTickCount - 1) {
+                left = pr.right() - labelWidth;
+            }
+            if (i > 0 && left < previousRight + 4.0) {
+                labelsFit = false;
+                break;
+            }
+            previousRight = left + labelWidth;
+        }
+        if (labelsFit || xTickCount == 3) {
+            break;
+        }
     }
-    const QStringList xLabels = uniformAxisValues(xValues);
+
+    QVector<QRectF> xLabelRects;
+    xLabelRects.reserve(xTickCount);
+    for (int i = 0; i < xTickCount; ++i) {
+        const QString label = xLabels.value(i);
+        const double desiredWidth = axisFm.horizontalAdvance(label) + 4.0;
+        const double labelWidth = std::min(desiredWidth, pr.width());
+        QRectF textRect(xTickPixels[i] - labelWidth * 0.5,
+                        pr.bottom() + 1,
+                        labelWidth,
+                        axisLabelHeight);
+        if (i == 0) {
+            textRect.moveLeft(pr.left());
+        } else if (i == xTickCount - 1) {
+            textRect.moveRight(pr.right());
+        }
+        xLabelRects.push_back(textRect);
+    }
+
+    QVector<bool> showXLabel(xTickCount, false);
+    showXLabel.front() = true;
+    showXLabel.back() = true;
+    constexpr double kXLabelGap = 4.0;
+    if (xLabelRects.front().right() + kXLabelGap > xLabelRects.back().left()) {
+        const double edgeWidth = std::max(1.0, (pr.width() - kXLabelGap) * 0.5);
+        xLabelRects.front().setLeft(pr.left());
+        xLabelRects.front().setWidth(edgeWidth);
+        xLabelRects.back().setLeft(pr.right() - edgeWidth);
+        xLabelRects.back().setWidth(edgeWidth);
+    } else {
+        QRectF previousShown = xLabelRects.front();
+        for (int i = 1; i + 1 < xTickCount; ++i) {
+            const QRectF& candidate = xLabelRects[i];
+            if (candidate.left() >= previousShown.right() + kXLabelGap
+                && candidate.right() + kXLabelGap <= xLabelRects.back().left()) {
+                showXLabel[i] = true;
+                previousShown = candidate;
+            }
+        }
+    }
+
     for (int i = 0; i < xTickCount; ++i) {
         const double xPixel = xTickPixels[i];
         painter.drawLine(QPointF(xPixel, pr.bottom()), QPointF(xPixel, pr.bottom() + 2));
-        QRectF textRect(xPixel - 38, pr.bottom() + 1, 76, axisLabelHeight);
+        if (!showXLabel[i]) {
+            continue;
+        }
+        const QRectF& textRect = xLabelRects[i];
         Qt::Alignment alignment = Qt::AlignHCenter | Qt::AlignVCenter;
         if (i == 0) {
-            textRect.moveLeft(pr.left());
             alignment = Qt::AlignLeft | Qt::AlignVCenter;
         } else if (i == xTickCount - 1) {
-            textRect.moveRight(pr.right());
             alignment = Qt::AlignRight | Qt::AlignVCenter;
         }
         axisLabelRects.push_back(textRect);
-        painter.drawText(textRect, alignment, xLabels.value(i));
+        const QString displayLabel = axisFm.elidedText(
+            xLabels.value(i),
+            Qt::ElideMiddle,
+            std::max(1, static_cast<int>(textRect.width() - 2.0)));
+        painter.drawText(textRect, alignment, displayLabel);
     }
     const QString xUnit = spec_.xLabel.trimmed().isEmpty() ? QStringLiteral("s") : spec_.xLabel.trimmed();
     double xUnitCenter = pr.center().x();

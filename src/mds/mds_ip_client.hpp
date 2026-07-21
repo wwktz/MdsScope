@@ -141,9 +141,31 @@ private:
         bool previousPreserve_ = false;
     };
 
+    class CurrentReadTimeoutGuard {
+    public:
+        explicit CurrentReadTimeoutGuard(int idleTimeoutMs)
+            : previous_(currentReadIdleTimeoutMs())
+        {
+            currentReadIdleTimeoutMs() = idleTimeoutMs;
+        }
+
+        ~CurrentReadTimeoutGuard()
+        {
+            currentReadIdleTimeoutMs() = previous_;
+        }
+
+        CurrentReadTimeoutGuard(const CurrentReadTimeoutGuard&) = delete;
+        CurrentReadTimeoutGuard& operator=(const CurrentReadTimeoutGuard&) = delete;
+
+    private:
+        int previous_ = kNetworkTimeoutMs;
+    };
+
     static const std::atomic_bool*& currentCancel();
 
     static bool& currentPreserveConnectionsOnCancel();
+
+    static int& currentReadIdleTimeoutMs();
 
     static bool currentCanceled();
 

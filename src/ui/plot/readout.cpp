@@ -4,6 +4,106 @@
 #include "mdsscope_internal.hpp"
 #include "helpers.hpp"
 
+namespace {
+
+double localXResolution(const SignalSeries& series, double x)
+{
+    if (series.hasUniformData() && std::isfinite(series.uniformStep) && series.uniformStep != 0.0) {
+        return std::abs(series.uniformStep);
+    }
+    if (series.points.size() < 2) {
+        return qQNaN();
+    }
+
+    const auto it = std::lower_bound(series.points.cbegin(), series.points.cend(), x, [](const QPointF& point, double value) {
+        return point.x() < value;
+    });
+    const int index = std::clamp(static_cast<int>(std::distance(series.points.cbegin(), it)),
+                                 0,
+                                 static_cast<int>(series.points.size()) - 1);
+    double resolution = std::numeric_limits<double>::infinity();
+    if (index > 0) {
+        const double step = std::abs(series.points[index].x() - series.points[index - 1].x());
+        if (step > 0.0) {
+            resolution = std::min(resolution, step);
+        }
+    }
+    if (index + 1 < series.points.size()) {
+        const double step = std::abs(series.points[index + 1].x() - series.points[index].x());
+        if (step > 0.0) {
+            resolution = std::min(resolution, step);
+        }
+    }
+    return std::isfinite(resolution) ? resolution : qQNaN();
+}
+
+QString trimFixedNumber(QString text)
+{
+    if (!text.contains('.')) {
+        return text;
+    }
+    while (text.endsWith('0')) {
+        text.chop(1);
+    }
+    if (text.endsWith('.')) {
+        text.chop(1);
+    }
+    return text == QStringLiteral("-0") ? QStringLiteral("0") : text;
+}
+
+QString formatPointX(double value, const SignalSeries& series)
+{
+    const double resolution = localXResolution(series, value);
+    if (!std::isfinite(resolution) || resolution <= 0.0) {
+        return QString::number(value, 'g', 12);
+    }
+
+    int exponent = static_cast<int>(std::floor(std::log10(resolution)));
+    double mantissa = resolution / std::pow(10.0, exponent);
+    // Infer a human-scale sampling step (for example 1e-6, 2.5e-4 or
+    // 1.00016e-4 -> 1e-4) instead of preserving subtraction noise.
+    mantissa = std::round(mantissa * 100.0) / 100.0;
+    if (mantissa >= 10.0) {
+        mantissa /= 10.0;
+        ++exponent;
+    }
+
+    int mantissaDecimals = 2;
+    double scale = 1.0;
+    for (int decimals = 0; decimals <= 2; ++decimals) {
+        if (std::abs(mantissa * scale - std::round(mantissa * scale)) < 1e-7) {
+            mantissaDecimals = decimals;
+            break;
+        }
+        scale *= 10.0;
+    }
+    const int initialDecimals = std::max(0, -exponent + mantissaDecimals);
+    const double roundingTolerance = std::max(
+        resolution * 1e-3,
+        std::abs(value) * std::numeric_limits<double>::epsilon() * 4.0);
+    for (int decimals = initialDecimals; decimals <= 15; ++decimals) {
+        const QString formatted = QString::number(value, 'f', decimals);
+        bool ok = false;
+        const double roundedValue = formatted.toDouble(&ok);
+        if (ok && std::abs(roundedValue - value) <= roundingTolerance) {
+            return trimFixedNumber(formatted);
+        }
+    }
+    return QString::number(value, 'g', 16);
+}
+
+QString pointReadoutText(const SignalSeries& series, const QPointF& point)
+{
+    // Point-mode values are for inspection, not lossless export. Uniform Y
+    // data is stored as float, so showing more than seven digits exposes its
+    // binary representation rather than meaningful signal precision.
+    const int yDigits = series.hasUniformData() ? 7 : 8;
+    return QStringLiteral("%1, %2")
+        .arg(formatPointX(point.x(), series), QString::number(point.y(), 'g', yDigits));
+}
+
+} // namespace
+
 int PlotWidget::legendSeriesAt(const QPointF& pixelPos) const
 {
     const QRectF pr = plotRect();
@@ -213,7 +313,7 @@ bool PlotWidget::updateHoverForSeriesX(int seriesIndex, double dataX, bool lockS
         return changed;
     }
 
-    const QString valueText = QString("%1, %2").arg(point.x(), 0, 'g', 6).arg(point.y(), 0, 'g', 6);
+    const QString valueText = pointReadoutText(series_[seriesIndex], point);
     const QString nextText = valueText;
     const bool nextLocked = lockSeries ? true : hoverSeriesLocked_;
     const bool changed = hoverSeriesIndex_ != seriesIndex
@@ -317,7 +417,7 @@ void PlotWidget::setSyncedPointX(double x, int seriesIndex)
         return;
     }
     if (next.visible) {
-        next.text = QString("%1, %2").arg(point.x(), 0, 'g', 6).arg(point.y(), 0, 'g', 6);
+        next.text = pointReadoutText(series_[seriesIndex], point);
     }
 
     QRect dirty = syncedPointDirtyRect(syncedPoint_).united(syncedPointDirtyRect(next));
