@@ -140,9 +140,8 @@ void MainWindow::exportDataForPanels(const QVector<QPair<int, int>>& panels,
         return;
     }
 
-    const DataReadMode readMode = dataModeCombo_
-                                      ? static_cast<DataReadMode>(dataModeCombo_->currentData().toInt())
-                                      : DataReadMode::Thin;
+    // SignalSpec stores the exact current rate; Thin is the neutral API floor.
+    const DataReadMode readMode = DataReadMode::Thin;
     const ExportFormat format = static_cast<ExportFormat>(exportFormat);
     setStatus(QString("Exporting data from %1 panels...").arg(panels.size()));
     QPointer<MainWindow> self(this);

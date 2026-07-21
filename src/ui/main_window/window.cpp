@@ -32,10 +32,13 @@ MainWindow::MainWindow(QString rootPath, QWidget* parent)
             applyPanelLoadedSignals(panelWatcher_.result());
             activePanelRefreshKey_.clear();
         }
+        activePanelColumn_ = -1;
+        activePanelRow_ = -1;
+        activePanelSignals_.clear();
         startPendingFetchIfIdle();
     });
     connect(&warmWatcher_, &QFutureWatcher<void>::finished, this, [this] {
-        if (pendingRefresh_ || pendingPanelRefresh_) {
+        if (pendingRefresh_ || !pendingPanelRefreshes_.isEmpty()) {
             startPendingFetchIfIdle();
             return;
         }

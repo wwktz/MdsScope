@@ -24,6 +24,28 @@ QString readModeKey(DataReadMode readMode)
     }
     return QStringLiteral("thin");
 }
+
+QString layoutReadModeKey(const LayoutConfig& config)
+{
+    bool found = false;
+    DataReadMode commonMode = DataReadMode::Thin;
+    for (const QVector<PlotSpec>& column : config.columns) {
+        for (const PlotSpec& plot : column) {
+            for (const SignalSpec& sig : plot.signalSpecs) {
+                if (sig.hidden) {
+                    continue;
+                }
+                if (!found) {
+                    commonMode = sig.readMode;
+                    found = true;
+                } else if (sig.readMode != commonMode) {
+                    return QStringLiteral("mixed");
+                }
+            }
+        }
+    }
+    return readModeKey(commonMode);
+}
 }
 
 
@@ -45,9 +67,9 @@ void MainWindow::refreshData()
     // read mode may have changed, so resuming the old fetch no longer applies.
     clearDataPause();
     syncDisplayConfig();
-    const DataReadMode readMode = dataModeCombo_
-                                      ? static_cast<DataReadMode>(dataModeCombo_->currentData().toInt())
-                                      : DataReadMode::Thin;
+    // UI rate actions write the exact current mode into each SignalSpec. Thin
+    // is only the fetch API's neutral floor, so it cannot override a source.
+    const DataReadMode readMode = DataReadMode::Thin;
     const QString key = refreshKey(readMode);
     if (runningDataFetches_ > 0 || panelWatcher_.isRunning()) {
         if (key == activeRefreshKey_ || key == queuedRefreshKey_) {
@@ -61,8 +83,7 @@ void MainWindow::refreshData()
         ++activeDataFetchGeneration_;
         pendingRefresh_ = true;
         queuedRefreshKey_ = key;
-        pendingPanelRefresh_ = false;
-        queuedPanelRefreshKey_.clear();
+        pendingPanelRefreshes_.clear();
         queuedLoadedSignals_.clear();
         queuedLoadedSignalApply_ = false;
         for (auto& col : plotWidgets_) {
@@ -104,9 +125,7 @@ void MainWindow::launchDataFetch(const LayoutConfig& snapshot, DataReadMode read
     const int generation = ++activeDataFetchGeneration_;
     dataCancel_ = std::make_shared<std::atomic_bool>(false);
     const auto cancel = dataCancel_;
-    setStatus(readMode == DataReadMode::Full ? "Fetching MDS data (full)..."
-                  : readMode == DataReadMode::Medium ? "Fetching MDS data (medium)..."
-                  : "Fetching MDS data (thin)...");
+    setStatus(QString("Fetching MDS data (%1)...").arg(layoutReadModeKey(snapshot)));
     auto* watcher = new QFutureWatcher<QVector<LoadedSignal>>(this);
     ++runningDataFetches_;
     connect(watcher, &QFutureWatcher<QVector<LoadedSignal>>::finished, this, [this, watcher, key, generation] {
@@ -175,8 +194,10 @@ void MainWindow::stopDataRefresh()
     pendingRefresh_ = false;
     pendingResume_ = false;
     activePanelRefreshKey_.clear();
-    queuedPanelRefreshKey_.clear();
-    pendingPanelRefresh_ = false;
+    activePanelColumn_ = -1;
+    activePanelRow_ = -1;
+    activePanelSignals_.clear();
+    pendingPanelRefreshes_.clear();
     queuedLoadedSignals_.clear();
     queuedLoadedSignalApply_ = false;
     if (wasRunning && remaining > 0) {
@@ -220,7 +241,10 @@ void MainWindow::resumeDataRefresh()
         cancelPanelFetch();
         cancelPrewarmConnections();
         activePanelRefreshKey_.clear();
-        pendingPanelRefresh_ = false;
+        activePanelColumn_ = -1;
+        activePanelRow_ = -1;
+        activePanelSignals_.clear();
+        pendingPanelRefreshes_.clear();
         pendingResume_ = true;
         pendingResumeSnapshot_ = remainingSnapshot;
         pausedReadMode_ = readMode;
@@ -288,17 +312,9 @@ void MainWindow::startPendingFetchIfIdle()
         refreshData();
         return;
     }
-    if (pendingPanelRefresh_) {
-        const int column = pendingPanelColumn_;
-        const int row = pendingPanelRow_;
-        const int signal = pendingPanelSignal_;
-        const DataReadMode readMode = pendingPanelReadMode_;
-        pendingPanelRefresh_ = false;
-        pendingPanelColumn_ = -1;
-        pendingPanelRow_ = -1;
-        pendingPanelSignal_ = -1;
-        queuedPanelRefreshKey_.clear();
-        refreshOne(column, row, signal, readMode);
+    if (!pendingPanelRefreshes_.isEmpty()) {
+        PanelRefreshRequest request = pendingPanelRefreshes_.takeFirst();
+        refreshSignals(request.column, request.row, std::move(request.signalIndices), request.readMode);
         return;
     }
     maybeStartDeferredRefresh();
@@ -333,7 +349,7 @@ bool MainWindow::canStartDeferredRefresh() const
         && !latestShotFetchRunning_
         && !panelWatcher_.isRunning()
         && activePanelRefreshKey_.isEmpty()
-        && !pendingPanelRefresh_;
+        && pendingPanelRefreshes_.isEmpty();
 }
 
 void MainWindow::maybeStartDeferredRefresh()
@@ -353,7 +369,7 @@ QString MainWindow::refreshKey(DataReadMode readMode) const
         .arg(layoutRefreshSignature(config_));
 }
 
-QString MainWindow::panelRefreshKey(int column, int row, int signal, DataReadMode readMode) const
+QString MainWindow::panelRefreshKey(int column, int row, const QVector<int>& signalIndices, DataReadMode readMode) const
 {
     QString panelSignature;
     if (column >= 0 && row >= 0
@@ -361,23 +377,87 @@ QString MainWindow::panelRefreshKey(int column, int row, int signal, DataReadMod
         && row < config_.columns[column].size()) {
         panelSignature = plotRefreshSignature(config_.columns[column][row]);
     }
+    QStringList signalParts;
+    if (signalIndices.isEmpty()) {
+        signalParts.push_back(QStringLiteral("all"));
+    } else {
+        signalParts.reserve(signalIndices.size());
+        for (int signal : signalIndices) {
+            signalParts.push_back(QString::number(signal));
+        }
+    }
     return QString("%1|%2|%3|%4|%5")
         .arg(column)
         .arg(row)
-        .arg(signal)
+        .arg(signalParts.join(','))
         .arg(readModeKey(readMode))
         .arg(panelSignature);
 }
 
+void MainWindow::queuePanelRefresh(PanelRefreshRequest request)
+{
+    const auto overlaps = [](const QVector<int>& lhs, const QVector<int>& rhs) {
+        if (lhs.isEmpty() || rhs.isEmpty()) {
+            return true;
+        }
+        for (int signal : lhs) {
+            if (rhs.contains(signal)) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    // Only an obsolete refresh of the same panel/source may be cancelled.
+    // Unrelated global and panel work is allowed to finish normally.
+    if (panelWatcher_.isRunning()
+        && request.column == activePanelColumn_
+        && request.row == activePanelRow_
+        && overlaps(request.signalIndices, activePanelSignals_)) {
+        cancelPanelFetch();
+        activePanelRefreshKey_.clear();
+    }
+
+    if (request.signalIndices.isEmpty()) {
+        for (int i = pendingPanelRefreshes_.size() - 1; i >= 0; --i) {
+            if (pendingPanelRefreshes_[i].column == request.column
+                && pendingPanelRefreshes_[i].row == request.row) {
+                pendingPanelRefreshes_.removeAt(i);
+            }
+        }
+    } else {
+        for (PanelRefreshRequest& pending : pendingPanelRefreshes_) {
+            if (pending.column == request.column && pending.row == request.row
+                && pending.signalIndices.isEmpty()) {
+                // A whole-panel fetch takes its snapshot when it starts, so it
+                // already includes the latest source configuration.
+                pending.readMode = request.readMode;
+                pending.key = request.key;
+                return;
+            }
+        }
+        for (int i = pendingPanelRefreshes_.size() - 1; i >= 0; --i) {
+            const PanelRefreshRequest& pending = pendingPanelRefreshes_[i];
+            if (pending.column == request.column && pending.row == request.row
+                && pending.signalIndices == request.signalIndices) {
+                pendingPanelRefreshes_.removeAt(i);
+            }
+        }
+    }
+    pendingPanelRefreshes_.push_back(std::move(request));
+}
+
 void MainWindow::refreshOne(int column, int row, int signal)
 {
-    const DataReadMode readMode = dataModeCombo_
-                                      ? static_cast<DataReadMode>(dataModeCombo_->currentData().toInt())
-                                      : DataReadMode::Thin;
-    refreshOne(column, row, signal, readMode);
+    refreshOne(column, row, signal, DataReadMode::Thin);
 }
 
 void MainWindow::refreshOne(int column, int row, int signal, DataReadMode readMode)
+{
+    refreshSignals(column, row, signal >= 0 ? QVector<int>{signal} : QVector<int>{}, readMode);
+}
+
+void MainWindow::refreshSignals(int column, int row, QVector<int> signalIndices, DataReadMode readMode)
 {
     if (column < 0 || row < 0 || column >= config_.columns.size() || row >= config_.columns[column].size()) {
         return;
@@ -386,45 +466,37 @@ void MainWindow::refreshOne(int column, int row, int signal, DataReadMode readMo
         return;
     }
 
-    const QString key = panelRefreshKey(column, row, signal, readMode);
+    std::sort(signalIndices.begin(), signalIndices.end());
+    signalIndices.erase(std::unique(signalIndices.begin(), signalIndices.end()), signalIndices.end());
+    signalIndices.erase(std::remove_if(signalIndices.begin(), signalIndices.end(), [this, column, row](int signal) {
+        return signal < 0 || signal >= config_.columns[column][row].signalSpecs.size();
+    }), signalIndices.end());
 
-    cancelPrewarmConnections();
-    pendingRefresh_ = false;
-    queuedRefreshKey_.clear();
-    queuedLoadedSignals_.clear();
-    queuedLoadedSignalApply_ = false;
+    syncDisplayConfig();
+    const QString key = panelRefreshKey(column, row, signalIndices, readMode);
 
     if (runningDataFetches_ > 0 || panelWatcher_.isRunning() || warmWatcher_.isRunning()) {
-        if (key == activePanelRefreshKey_ || key == queuedPanelRefreshKey_) {
+        const bool alreadyQueued = std::any_of(pendingPanelRefreshes_.cbegin(), pendingPanelRefreshes_.cend(),
+                                                [&key](const PanelRefreshRequest& request) {
+                                                    return request.key == key;
+                                                });
+        if (key == activePanelRefreshKey_ || alreadyQueued) {
             setStatus(QString("Panel refresh already running: col %1 row %2").arg(column + 1).arg(row + 1));
             return;
         }
-        cancelDataFetch();
-        cancelPanelFetch();
-        activeRefreshKey_.clear();
-        activePanelRefreshKey_.clear();
-        ++activeDataFetchGeneration_;
-        pendingPanelRefresh_ = true;
-        pendingPanelColumn_ = column;
-        pendingPanelRow_ = row;
-        pendingPanelSignal_ = signal;
-        pendingPanelReadMode_ = readMode;
-        queuedPanelRefreshKey_ = key;
-        activePanelRefreshKey_.clear();
+        queuePanelRefresh({column, row, signalIndices, readMode, key});
         setStatus(QString("Panel refresh queued: col %1 row %2").arg(column + 1).arg(row + 1));
         return;
     }
 
-    syncDisplayConfig();
     LayoutConfig snapshot = displayConfig_;
-    const bool singleSignalRefresh = signal >= 0
-                                     && signal < snapshot.columns[column][row].signalSpecs.size();
+    const bool partialSignalRefresh = !signalIndices.isEmpty();
     for (int c = 0; c < snapshot.columns.size(); ++c) {
         for (int r = 0; r < snapshot.columns[c].size(); ++r) {
             if (c == column && r == row) {
-                if (singleSignalRefresh) {
+                if (partialSignalRefresh) {
                     for (int s = 0; s < snapshot.columns[c][r].signalSpecs.size(); ++s) {
-                        if (s != signal) {
+                        if (!signalIndices.contains(s)) {
                             snapshot.columns[c][r].signalSpecs[s].hidden = true;
                         }
                     }
@@ -437,27 +509,32 @@ void MainWindow::refreshOne(int column, int row, int signal, DataReadMode readMo
     LayoutConfig fetchSnapshot;
     if (!prepareSshLayout(snapshot, &fetchSnapshot)) {
         activePanelRefreshKey_.clear();
+        activePanelColumn_ = -1;
+        activePanelRow_ = -1;
+        activePanelSignals_.clear();
+        QTimer::singleShot(0, this, [this] { startPendingFetchIfIdle(); });
         return;
     }
-    if (!singleSignalRefresh) {
+    if (!partialSignalRefresh) {
         plotWidgets_[column][row]->clearSeries();
     }
     activePanelRefreshKey_ = key;
-    queuedPanelRefreshKey_.clear();
+    activePanelColumn_ = column;
+    activePanelRow_ = row;
+    activePanelSignals_ = signalIndices;
     panelCancel_ = std::make_shared<std::atomic_bool>(false);
     const auto cancel = panelCancel_;
-    const QString rate = readModeKey(readMode);
-    setStatus(singleSignalRefresh
-                  ? QString("Fetching signal data (%1): col %2 row %3 source %4")
-                        .arg(rate).arg(column + 1).arg(row + 1).arg(signal + 1)
+    const QString rate = layoutReadModeKey(snapshot);
+    setStatus(partialSignalRefresh
+                  ? QString("Fetching signal data (%1): col %2 row %3, %4 source(s)")
+                        .arg(rate).arg(column + 1).arg(row + 1).arg(signalIndices.size())
                   : QString("Fetching panel data (%1): col %2 row %3")
                         .arg(rate).arg(column + 1).arg(row + 1));
-    panelWatcher_.setFuture(QtConcurrent::run([fetchSnapshot, readMode, singleSignalRefresh, cancel] {
+    panelWatcher_.setFuture(QtConcurrent::run([fetchSnapshot, readMode, cancel] {
         QVector<LoadedSignal> loaded = fetchMdsSignals(fetchSnapshot, readMode, {}, cancel, true);
         for (LoadedSignal& item : loaded) {
             rebuildMinMaxIndex(item.series);
         }
-        Q_UNUSED(singleSignalRefresh);
         return loaded;
     }));
 }

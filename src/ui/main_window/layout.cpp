@@ -134,6 +134,7 @@ void MainWindow::syncDisplayConfig()
             }
         }
     }
+    updateGlobalRateControl();
 }
 
 void MainWindow::selectPlot(int column, int row)
@@ -186,6 +187,10 @@ void MainWindow::openLayoutSetupDialog()
         return;
     }
 
+    const bool fetchWasRunning = runningDataFetches_ > 0
+                                 || panelWatcher_.isRunning()
+                                 || warmWatcher_.isRunning()
+                                 || !pendingPanelRefreshes_.isEmpty();
     LayoutConfig next = config_;
     next.columns.clear();
     int selectColumn = -1;
@@ -267,6 +272,13 @@ void MainWindow::openLayoutSetupDialog()
         refreshData();
         return;
     }
+    if (fetchWasRunning) {
+        // Row/column indices changed while old results were in flight. Restart
+        // the global load against the new layout instead of applying results to
+        // the wrong panels or leaving the cancelled remainder unloaded.
+        refreshData();
+        return;
+    }
     for (const PreservedPanelData& preserved : std::as_const(preservedPanels)) {
         if (preserved.column < 0 || preserved.row < 0
             || preserved.column >= plotWidgets_.size()
@@ -321,7 +333,9 @@ void MainWindow::addPlotBelow()
     config_.columns[column].insert(row, plot);
     rebuildGrid();
     selectPlot(column, row);
-    refreshOne(column, row, 0);
+    // Rebuilding the grid recreates every PlotWidget, so all displayed series
+    // need to be restored, not just the newly inserted panel.
+    refreshData();
 }
 
 void MainWindow::deleteCurrentPlot()
@@ -436,7 +450,8 @@ void MainWindow::dataSourceSetupForCurrentPanel()
         return;
     }
 
-    const bool dataSourceChanged = !signalDataSourcesEqual(plot.signalSpecs, specs);
+    const QVector<SignalSpec> previousSpecs = plot.signalSpecs;
+    const bool dataSourceChanged = !signalDataSourcesEqual(previousSpecs, specs);
     const bool specChanged = !signalSpecsEqual(plot.signalSpecs, specs);
     if (!specChanged) {
         setStatus(QString("Panel unchanged: col %1 row %2").arg(selectedColumn_ + 1).arg(selectedRow_ + 1));
@@ -463,7 +478,27 @@ void MainWindow::dataSourceSetupForCurrentPanel()
     }
     updateTopInfoLabels();
     if (dataSourceChanged) {
-        refreshOne(selectedColumn_, selectedRow_, -1);
+        QVector<int> changedSignals;
+        const bool previousSlotsExpanded = std::any_of(previousSpecs.cbegin(), previousSpecs.cend(),
+                                                        [&plot](const SignalSpec& sig) {
+                                                            return expandedShotList(effectiveSignalShot(plot, sig)).size() > 1;
+                                                        });
+        const bool stableSignalSlots = previousSpecs.size() == plot.signalSpecs.size()
+                                       && !previousSlotsExpanded
+                                       && displayConfig_.columns[selectedColumn_][selectedRow_].signalSpecs.size()
+                                              == plot.signalSpecs.size();
+        if (stableSignalSlots) {
+            for (int i = 0; i < plot.signalSpecs.size(); ++i) {
+                if (!signalDataSourceEqual(previousSpecs[i], plot.signalSpecs[i])) {
+                    changedSignals.push_back(i);
+                }
+            }
+        }
+        if (stableSignalSlots && !changedSignals.isEmpty()) {
+            refreshSignals(selectedColumn_, selectedRow_, std::move(changedSignals), DataReadMode::Thin);
+        } else {
+            refreshOne(selectedColumn_, selectedRow_, -1);
+        }
     } else {
         setStatus(QString("Updated panel style: col %1 row %2").arg(selectedColumn_ + 1).arg(selectedRow_ + 1));
     }

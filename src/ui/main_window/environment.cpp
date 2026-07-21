@@ -232,10 +232,12 @@ bool MainWindow::loadEnvironmentFile(const QString& path,
     ++activeDataFetchGeneration_;
     activeRefreshKey_.clear();
     activePanelRefreshKey_.clear();
+    activePanelColumn_ = -1;
+    activePanelRow_ = -1;
+    activePanelSignals_.clear();
     pendingRefresh_ = false;
-    pendingPanelRefresh_ = false;
+    pendingPanelRefreshes_.clear();
     queuedRefreshKey_.clear();
-    queuedPanelRefreshKey_.clear();
     queuedLoadedSignals_.clear();
     queuedLoadedSignalApply_ = false;
     config_ = parseEnvironment(path);

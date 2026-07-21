@@ -70,6 +70,7 @@
 #include <QSpinBox>
 #include <QStatusBar>
 #include <QStyle>
+#include <QStandardItemModel>
 #include <QStandardPaths>
 #include <QStringListModel>
 #include <QSysInfo>

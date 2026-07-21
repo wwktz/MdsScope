@@ -189,10 +189,16 @@ void MainWindow::buildUi()
         "}");
     topLayout->addWidget(new QLabel("Rate", topControls));
     dataModeCombo_ = new QComboBox(topControls);
+    dataModeCombo_->addItem("Mixed");
     dataModeCombo_->addItem("Thin", static_cast<int>(DataReadMode::Thin));
     dataModeCombo_->addItem("Medium", static_cast<int>(DataReadMode::Medium));
     dataModeCombo_->addItem("Full", static_cast<int>(DataReadMode::Full));
     dataModeCombo_->setCurrentIndex(0);
+    if (auto* model = qobject_cast<QStandardItemModel*>(dataModeCombo_->model())) {
+        if (QStandardItem* mixedItem = model->item(0)) {
+            mixedItem->setFlags(mixedItem->flags() & ~Qt::ItemIsEnabled);
+        }
+    }
     dataModeCombo_->setFixedWidth(90);
     topLayout->addWidget(dataModeCombo_);
 
@@ -303,8 +309,66 @@ void MainWindow::buildUi()
         }
         applyShot();
     });
-    connect(dataModeCombo_, &QComboBox::currentIndexChanged, this, [this] { refreshData(); });
+    connect(dataModeCombo_, &QComboBox::activated, this, [this](int index) {
+        const QVariant value = dataModeCombo_->itemData(index);
+        if (!value.isValid()) {
+            return;
+        }
+        const DataReadMode mode = static_cast<DataReadMode>(value.toInt());
+        bool changed = false;
+        for (QVector<PlotSpec>& column : config_.columns) {
+            for (PlotSpec& plot : column) {
+                for (SignalSpec& sig : plot.signalSpecs) {
+                    if (sig.readMode != mode) {
+                        sig.readMode = mode;
+                        changed = true;
+                    }
+                }
+            }
+        }
+        syncDisplayConfig();
+        if (changed) {
+            refreshData();
+        } else {
+            setStatus(QString("Global Rate unchanged: %1").arg(dataModeCombo_->currentText()));
+        }
+    });
     connect(aboutButton_, &QToolButton::clicked, this, &MainWindow::openAboutDialog);
+}
+
+void MainWindow::updateGlobalRateControl()
+{
+    if (!dataModeCombo_) {
+        return;
+    }
+    bool found = false;
+    bool mixed = false;
+    DataReadMode commonMode = DataReadMode::Thin;
+    for (const QVector<PlotSpec>& column : std::as_const(config_.columns)) {
+        for (const PlotSpec& plot : column) {
+            for (const SignalSpec& sig : plot.signalSpecs) {
+                if (!found) {
+                    commonMode = sig.readMode;
+                    found = true;
+                } else if (sig.readMode != commonMode) {
+                    mixed = true;
+                    break;
+                }
+            }
+            if (mixed) {
+                break;
+            }
+        }
+        if (mixed) {
+            break;
+        }
+    }
+
+    const int index = found && !mixed
+                          ? dataModeCombo_->findData(static_cast<int>(commonMode))
+                          : dataModeCombo_->findText(QStringLiteral("Mixed"));
+    QSignalBlocker blocker(dataModeCombo_);
+    dataModeCombo_->setCurrentIndex(index >= 0 ? index : 0);
 }
 
 void MainWindow::showPanelContextMenu(PlotWidget* plot, int column, int row, const QPoint& pos)
@@ -370,10 +434,24 @@ void MainWindow::showPanelContextMenu(PlotWidget* plot, int column, int row, con
                                   : chosen == mediumRateAction ? DataReadMode::Medium
                                                                : DataReadMode::Thin;
         PlotSpec& panel = config_.columns[column][row];
-        for (SignalSpec& sig : panel.signalSpecs) {
-            sig.readMode = mode;
+        QVector<int> changedSignals;
+        for (int i = 0; i < panel.signalSpecs.size(); ++i) {
+            if (panel.signalSpecs[i].readMode != mode) {
+                panel.signalSpecs[i].readMode = mode;
+                changedSignals.push_back(i);
+            }
         }
-        refreshOne(column, row, -1, mode);
+        if (changedSignals.isEmpty()) {
+            setStatus(QString("Panel Rate unchanged: col %1 row %2").arg(column + 1).arg(row + 1));
+            return;
+        }
+        syncDisplayConfig();
+        if (displayConfig_.columns[column][row].signalSpecs.size() == panel.signalSpecs.size()) {
+            refreshSignals(column, row, std::move(changedSignals), mode);
+        } else {
+            // Expanded shot expressions do not have a one-to-one source index.
+            refreshOne(column, row, -1, mode);
+        }
     } else if (chosen == exportDataAction) {
         exportCurrentPanelData();
     } else if (chosen == resetCurrentAction) {

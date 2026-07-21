@@ -139,6 +139,14 @@ struct LoadedSignal {
     SignalSeries series;
 };
 
+struct PanelRefreshRequest {
+    int column = -1;
+    int row = -1;
+    QVector<int> signalIndices; // Empty means every signal in the panel.
+    DataReadMode readMode = DataReadMode::Thin;
+    QString key;
+};
+
 struct PointReadout {
     bool visible = false;
     bool showText = true;
@@ -351,9 +359,11 @@ private:
     // completion handler.
     void maybeStartDeferredRefresh();
     QString refreshKey(DataReadMode readMode) const;
-    QString panelRefreshKey(int column, int row, int signal, DataReadMode readMode) const;
+    QString panelRefreshKey(int column, int row, const QVector<int>& signalIndices, DataReadMode readMode) const;
     void refreshOne(int column, int row, int signal);
     void refreshOne(int column, int row, int signal, DataReadMode readMode);
+    void refreshSignals(int column, int row, QVector<int> signalIndices, DataReadMode readMode);
+    void queuePanelRefresh(PanelRefreshRequest request);
     void queueLoadedSignal(LoadedSignal item);
     void flushQueuedLoadedSignals();
     void applyLoadedSignal(LoadedSignal item);
@@ -382,6 +392,7 @@ private:
     void maximizeCurrentPanel();
     void showAllPanels();
     void showPanelContextMenu(PlotWidget* plot, int column, int row, const QPoint& pos);
+    void updateGlobalRateControl();
     void openLayoutSetupDialog();
     void openCustomizeDialog();
     void applyUiFont();
@@ -448,11 +459,7 @@ private:
     int selectedColumn_ = -1;
     int selectedRow_ = -1;
     bool pendingRefresh_ = false;
-    bool pendingPanelRefresh_ = false;
-    int pendingPanelColumn_ = -1;
-    int pendingPanelRow_ = -1;
-    int pendingPanelSignal_ = -1;
-    DataReadMode pendingPanelReadMode_ = DataReadMode::Thin;
+    QVector<PanelRefreshRequest> pendingPanelRefreshes_;
     bool singlePanelMaximized_ = false;
     int maximizedColumn_ = -1;
     int maximizedRow_ = -1;
@@ -463,7 +470,9 @@ private:
     int runningDataFetches_ = 0;
     int activeDataFetchGeneration_ = 0;
     QString activePanelRefreshKey_;
-    QString queuedPanelRefreshKey_;
+    int activePanelColumn_ = -1;
+    int activePanelRow_ = -1;
+    QVector<int> activePanelSignals_;
     int streamedOk_ = 0;
     int streamedFailed_ = 0;
     QVector<LoadedSignal> queuedLoadedSignals_;

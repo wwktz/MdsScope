@@ -10,6 +10,7 @@ void clearCustomRanges(PlotSpec* plot);
 bool loadedSignalMatchesConfig(const LayoutConfig& config, const LoadedSignal& item);
 QString plotRefreshSignature(const PlotSpec& plot);
 QString layoutRefreshSignature(const LayoutConfig& config);
+bool signalDataSourceEqual(const SignalSpec& lhs, const SignalSpec& rhs);
 bool signalDataSourcesEqual(const QVector<SignalSpec>& lhs, const QVector<SignalSpec>& rhs);
 bool signalSpecsEqual(const QVector<SignalSpec>& lhs, const QVector<SignalSpec>& rhs);
 bool optionalDoubleFromText(const QString& text, double* value);
