@@ -619,9 +619,10 @@ bool ensureApiLoginBeforeMain(const QString& rootPath)
         }
     }
 
-    LoginDialog dialog(rootPath, nullptr, api);
+    LoginDialog dialog(rootPath, nullptr, api, true);
     dialog.setWindowIcon(appIcon());
-    return dialog.exec() == QDialog::Accepted;
+    const int result = dialog.exec();
+    return result == QDialog::Accepted || result == LoginDialog::Skipped;
 }
 }
 

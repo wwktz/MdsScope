@@ -3,7 +3,7 @@
 
 #include "mdsscope_internal.hpp"
 
-LoginDialog::LoginDialog(QString rootPath, QWidget* parent, QString apiOverride)
+LoginDialog::LoginDialog(QString rootPath, QWidget* parent, QString apiOverride, bool allowSkip)
     : QDialog(parent), rootPath_(std::move(rootPath)), apiOverride_(std::move(apiOverride))
 {
     setWindowTitle("Login");
@@ -66,6 +66,12 @@ LoginDialog::LoginDialog(QString rootPath, QWidget* parent, QString apiOverride)
     loginButton_ = new QPushButton("Login", this);
     loginButton_->setObjectName("primary");
     buttons->addWidget(cancel);
+    if (allowSkip) {
+        auto* skip = new QPushButton("Skip for now", this);
+        skip->setToolTip("Continue to MdsScope and configure SSH or login later from the toolbar");
+        buttons->addWidget(skip);
+        connect(skip, &QPushButton::clicked, this, [this] { done(Skipped); });
+    }
     buttons->addWidget(loginButton_);
     layout->addLayout(buttons);
 

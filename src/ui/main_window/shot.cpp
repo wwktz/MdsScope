@@ -94,6 +94,19 @@ void MainWindow::applyLoginSuccessStatus(const QString& statusText)
     ++topSummaryGeneration_;
     updateTopInfoLabels();
     setStatus(statusText);
+
+    const QString currentShot = shotEdit_ ? shotEdit_->text().trimmed() : QString();
+    if (currentShot.isEmpty()) {
+        // A skipped first login leaves the init layout without a shot. Once
+        // login succeeds, obtain the latest shot and let applyShot() refresh
+        // the init data through the newly configured SSH connection.
+        fetchLatestShotAsync(true);
+    } else {
+        // Re-login should preserve the shot the user is viewing while
+        // reconnecting its MDS sources and metadata with the new credentials.
+        scheduleTopInfoUpdate(currentShot);
+        refreshData();
+    }
 }
 
 void MainWindow::updateLoginActionIcon()

@@ -12,6 +12,10 @@ void MainWindow::openSshDialog()
     SshDialog dialog(sshTunnelManager_, this);
     dialog.setWindowIcon(appIcon());
     dialog.exec();
+    // Saving or testing SSH settings rebuilds the tunnel manager. Do not reuse
+    // an API URL prepared with the previous settings when the user logs in.
+    cachedApiSourceUrl_.clear();
+    cachedPreparedApiUrl_.clear();
     updateSshActionIcon();
 }
 

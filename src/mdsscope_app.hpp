@@ -164,7 +164,14 @@ class LoginDialog final : public QDialog {
     Q_OBJECT
 
 public:
-    explicit LoginDialog(QString rootPath, QWidget* parent = nullptr, QString apiOverride = {});
+    enum ResultCode {
+        Skipped = QDialog::Accepted + 1,
+    };
+
+    explicit LoginDialog(QString rootPath,
+                         QWidget* parent = nullptr,
+                         QString apiOverride = {},
+                         bool allowSkip = false);
 
 private:
     void loadProperties();
