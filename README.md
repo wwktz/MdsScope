@@ -57,8 +57,77 @@ matching Qt 6 MSVC build.
 
 ## Build and Install
 
-Prebuilt Windows and Ubuntu packages are published from Git tags. To build from
-source:
+Prebuilt DEB, RPM, Linux portable ZIP, Apple Silicon macOS, and Windows
+packages are published from Git tags.
+
+### Prebuilt Linux Packages
+
+Install the DEB matching the Ubuntu release and architecture:
+
+```bash
+sudo apt install ./mdsscope-ubuntu24.04.amd64.deb
+```
+
+Install the RPM matching Fedora 44, Enterprise Linux 9, or Enterprise Linux 10:
+
+```bash
+sudo dnf install ./mdsscope-fedora44.x86_64.rpm
+sudo dnf install ./mdsscope-el10.x86_64.rpm
+```
+
+The EL9 package uses Qt 6 from EPEL 9. On Rocky Linux 9 or AlmaLinux 9, enable
+CRB and EPEL before installing it:
+
+```bash
+sudo dnf install dnf-plugins-core
+sudo dnf config-manager --set-enabled crb
+sudo dnf install epel-release
+sudo dnf install ./mdsscope-el9.x86_64.rpm
+```
+
+The portable Linux ZIP includes Qt and the other non-system runtime libraries.
+It does not need to be installed:
+
+```bash
+unzip mdsscope-linux-x86_64.zip
+./MdsScope/MdsScope
+```
+
+### Prebuilt macOS Packages
+
+The macOS packages target Apple Silicon (`arm64`). They are ad-hoc signed for
+Apple Silicon but are not signed with an Apple Developer ID and are not
+notarized. Gatekeeper may therefore block the first launch.
+
+For the DMG, open it, drag `MdsScope.app` into `Applications`, then Control-click
+the installed app and select **Open**. If macOS still blocks it, use **Open
+Anyway** under **System Settings → Privacy & Security**. As a per-app Terminal
+fallback:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/MdsScope.app
+open /Applications/MdsScope.app
+```
+
+For the ZIP binary package, extract and launch it directly:
+
+```bash
+ditto -x -k mdsscope-macos-arm64.zip .
+xattr -dr com.apple.quarantine ./MdsScope.app
+open ./MdsScope.app
+```
+
+Only remove the quarantine attribute from packages downloaded from the official
+MdsScope GitHub Releases page. Do not disable Gatekeeper globally.
+
+### Prebuilt Windows Package
+
+The Windows ZIP is portable and includes the required Qt DLLs. Extract it and
+run `MdsScope.exe`; no installer or setup wizard is required.
+
+### Build from Source
+
+To build from source:
 
 Linux:
 

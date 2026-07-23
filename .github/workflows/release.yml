@@ -15,6 +15,12 @@ on:
           - all
           - ubuntu24.04
           - ubuntu26.04
+          - rpm
+          - fedora44
+          - el9
+          - el10
+          - linux
+          - macos
           - windows
 
 permissions:
@@ -23,9 +29,12 @@ permissions:
 jobs:
   package-plan:
     name: Select packages
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-24.04
     outputs:
       deb_matrix: ${{ steps.plan.outputs.deb_matrix }}
+      rpm_matrix: ${{ steps.plan.outputs.rpm_matrix }}
+      linux_matrix: ${{ steps.plan.outputs.linux_matrix }}
+      macos: ${{ steps.plan.outputs.macos }}
       windows: ${{ steps.plan.outputs.windows }}
 
     steps:
@@ -35,21 +44,56 @@ jobs:
         env:
           TARGET: ${{ inputs.target || 'all' }}
         run: |
+          deb_matrix='{"include":[]}'
+          rpm_matrix='{"include":[]}'
+          linux_matrix='{"include":[]}'
+          macos=false
+          windows=false
+
+          ubuntu_24='{"include":[{"arch":"amd64","runner":"ubuntu-24.04","package":"ubuntu24.04"},{"arch":"arm64","runner":"ubuntu-24.04-arm","package":"ubuntu24.04"}]}'
+          ubuntu_26='{"include":[{"arch":"amd64","runner":"ubuntu-26.04","package":"ubuntu26.04"},{"arch":"arm64","runner":"ubuntu-26.04-arm","package":"ubuntu26.04"}]}'
+          all_deb='{"include":[{"arch":"amd64","runner":"ubuntu-24.04","package":"ubuntu24.04"},{"arch":"arm64","runner":"ubuntu-24.04-arm","package":"ubuntu24.04"},{"arch":"amd64","runner":"ubuntu-26.04","package":"ubuntu26.04"},{"arch":"arm64","runner":"ubuntu-26.04-arm","package":"ubuntu26.04"}]}'
+
+          fedora_44='{"include":[{"arch":"x86_64","runner":"ubuntu-24.04","image":"fedora:44","package":"fedora44","release":"1.fc44"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","image":"fedora:44","package":"fedora44","release":"1.fc44"}]}'
+          enterprise_9='{"include":[{"arch":"x86_64","runner":"ubuntu-24.04","image":"rockylinux:9","package":"el9","release":"1.el9"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","image":"rockylinux:9","package":"el9","release":"1.el9"}]}'
+          enterprise_10='{"include":[{"arch":"x86_64","runner":"ubuntu-24.04","image":"rockylinux:10","package":"el10","release":"1.el10"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","image":"rockylinux:10","package":"el10","release":"1.el10"}]}'
+          all_rpm='{"include":[{"arch":"x86_64","runner":"ubuntu-24.04","image":"fedora:44","package":"fedora44","release":"1.fc44"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","image":"fedora:44","package":"fedora44","release":"1.fc44"},{"arch":"x86_64","runner":"ubuntu-24.04","image":"rockylinux:9","package":"el9","release":"1.el9"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","image":"rockylinux:9","package":"el9","release":"1.el9"},{"arch":"x86_64","runner":"ubuntu-24.04","image":"rockylinux:10","package":"el10","release":"1.el10"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","image":"rockylinux:10","package":"el10","release":"1.el10"}]}'
+
+          all_linux='{"include":[{"arch":"x86_64","runner":"ubuntu-24.04"},{"arch":"aarch64","runner":"ubuntu-24.04-arm"}]}'
+
           case "$TARGET" in
             all)
-              deb_matrix='{"include":[{"arch":"amd64","runner":"ubuntu-26.04","package":"ubuntu26.04"},{"arch":"arm64","runner":"ubuntu-26.04-arm","package":"ubuntu26.04"},{"arch":"amd64","runner":"ubuntu-24.04","package":"ubuntu24.04"},{"arch":"arm64","runner":"ubuntu-24.04-arm","package":"ubuntu24.04"}]}'
+              deb_matrix="$all_deb"
+              rpm_matrix="$all_rpm"
+              linux_matrix="$all_linux"
+              macos=true
               windows=true
               ;;
             ubuntu24.04)
-              deb_matrix='{"include":[{"arch":"amd64","runner":"ubuntu-24.04","package":"ubuntu24.04"},{"arch":"arm64","runner":"ubuntu-24.04-arm","package":"ubuntu24.04"}]}'
-              windows=false
+              deb_matrix="$ubuntu_24"
               ;;
             ubuntu26.04)
-              deb_matrix='{"include":[{"arch":"amd64","runner":"ubuntu-26.04","package":"ubuntu26.04"},{"arch":"arm64","runner":"ubuntu-26.04-arm","package":"ubuntu26.04"}]}'
-              windows=false
+              deb_matrix="$ubuntu_26"
+              ;;
+            rpm)
+              rpm_matrix="$all_rpm"
+              ;;
+            fedora44)
+              rpm_matrix="$fedora_44"
+              ;;
+            el9)
+              rpm_matrix="$enterprise_9"
+              ;;
+            el10)
+              rpm_matrix="$enterprise_10"
+              ;;
+            linux)
+              linux_matrix="$all_linux"
+              ;;
+            macos)
+              macos=true
               ;;
             windows)
-              deb_matrix='{"include":[]}'
               windows=true
               ;;
             *)
@@ -57,7 +101,11 @@ jobs:
               exit 1
               ;;
           esac
+
           echo "deb_matrix=$deb_matrix" >> "$GITHUB_OUTPUT"
+          echo "rpm_matrix=$rpm_matrix" >> "$GITHUB_OUTPUT"
+          echo "linux_matrix=$linux_matrix" >> "$GITHUB_OUTPUT"
+          echo "macos=$macos" >> "$GITHUB_OUTPUT"
           echo "windows=$windows" >> "$GITHUB_OUTPUT"
 
   deb:
@@ -96,8 +144,151 @@ jobs:
           name: mdsscope-deb-${{ matrix.package }}-${{ matrix.arch }}
           path: build/*.deb
 
+  rpm:
+    name: Build RPM (${{ matrix.package }} ${{ matrix.arch }})
+    needs: package-plan
+    if: ${{ needs.package-plan.outputs.rpm_matrix != '{"include":[]}' }}
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.package-plan.outputs.rpm_matrix) }}
+
+    steps:
+      - name: Enable EPEL 9
+        if: ${{ matrix.package == 'el9' }}
+        run: |
+          dnf install -y dnf-plugins-core
+          dnf config-manager --set-enabled crb
+          dnf install -y epel-release
+
+      - name: Install dependencies
+        run: dnf install -y git gcc-c++ cmake ninja-build rpm-build qt6-qtbase-devel
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DMDS_SCOPE_RPM_RELEASE=${{ matrix.release }}
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Package and verify RPM
+        shell: bash
+        run: |
+          cpack --config build/CPackConfig.cmake -G RPM
+          mapfile -t packages < <(find build -maxdepth 1 -type f -name '*.rpm')
+          if [[ ${#packages[@]} -ne 1 ]]; then
+              printf 'Expected one RPM, found %s\n' "${#packages[@]}" >&2
+              exit 1
+          fi
+          rpm -qpl "${packages[0]}"
+          rpm -qpR "${packages[0]}"
+          dnf install -y "${packages[0]}"
+          mv "${packages[0]}" "build/mdsscope-${{ matrix.package }}.${{ matrix.arch }}.rpm"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: mdsscope-rpm-${{ matrix.package }}-${{ matrix.arch }}
+          path: build/*.rpm
+
+  linux-portable:
+    name: Build Linux ZIP (${{ matrix.arch }})
+    needs: package-plan
+    if: ${{ needs.package-plan.outputs.linux_matrix != '{"include":[]}' }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.package-plan.outputs.linux_matrix) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential cmake ninja-build qt6-base-dev qt6-base-dev-tools zip
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Package portable ZIP
+        run: packaging/linux/create-portable.sh build "build/mdsscope-linux-${{ matrix.arch }}.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: mdsscope-linux-${{ matrix.arch }}
+          path: build/mdsscope-linux-${{ matrix.arch }}.zip
+
+  macos:
+    name: Build macOS packages (Apple Silicon)
+    needs: package-plan
+    if: ${{ needs.package-plan.outputs.macos == 'true' }}
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4.3.1
+        with:
+          version: "6.8.3"
+          host: mac
+          target: desktop
+          arch: clang_64
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DMDS_SCOPE_DEPLOY_RUNTIME=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Install and deploy app
+        run: |
+          cmake --install build --prefix "$PWD/build/macos-stage" --component app
+          file build/macos-stage/MdsScope.app/Contents/MacOS/MdsScope
+          codesign --verify --deep --strict build/macos-stage/MdsScope.app
+
+      - name: Package ZIP and DMG
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            build/macos-stage/MdsScope.app \
+            build/mdsscope-macos-arm64.zip
+
+          mkdir -p build/dmg-root
+          ditto build/macos-stage/MdsScope.app build/dmg-root/MdsScope.app
+          ln -s /Applications build/dmg-root/Applications
+          hdiutil create \
+            -volname MdsScope \
+            -srcfolder build/dmg-root \
+            -ov \
+            -format UDZO \
+            build/mdsscope-macos-arm64.dmg
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: mdsscope-macos-arm64
+          path: |
+            build/mdsscope-macos-arm64.zip
+            build/mdsscope-macos-arm64.dmg
+
   windows:
-    name: Build Windows portable zip
+    name: Build Windows portable ZIP
     needs: package-plan
     if: ${{ needs.package-plan.outputs.windows == 'true' }}
     runs-on: windows-2022
@@ -120,7 +311,7 @@ jobs:
       - name: Build
         run: cmake --build build --config Release
 
-      - name: Package portable zip
+      - name: Package portable ZIP
         shell: pwsh
         run: |
           $stage = Join-Path $env:GITHUB_WORKSPACE "build\windows-package\MdsScope"
@@ -138,26 +329,30 @@ jobs:
 
           Compress-Archive -Path $stage -DestinationPath "build\mdsscope-windows-x64.zip" -Force
 
-      - name: Upload release zip artifact
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
           name: mdsscope-windows-x64
           path: build/mdsscope-windows-x64.zip
 
-      - name: Upload portable app artifact
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: mdsscope-windows-x64
-          path: build/windows-package
-
   release:
     needs:
       - deb
+      - rpm
+      - linux-portable
+      - macos
       - windows
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-26.04
+    if: >-
+      ${{
+        always() &&
+        startsWith(github.ref, 'refs/tags/') &&
+        needs.deb.result == 'success' &&
+        needs.rpm.result == 'success' &&
+        needs.linux-portable.result == 'success' &&
+        needs.macos.result == 'success' &&
+        needs.windows.result == 'success'
+      }}
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Download release artifacts
@@ -172,5 +367,7 @@ jobs:
         with:
           files: |
             artifacts/*.deb
+            artifacts/*.rpm
             artifacts/*.zip
+            artifacts/*.dmg
           generate_release_notes: true

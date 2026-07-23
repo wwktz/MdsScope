@@ -3,7 +3,7 @@
 
 cmake_minimum_required(VERSION 3.16)
 
-project(MdsScope VERSION 5.9.1 LANGUAGES CXX)
+project(MdsScope VERSION 5.10 LANGUAGES CXX)
 
 execute_process(
     COMMAND git rev-parse --short=9 HEAD
@@ -72,6 +72,9 @@ find_package(Qt6 6.4 REQUIRED COMPONENTS Core Widgets Network Concurrent)
 if(UNIX AND NOT APPLE)
     find_package(Qt6 6.4 REQUIRED COMPONENTS DBus)
 endif()
+
+option(MDS_SCOPE_DEPLOY_RUNTIME "Deploy Qt runtime dependencies during installation" OFF)
+set(MDS_SCOPE_RPM_RELEASE "1" CACHE STRING "RPM release suffix")
 
 configure_file(
     "${PROJECT_SOURCE_DIR}/cmake/cmake_uninstall.cmake.in"
@@ -154,6 +157,18 @@ add_executable(transfer
 
 set_target_properties(transfer PROPERTIES AUTOMOC OFF)
 set_target_properties(MdsScope PROPERTIES WIN32_EXECUTABLE TRUE)
+
+if(WIN32)
+    set(MDS_SCOPE_WINDOWS_ICON "${PROJECT_SOURCE_DIR}/packaging/windows/mdsscope.ico")
+    configure_file(
+        "${PROJECT_SOURCE_DIR}/packaging/windows/mdsscope.rc.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/mdsscope.rc"
+        @ONLY
+    )
+    target_sources(MdsScope PRIVATE
+        "${CMAKE_CURRENT_BINARY_DIR}/mdsscope.rc"
+    )
+endif()
 
 if(APPLE)
     file(GLOB MDS_SCOPE_SOURCE_INDEX_SIGNALS CONFIGURE_DEPENDS
@@ -319,6 +334,25 @@ else()
     )
 endif()
 
+if(MDS_SCOPE_DEPLOY_RUNTIME AND APPLE)
+    if(Qt6_VERSION VERSION_LESS 6.5)
+        qt_generate_deploy_app_script(
+            TARGET MdsScope
+            FILENAME_VARIABLE MDS_SCOPE_DEPLOY_SCRIPT
+            NO_TRANSLATIONS
+            NO_UNSUPPORTED_PLATFORM_ERROR
+        )
+    else()
+        qt_generate_deploy_app_script(
+            TARGET MdsScope
+            OUTPUT_SCRIPT MDS_SCOPE_DEPLOY_SCRIPT
+            NO_TRANSLATIONS
+            NO_UNSUPPORTED_PLATFORM_ERROR
+        )
+    endif()
+    install(SCRIPT "${MDS_SCOPE_DEPLOY_SCRIPT}" COMPONENT app)
+endif()
+
 set(CPACK_PACKAGE_NAME "mdsscope")
 set(CPACK_PACKAGE_VENDOR "MdsScope")
 set(CPACK_PACKAGE_CONTACT "MdsScope Maintainers")
@@ -333,5 +367,11 @@ set(CPACK_DEBIAN_PACKAGE_SECTION "science")
 set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+
+set(CPACK_RPM_PACKAGE_LICENSE "GPL-3.0-or-later")
+set(CPACK_RPM_PACKAGE_GROUP "Applications/Engineering")
+set(CPACK_RPM_PACKAGE_RELEASE "${MDS_SCOPE_RPM_RELEASE}")
+set(CPACK_RPM_PACKAGE_AUTOREQ ON)
+set(CPACK_RPM_FILE_NAME RPM-DEFAULT)
 
 include(CPack)
