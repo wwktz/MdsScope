@@ -56,8 +56,8 @@ jobs:
 
           fedora_44='{"include":[{"arch":"x86_64","runner":"ubuntu-24.04","image":"fedora:44","package":"fedora44","release":"1.fc44"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","image":"fedora:44","package":"fedora44","release":"1.fc44"}]}'
           enterprise_9='{"include":[{"arch":"x86_64","runner":"ubuntu-24.04","image":"rockylinux:9","package":"el9","release":"1.el9"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","image":"rockylinux:9","package":"el9","release":"1.el9"}]}'
-          enterprise_10='{"include":[{"arch":"x86_64","runner":"ubuntu-24.04","image":"rockylinux:10","package":"el10","release":"1.el10"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","image":"rockylinux:10","package":"el10","release":"1.el10"}]}'
-          all_rpm='{"include":[{"arch":"x86_64","runner":"ubuntu-24.04","image":"fedora:44","package":"fedora44","release":"1.fc44"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","image":"fedora:44","package":"fedora44","release":"1.fc44"},{"arch":"x86_64","runner":"ubuntu-24.04","image":"rockylinux:9","package":"el9","release":"1.el9"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","image":"rockylinux:9","package":"el9","release":"1.el9"},{"arch":"x86_64","runner":"ubuntu-24.04","image":"rockylinux:10","package":"el10","release":"1.el10"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","image":"rockylinux:10","package":"el10","release":"1.el10"}]}'
+          enterprise_10='{"include":[{"arch":"x86_64","runner":"ubuntu-24.04","image":"rockylinux/rockylinux:10","package":"el10","release":"1.el10"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","image":"rockylinux/rockylinux:10","package":"el10","release":"1.el10"}]}'
+          all_rpm='{"include":[{"arch":"x86_64","runner":"ubuntu-24.04","image":"fedora:44","package":"fedora44","release":"1.fc44"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","image":"fedora:44","package":"fedora44","release":"1.fc44"},{"arch":"x86_64","runner":"ubuntu-24.04","image":"rockylinux:9","package":"el9","release":"1.el9"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","image":"rockylinux:9","package":"el9","release":"1.el9"},{"arch":"x86_64","runner":"ubuntu-24.04","image":"rockylinux/rockylinux:10","package":"el10","release":"1.el10"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","image":"rockylinux/rockylinux:10","package":"el10","release":"1.el10"}]}'
 
           all_linux='{"include":[{"arch":"x86_64","runner":"ubuntu-24.04"},{"arch":"aarch64","runner":"ubuntu-24.04-arm"}]}'
 
@@ -261,7 +261,8 @@ jobs:
         run: |
           cmake --install build --prefix "$PWD/build/macos-stage" --component app
           file build/macos-stage/MdsScope.app/Contents/MacOS/MdsScope
-          codesign --verify --deep --strict build/macos-stage/MdsScope.app
+          codesign --force --deep --sign - build/macos-stage/MdsScope.app
+          codesign --verify --deep --strict --verbose=2 build/macos-stage/MdsScope.app
 
       - name: Package ZIP and DMG
         run: |
