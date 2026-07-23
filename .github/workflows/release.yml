@@ -162,6 +162,12 @@ jobs:
           dnf config-manager --set-enabled crb
           dnf install -y epel-release
 
+      - name: Enable CRB 10
+        if: ${{ matrix.package == 'el10' }}
+        run: |
+          dnf install -y dnf-plugins-core
+          dnf config-manager --set-enabled crb
+
       - name: Install dependencies
         run: dnf install -y git gcc-c++ cmake ninja-build rpm-build qt6-qtbase-devel
 
