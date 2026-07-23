@@ -44,10 +44,18 @@ bool MainWindow::prepareSshUrl(const QString& source, QString* prepared)
         *prepared = source;
         return true;
     }
-    if (!cachedPreparedApiUrl_.isEmpty() && cachedApiSourceUrl_ == source) {
+    // A direct URL remains valid independently of SSH state. For a forwarded
+    // URL, let SshTunnelManager verify the endpoint-specific QProcess before
+    // reusing it: another live tunnel can keep the manager's aggregate state
+    // Connected even after this API tunnel has exited.
+    if (!cachedPreparedApiUrl_.isEmpty()
+        && cachedApiSourceUrl_ == source
+        && cachedPreparedApiUrl_ == source) {
         *prepared = cachedPreparedApiUrl_;
         return true;
     }
+    cachedApiSourceUrl_.clear();
+    cachedPreparedApiUrl_.clear();
     QString error;
     if (sshTunnelManager_->prepareUrl(source, prepared, &error)) {
         cachedApiSourceUrl_ = source;
