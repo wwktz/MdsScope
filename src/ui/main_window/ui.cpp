@@ -52,7 +52,8 @@ void MainWindow::schedulePointSync(PlotWidget* source, double x)
                     continue;
                 }
                 const int seriesIndex = plot == source ? plot->activePointSeriesIndex() : 0;
-                plot->setSyncedPointX(x, seriesIndex);
+                const bool interpolate = plot != source && !singlePanelMaximized_;
+                plot->setSyncedPointX(x, seriesIndex, interpolate);
             }
         }
     });

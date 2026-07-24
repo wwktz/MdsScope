@@ -107,6 +107,12 @@ QString pointReadoutText(const SignalSeries& series, const QPointF& point, bool 
         .arg(formatPointX(point.x(), series), QString::number(point.y(), 'g', yDigits));
 }
 
+bool sameDataX(double lhs, double rhs)
+{
+    const double scale = std::max({1.0, std::abs(lhs), std::abs(rhs)});
+    return std::abs(lhs - rhs) <= std::numeric_limits<double>::epsilon() * scale * 8.0;
+}
+
 } // namespace
 
 int PlotWidget::legendSeriesAt(const QPointF& pixelPos) const
@@ -261,6 +267,114 @@ bool PlotWidget::nearestPointForSeries(int seriesIndex,
     return true;
 }
 
+bool PlotWidget::pointForSeriesX(int seriesIndex,
+                                 double dataX,
+                                 bool interpolate,
+                                 QPointF* point,
+                                 QPointF* pixel) const
+{
+    if (!interpolate) {
+        return nearestPointForSeries(seriesIndex, dataX, nullptr, point, pixel, nullptr);
+    }
+    if (seriesIndex < 0 || seriesIndex >= series_.size()
+        || !signalVisible(spec_, seriesIndex) || !series_[seriesIndex].hasData()
+        || !std::isfinite(dataX)) {
+        return false;
+    }
+
+    const SignalSeries& series = series_[seriesIndex];
+    auto acceptPoint = [&](const QPointF& candidate) {
+        if (!std::isfinite(candidate.x()) || !std::isfinite(candidate.y())) {
+            return false;
+        }
+        if (point) {
+            *point = candidate;
+        }
+        if (pixel) {
+            *pixel = dataToPixel(candidate, effectiveView(), plotRect());
+        }
+        return true;
+    };
+    auto interpolateBetween = [&](const QPointF& left, const QPointF& right) {
+        if (sameDataX(dataX, left.x())) {
+            return acceptPoint(left);
+        }
+        if (sameDataX(dataX, right.x())) {
+            return acceptPoint(right);
+        }
+        const double dx = right.x() - left.x();
+        if (!std::isfinite(left.y()) || !std::isfinite(right.y())
+            || !std::isfinite(dx) || dx == 0.0) {
+            return false;
+        }
+        const double y = left.y() + (right.y() - left.y()) * (dataX - left.x()) / dx;
+        return acceptPoint(QPointF(dataX, y));
+    };
+    auto nearestFallback = [&] {
+        return nearestPointForSeries(seriesIndex, dataX, nullptr, point, pixel, nullptr);
+    };
+
+    if (series.hasUniformData()) {
+        const int count = series.uniformY.size();
+        if (count < 2 || !std::isfinite(series.uniformStep) || series.uniformStep == 0.0) {
+            return nearestFallback();
+        }
+        const double firstX = series.uniformStart;
+        const double lastX = series.uniformStart + static_cast<double>(count - 1) * series.uniformStep;
+        if (dataX < std::min(firstX, lastX) || dataX > std::max(firstX, lastX)) {
+            return nearestFallback();
+        }
+
+        const double logicalIndex = (dataX - series.uniformStart) / series.uniformStep;
+        const int nearestIndex = std::clamp(static_cast<int>(std::llround(logicalIndex)), 0, count - 1);
+        const QPointF nearest = series.pointAt(nearestIndex);
+        if (sameDataX(dataX, nearest.x())) {
+            return acceptPoint(nearest);
+        }
+
+        const int leftIndex = std::clamp(static_cast<int>(std::floor(logicalIndex)), 0, count - 1);
+        const int rightIndex = std::clamp(leftIndex + 1, 0, count - 1);
+        if (leftIndex == rightIndex) {
+            return nearestFallback();
+        }
+        if (interpolateBetween(series.pointAt(leftIndex), series.pointAt(rightIndex))) {
+            return true;
+        }
+        return nearestFallback();
+    }
+
+    const QVector<QPointF>& samples = series.points;
+    if (samples.size() < 2) {
+        return nearestFallback();
+    }
+    const bool ascending = samples.first().x() <= samples.last().x();
+    const double minX = std::min(samples.first().x(), samples.last().x());
+    const double maxX = std::max(samples.first().x(), samples.last().x());
+    if (dataX < minX || dataX > maxX) {
+        return nearestFallback();
+    }
+
+    auto upper = ascending
+                     ? std::lower_bound(samples.cbegin(), samples.cend(), dataX, [](const QPointF& sample, double value) {
+                           return sample.x() < value;
+                       })
+                     : std::lower_bound(samples.cbegin(), samples.cend(), dataX, [](const QPointF& sample, double value) {
+                           return sample.x() > value;
+                       });
+    if (upper != samples.cend() && sameDataX(dataX, upper->x())) {
+        return acceptPoint(*upper);
+    }
+    if (upper == samples.cbegin() || upper == samples.cend()) {
+        return nearestFallback();
+    }
+    const QPointF& left = *(upper - 1);
+    const QPointF& right = *upper;
+    if (interpolateBetween(left, right)) {
+        return true;
+    }
+    return nearestFallback();
+}
+
 int PlotWidget::nearestSeriesAtPixel(const QPointF& pixelPos, double maxDistance, QPointF* point, QPointF* pixel) const
 {
     const QRectF pr = plotRect();
@@ -382,7 +496,7 @@ bool PlotWidget::stepActivePoint(int delta)
     return changed;
 }
 
-void PlotWidget::setSyncedPointX(double x, int seriesIndex)
+void PlotWidget::setSyncedPointX(double x, int seriesIndex, bool interpolate)
 {
     if (interactionMode_ != InteractionMode::Point || !std::isfinite(x)) {
         clearSyncedPoint();
@@ -404,7 +518,7 @@ void PlotWidget::setSyncedPointX(double x, int seriesIndex)
     PointReadout next;
     QPointF point;
     QPointF pixel;
-    if (nearestPointForSeries(seriesIndex, x, nullptr, &point, &pixel, nullptr)) {
+    if (pointForSeriesX(seriesIndex, x, interpolate, &point, &pixel)) {
         next.plotRect = plotRect();
         next.pixel = pixel;
         next.data = point;

@@ -209,7 +209,7 @@ public:
     void applyYRangeKeepX(double ymin, double ymax);
     QRectF currentView() const;
     bool hasView() const { return hasView_; }
-    void setSyncedPointX(double x, int seriesIndex);
+    void setSyncedPointX(double x, int seriesIndex, bool interpolate = false);
     void clearSyncedPoint();
     void deactivatePointTracking();
     int activePointSeriesIndex() const { return hoverSeriesIndex_; }
@@ -245,6 +245,7 @@ private:
     bool updateHoverForSeriesX(int seriesIndex, double dataX, bool lockSeries);
     bool stepActivePoint(int delta);
     bool nearestPointForSeries(int seriesIndex, double dataX, const QPointF* pixelPos, QPointF* point, QPointF* pixel, double* pixelDistance) const;
+    bool pointForSeriesX(int seriesIndex, double dataX, bool interpolate, QPointF* point, QPointF* pixel) const;
     int nearestSeriesAtPixel(const QPointF& pixelPos, double maxDistance, QPointF* point, QPointF* pixel) const;
     int legendSeriesAt(const QPointF& pixelPos) const;
     void renderBasePlot(QPainter& painter) const;
