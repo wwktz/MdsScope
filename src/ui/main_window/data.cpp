@@ -46,6 +46,7 @@ QString layoutReadModeKey(const LayoutConfig& config)
     }
     return readModeKey(commonMode);
 }
+
 }
 
 
@@ -80,6 +81,8 @@ void MainWindow::refreshData()
         cancelPanelFetch();
         activeRefreshKey_.clear();
         activePanelRefreshKey_.clear();
+        activeFullRateRefreshViews_.clear();
+        activePanelRateRefreshView_ = {};
         ++activeDataFetchGeneration_;
         pendingRefresh_ = true;
         queuedRefreshKey_ = key;
@@ -89,6 +92,14 @@ void MainWindow::refreshData()
         for (auto& col : plotWidgets_) {
             for (PlotWidget* plot : col) {
                 plot->clearSeries();
+            }
+        }
+        for (auto it = queuedFullRateRefreshViews_.cbegin(); it != queuedFullRateRefreshViews_.cend(); ++it) {
+            const QStringList parts = it.key().split(',');
+            const int column = parts.value(0).toInt();
+            const int row = parts.value(1).toInt();
+            if (column < plotWidgets_.size() && row < plotWidgets_[column].size()) {
+                plotWidgets_[column][row]->applyView(it.value());
             }
         }
         attemptedSignals_.clear();
@@ -105,9 +116,19 @@ void MainWindow::refreshData()
             plot->clearSeries();
         }
     }
+    for (auto it = queuedFullRateRefreshViews_.cbegin(); it != queuedFullRateRefreshViews_.cend(); ++it) {
+        const QStringList parts = it.key().split(',');
+        const int column = parts.value(0).toInt();
+        const int row = parts.value(1).toInt();
+        if (column < plotWidgets_.size() && row < plotWidgets_[column].size()) {
+            plotWidgets_[column][row]->applyView(it.value());
+        }
+    }
     attemptedSignals_.clear();
     streamedOk_ = 0;
     streamedFailed_ = 0;
+    activeFullRateRefreshViews_ = std::move(queuedFullRateRefreshViews_);
+    queuedFullRateRefreshViews_.clear();
     launchDataFetch(displayConfig_, readMode, key);
 }
 
@@ -197,6 +218,7 @@ void MainWindow::stopDataRefresh()
     activePanelColumn_ = -1;
     activePanelRow_ = -1;
     activePanelSignals_.clear();
+    activePanelRateRefreshView_ = {};
     pendingPanelRefreshes_.clear();
     queuedLoadedSignals_.clear();
     queuedLoadedSignalApply_ = false;
@@ -244,6 +266,7 @@ void MainWindow::resumeDataRefresh()
         activePanelColumn_ = -1;
         activePanelRow_ = -1;
         activePanelSignals_.clear();
+        activePanelRateRefreshView_ = {};
         pendingPanelRefreshes_.clear();
         pendingResume_ = true;
         pendingResumeSnapshot_ = remainingSnapshot;
@@ -314,7 +337,11 @@ void MainWindow::startPendingFetchIfIdle()
     }
     if (!pendingPanelRefreshes_.isEmpty()) {
         PanelRefreshRequest request = pendingPanelRefreshes_.takeFirst();
-        refreshSignals(request.column, request.row, std::move(request.signalIndices), request.readMode);
+        refreshSignals(request.column,
+                       request.row,
+                       std::move(request.signalIndices),
+                       request.readMode,
+                       request.rateRefreshView);
         return;
     }
     maybeStartDeferredRefresh();
@@ -433,6 +460,9 @@ void MainWindow::queuePanelRefresh(PanelRefreshRequest request)
                 // already includes the latest source configuration.
                 pending.readMode = request.readMode;
                 pending.key = request.key;
+                if (request.rateRefreshView.isValid()) {
+                    pending.rateRefreshView = request.rateRefreshView;
+                }
                 return;
             }
         }
@@ -457,7 +487,11 @@ void MainWindow::refreshOne(int column, int row, int signal, DataReadMode readMo
     refreshSignals(column, row, signal >= 0 ? QVector<int>{signal} : QVector<int>{}, readMode);
 }
 
-void MainWindow::refreshSignals(int column, int row, QVector<int> signalIndices, DataReadMode readMode)
+void MainWindow::refreshSignals(int column,
+                                int row,
+                                QVector<int> signalIndices,
+                                DataReadMode readMode,
+                                const QRectF& rateRefreshView)
 {
     if (column < 0 || row < 0 || column >= config_.columns.size() || row >= config_.columns[column].size()) {
         return;
@@ -484,7 +518,7 @@ void MainWindow::refreshSignals(int column, int row, QVector<int> signalIndices,
             setStatus(QString("Panel refresh already running: col %1 row %2").arg(column + 1).arg(row + 1));
             return;
         }
-        queuePanelRefresh({column, row, signalIndices, readMode, key});
+        queuePanelRefresh({column, row, signalIndices, readMode, key, rateRefreshView});
         setStatus(QString("Panel refresh queued: col %1 row %2").arg(column + 1).arg(row + 1));
         return;
     }
@@ -518,10 +552,14 @@ void MainWindow::refreshSignals(int column, int row, QVector<int> signalIndices,
     if (!partialSignalRefresh) {
         plotWidgets_[column][row]->clearSeries();
     }
+    if (rateRefreshView.isValid() && rateRefreshView.width() > 0.0 && rateRefreshView.height() > 0.0) {
+        plotWidgets_[column][row]->applyView(rateRefreshView);
+    }
     activePanelRefreshKey_ = key;
     activePanelColumn_ = column;
     activePanelRow_ = row;
     activePanelSignals_ = signalIndices;
+    activePanelRateRefreshView_ = rateRefreshView;
     panelCancel_ = std::make_shared<std::atomic_bool>(false);
     const auto cancel = panelCancel_;
     const QString rate = layoutReadModeKey(snapshot);
@@ -604,7 +642,19 @@ void MainWindow::applyLoadedSignals(const QVector<LoadedSignal>& loaded)
         return;
     }
     activeRefreshKey_.clear();
+    const auto fitRateViews = [this] {
+        for (auto it = activeFullRateRefreshViews_.cbegin(); it != activeFullRateRefreshViews_.cend(); ++it) {
+            const QStringList parts = it.key().split(',');
+            const int column = parts.value(0).toInt();
+            const int row = parts.value(1).toInt();
+            if (column < plotWidgets_.size() && row < plotWidgets_[column].size()) {
+                plotWidgets_[column][row]->applyXRangeAutoY(it.value().left(), it.value().right());
+            }
+        }
+        activeFullRateRefreshViews_.clear();
+    };
     if (streamedOk_ + streamedFailed_ >= loaded.size()) {
+        fitRateViews();
         setStatus(QString("Data refresh done: %1 signals loaded, %2 failed").arg(streamedOk_).arg(streamedFailed_));
         return;
     }
@@ -633,6 +683,7 @@ void MainWindow::applyLoadedSignals(const QVector<LoadedSignal>& loaded)
     setStatus(QString("Data refresh done: %1 signals loaded, %2 failed")
                   .arg(streamedOk_ + ok)
                   .arg(streamedFailed_ + failed));
+    fitRateViews();
 }
 
 void MainWindow::applyPanelLoadedSignals(const QVector<LoadedSignal>& loaded)
@@ -654,6 +705,15 @@ void MainWindow::applyPanelLoadedSignals(const QVector<LoadedSignal>& loaded)
             ++failed;
         }
     }
+    if (activePanelColumn_ >= 0 && activePanelRow_ >= 0
+        && activePanelColumn_ < plotWidgets_.size()
+        && activePanelRow_ < plotWidgets_[activePanelColumn_].size()
+        && activePanelRateRefreshView_.isValid()
+        && activePanelRateRefreshView_.width() > 0.0) {
+        plotWidgets_[activePanelColumn_][activePanelRow_]->applyXRangeAutoY(
+            activePanelRateRefreshView_.left(), activePanelRateRefreshView_.right());
+    }
+    activePanelRateRefreshView_ = {};
     setStatus(QString("Panel refresh done: %1 signals loaded, %2 failed").arg(ok).arg(failed));
 }
 

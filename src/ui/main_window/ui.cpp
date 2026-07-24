@@ -189,16 +189,10 @@ void MainWindow::buildUi()
         "}");
     topLayout->addWidget(new QLabel("Rate", topControls));
     dataModeCombo_ = new QComboBox(topControls);
-    dataModeCombo_->addItem("Mixed");
     dataModeCombo_->addItem("Thin", static_cast<int>(DataReadMode::Thin));
     dataModeCombo_->addItem("Medium", static_cast<int>(DataReadMode::Medium));
     dataModeCombo_->addItem("Full", static_cast<int>(DataReadMode::Full));
     dataModeCombo_->setCurrentIndex(0);
-    if (auto* model = qobject_cast<QStandardItemModel*>(dataModeCombo_->model())) {
-        if (QStandardItem* mixedItem = model->item(0)) {
-            mixedItem->setFlags(mixedItem->flags() & ~Qt::ItemIsEnabled);
-        }
-    }
     dataModeCombo_->setFixedWidth(90);
     topLayout->addWidget(dataModeCombo_);
 
@@ -315,9 +309,20 @@ void MainWindow::buildUi()
             return;
         }
         const DataReadMode mode = static_cast<DataReadMode>(value.toInt());
+        globalRateMode_ = mode;
+        globalRateExplicitlySelected_ = true;
         bool changed = false;
-        for (QVector<PlotSpec>& column : config_.columns) {
-            for (PlotSpec& plot : column) {
+        QHash<QString, QRectF> rateRefreshViews;
+        for (int c = 0; c < config_.columns.size(); ++c) {
+            for (int r = 0; r < config_.columns[c].size(); ++r) {
+                PlotSpec& plot = config_.columns[c][r];
+                if (!plot.signalSpecs.isEmpty()
+                    && c < plotWidgets_.size() && r < plotWidgets_[c].size()) {
+                    const QRectF view = plotWidgets_[c][r]->currentView();
+                    if (view.isValid() && view.width() > 0.0 && view.height() > 0.0) {
+                        rateRefreshViews.insert(QString::number(c) + ',' + QString::number(r), view);
+                    }
+                }
                 for (SignalSpec& sig : plot.signalSpecs) {
                     if (sig.readMode != mode) {
                         sig.readMode = mode;
@@ -326,10 +331,20 @@ void MainWindow::buildUi()
                 }
             }
         }
+        queuedFullRateRefreshViews_ = rateRefreshViews;
         syncDisplayConfig();
+        for (auto it = rateRefreshViews.cbegin(); it != rateRefreshViews.cend(); ++it) {
+            const QStringList parts = it.key().split(',');
+            const int c = parts.value(0).toInt();
+            const int r = parts.value(1).toInt();
+            if (c < plotWidgets_.size() && r < plotWidgets_[c].size()) {
+                plotWidgets_[c][r]->applyView(it.value());
+            }
+        }
         if (changed) {
             refreshData();
         } else {
+            queuedFullRateRefreshViews_.clear();
             setStatus(QString("Global Rate unchanged: %1").arg(dataModeCombo_->currentText()));
         }
     });
@@ -364,9 +379,13 @@ void MainWindow::updateGlobalRateControl()
         }
     }
 
-    const int index = found && !mixed
-                          ? dataModeCombo_->findData(static_cast<int>(commonMode))
-                          : dataModeCombo_->findText(QStringLiteral("Mixed"));
+    // Before the user makes a global choice, a uniform environment can provide
+    // a useful initial value. Once chosen globally, panel/source overrides must
+    // not turn this control into an aggregate status indicator.
+    if (!globalRateExplicitlySelected_ && found && !mixed) {
+        globalRateMode_ = commonMode;
+    }
+    const int index = dataModeCombo_->findData(static_cast<int>(globalRateMode_));
     QSignalBlocker blocker(dataModeCombo_);
     dataModeCombo_->setCurrentIndex(index >= 0 ? index : 0);
 }
@@ -433,6 +452,7 @@ void MainWindow::showPanelContextMenu(PlotWidget* plot, int column, int row, con
         const DataReadMode mode = chosen == fullRateAction ? DataReadMode::Full
                                   : chosen == mediumRateAction ? DataReadMode::Medium
                                                                : DataReadMode::Thin;
+        const QRectF rateRefreshView = plot->currentView();
         PlotSpec& panel = config_.columns[column][row];
         QVector<int> changedSignals;
         for (int i = 0; i < panel.signalSpecs.size(); ++i) {
@@ -446,11 +466,14 @@ void MainWindow::showPanelContextMenu(PlotWidget* plot, int column, int row, con
             return;
         }
         syncDisplayConfig();
+        if (rateRefreshView.isValid() && rateRefreshView.width() > 0.0 && rateRefreshView.height() > 0.0) {
+            plot->applyView(rateRefreshView);
+        }
         if (displayConfig_.columns[column][row].signalSpecs.size() == panel.signalSpecs.size()) {
-            refreshSignals(column, row, std::move(changedSignals), mode);
+            refreshSignals(column, row, std::move(changedSignals), mode, rateRefreshView);
         } else {
             // Expanded shot expressions do not have a one-to-one source index.
-            refreshOne(column, row, -1, mode);
+            refreshSignals(column, row, {}, mode, rateRefreshView);
         }
     } else if (chosen == exportDataAction) {
         exportCurrentPanelData();

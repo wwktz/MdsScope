@@ -14,6 +14,29 @@ struct PreservedPanelData {
     bool hasView = false;
     QRectF view;
 };
+
+bool signalDataSourceEqualIgnoringRate(const SignalSpec& lhs, const SignalSpec& rhs)
+{
+    return lhs.shot == rhs.shot
+           && lhs.yExpr == rhs.yExpr
+           && lhs.xExpr == rhs.xExpr
+           && lhs.experiment == rhs.experiment
+           && lhs.serverIp == rhs.serverIp
+           && lhs.hidden == rhs.hidden;
+}
+
+bool signalDataSourcesEqualIgnoringRate(const QVector<SignalSpec>& lhs, const QVector<SignalSpec>& rhs)
+{
+    if (lhs.size() != rhs.size()) {
+        return false;
+    }
+    for (int i = 0; i < lhs.size(); ++i) {
+        if (!signalDataSourceEqualIgnoringRate(lhs[i], rhs[i])) {
+            return false;
+        }
+    }
+    return true;
+}
 }
 
 void MainWindow::rebuildGrid()
@@ -452,6 +475,8 @@ void MainWindow::dataSourceSetupForCurrentPanel()
 
     const QVector<SignalSpec> previousSpecs = plot.signalSpecs;
     const bool dataSourceChanged = !signalDataSourcesEqual(previousSpecs, specs);
+    const bool rateOnlyDataChange = dataSourceChanged
+                                    && signalDataSourcesEqualIgnoringRate(previousSpecs, specs);
     const bool specChanged = !signalSpecsEqual(plot.signalSpecs, specs);
     if (!specChanged) {
         setStatus(QString("Panel unchanged: col %1 row %2").arg(selectedColumn_ + 1).arg(selectedRow_ + 1));
@@ -460,7 +485,7 @@ void MainWindow::dataSourceSetupForCurrentPanel()
     plot.signalSpecs = std::move(specs);
     normalizePresetColors(plot.signalSpecs);
     plot.title = plot.signalSpecs.front().yExpr;
-    if (dataSourceChanged) {
+    if (dataSourceChanged && !rateOnlyDataChange) {
         plot.customXRange = false;
         plot.customYRange = false;
         plot.xmin = qQNaN();
@@ -470,7 +495,7 @@ void MainWindow::dataSourceSetupForCurrentPanel()
     }
 
     PlotWidget* widget = plotWidgets_[selectedColumn_][selectedRow_];
-    const bool restoreView = !dataSourceChanged && widget->hasView();
+    const bool restoreView = (!dataSourceChanged || rateOnlyDataChange) && widget->hasView();
     const QRectF previousView = restoreView ? widget->currentView() : QRectF();
     syncDisplayConfig();
     if (restoreView) {
@@ -495,9 +520,17 @@ void MainWindow::dataSourceSetupForCurrentPanel()
             }
         }
         if (stableSignalSlots && !changedSignals.isEmpty()) {
-            refreshSignals(selectedColumn_, selectedRow_, std::move(changedSignals), DataReadMode::Thin);
+            refreshSignals(selectedColumn_,
+                           selectedRow_,
+                           std::move(changedSignals),
+                           DataReadMode::Thin,
+                           rateOnlyDataChange ? previousView : QRectF());
         } else {
-            refreshOne(selectedColumn_, selectedRow_, -1);
+            refreshSignals(selectedColumn_,
+                           selectedRow_,
+                           {},
+                           DataReadMode::Thin,
+                           rateOnlyDataChange ? previousView : QRectF());
         }
     } else {
         setStatus(QString("Updated panel style: col %1 row %2").arg(selectedColumn_ + 1).arg(selectedRow_ + 1));

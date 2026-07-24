@@ -146,6 +146,7 @@ struct PanelRefreshRequest {
     QVector<int> signalIndices; // Empty means every signal in the panel.
     DataReadMode readMode = DataReadMode::Thin;
     QString key;
+    QRectF rateRefreshView;
 };
 
 struct PointReadout {
@@ -377,7 +378,11 @@ private:
     QString panelRefreshKey(int column, int row, const QVector<int>& signalIndices, DataReadMode readMode) const;
     void refreshOne(int column, int row, int signal);
     void refreshOne(int column, int row, int signal, DataReadMode readMode);
-    void refreshSignals(int column, int row, QVector<int> signalIndices, DataReadMode readMode);
+    void refreshSignals(int column,
+                        int row,
+                        QVector<int> signalIndices,
+                        DataReadMode readMode,
+                        const QRectF& rateRefreshView = {});
     void queuePanelRefresh(PanelRefreshRequest request);
     void queueLoadedSignal(LoadedSignal item);
     void flushQueuedLoadedSignals();
@@ -450,6 +455,8 @@ private:
     QComboBox* shotCombo_ = nullptr;
     QLineEdit* shotEdit_ = nullptr;
     QComboBox* dataModeCombo_ = nullptr;
+    DataReadMode globalRateMode_ = DataReadMode::Thin;
+    bool globalRateExplicitlySelected_ = false;
     QAction* loginAction_ = nullptr;
     QAction* sshAction_ = nullptr;
     SshTunnelManager* sshTunnelManager_ = nullptr;
@@ -488,6 +495,9 @@ private:
     int activePanelColumn_ = -1;
     int activePanelRow_ = -1;
     QVector<int> activePanelSignals_;
+    QRectF activePanelRateRefreshView_;
+    QHash<QString, QRectF> queuedFullRateRefreshViews_;
+    QHash<QString, QRectF> activeFullRateRefreshViews_;
     int streamedOk_ = 0;
     int streamedFailed_ = 0;
     QVector<LoadedSignal> queuedLoadedSignals_;

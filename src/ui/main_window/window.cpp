@@ -35,6 +35,7 @@ MainWindow::MainWindow(QString rootPath, QWidget* parent)
         activePanelColumn_ = -1;
         activePanelRow_ = -1;
         activePanelSignals_.clear();
+        activePanelRateRefreshView_ = {};
         startPendingFetchIfIdle();
     });
     connect(&warmWatcher_, &QFutureWatcher<void>::finished, this, [this] {
