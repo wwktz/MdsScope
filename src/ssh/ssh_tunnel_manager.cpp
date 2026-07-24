@@ -182,15 +182,28 @@ QStringList SshTunnelManager::commonArguments(const SshSettings& settings, bool 
 
 void SshTunnelManager::configureAskPass(QProcess* process, const SshSettings& settings)
 {
-    if (!process || settings.password.isEmpty()) {
+    if (!process) {
         return;
     }
     QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
-    environment.insert(QStringLiteral("SSH_ASKPASS"), QCoreApplication::applicationFilePath());
-    environment.insert(QStringLiteral("SSH_ASKPASS_REQUIRE"), QStringLiteral("force"));
-    environment.insert(QStringLiteral("MDSSCOPE_SSH_ASKPASS"), QStringLiteral("1"));
-    if (!environment.contains(QStringLiteral("DISPLAY"))) {
-        environment.insert(QStringLiteral("DISPLAY"), QStringLiteral(":0"));
+    if (environment.contains(QStringLiteral("MDSSCOPE_PORTABLE_ROOT"))) {
+        environment.remove(QStringLiteral("LD_LIBRARY_PATH"));
+        environment.remove(QStringLiteral("QT_PLUGIN_PATH"));
+        environment.remove(QStringLiteral("QT_QPA_PLATFORM_PLUGIN_PATH"));
+        environment.remove(QStringLiteral("GIO_MODULE_DIR"));
+        environment.remove(QStringLiteral("GIO_EXTRA_MODULES"));
+        environment.remove(QStringLiteral("GIO_USE_VFS"));
+    }
+    if (!settings.password.isEmpty()) {
+        const QString portableLauncher = environment.value(QStringLiteral("MDSSCOPE_PORTABLE_LAUNCHER"));
+        environment.insert(QStringLiteral("SSH_ASKPASS"),
+                           portableLauncher.isEmpty() ? QCoreApplication::applicationFilePath()
+                                                      : portableLauncher);
+        environment.insert(QStringLiteral("SSH_ASKPASS_REQUIRE"), QStringLiteral("force"));
+        environment.insert(QStringLiteral("MDSSCOPE_SSH_ASKPASS"), QStringLiteral("1"));
+        if (!environment.contains(QStringLiteral("DISPLAY"))) {
+            environment.insert(QStringLiteral("DISPLAY"), QStringLiteral(":0"));
+        }
     }
     process->setProcessEnvironment(environment);
 }

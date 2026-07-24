@@ -554,6 +554,14 @@ QDir runtimeRootDir()
         return {};
     };
 
+    const QString configuredRoot = qEnvironmentVariable("MDSSCOPE_RESOURCE_ROOT");
+    if (!configuredRoot.isEmpty()) {
+        const QString resourceRoot = runtimeResourceRootPath(QDir(configuredRoot));
+        if (!resourceRoot.isEmpty()) {
+            return QDir(resourceRoot);
+        }
+    }
+
     QDir dir(QCoreApplication::applicationDirPath());
 #if defined(Q_OS_MACOS) || defined(Q_OS_MAC)
     QDir bundleResources(dir);
