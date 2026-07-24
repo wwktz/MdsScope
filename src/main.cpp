@@ -27,6 +27,10 @@
 #include <QThreadPool>
 #include <QTimer>
 
+#ifdef Q_OS_WIN
+#include <shobjidl.h>
+#endif
+
 #include <algorithm>
 
 namespace {
@@ -661,6 +665,12 @@ int main(int argc, char* argv[])
         }
         return 1;
     }
+#ifdef Q_OS_WIN
+    // Give the portable executable a stable taskbar identity. This must be set
+    // before QApplication creates any windows so Windows can pin and relaunch
+    // the running application from its taskbar button.
+    SetCurrentProcessExplicitAppUserModelID(L"MdsScope.MdsScope");
+#endif
     QApplication::setApplicationName("mdsscope");
     QApplication::setApplicationDisplayName("MdsScope");
     QApplication::setApplicationVersion(QStringLiteral(MDSSCOPE_VERSION));

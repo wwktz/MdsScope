@@ -3,7 +3,7 @@
 
 cmake_minimum_required(VERSION 3.16)
 
-project(MdsScope VERSION 5.10 LANGUAGES CXX)
+project(MdsScope VERSION 5.10.1 LANGUAGES CXX)
 
 execute_process(
     COMMAND git rev-parse --short=9 HEAD
@@ -168,6 +168,7 @@ if(WIN32)
     target_sources(MdsScope PRIVATE
         "${CMAKE_CURRENT_BINARY_DIR}/mdsscope.rc"
     )
+    target_link_libraries(MdsScope PRIVATE Shell32)
 endif()
 
 if(APPLE)
