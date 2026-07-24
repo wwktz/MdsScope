@@ -28,10 +28,14 @@
 #include <QTimer>
 
 #ifdef Q_OS_WIN
+#include <propkey.h>
+#include <propsys.h>
+#include <shellapi.h>
 #include <shobjidl.h>
 #endif
 
 #include <algorithm>
+#include <string>
 
 namespace {
 class SystemThemeWatcher;
@@ -628,6 +632,44 @@ bool ensureApiLoginBeforeMain(const QString& rootPath)
     const int result = dialog.exec();
     return result == QDialog::Accepted || result == LoginDialog::Skipped;
 }
+
+#ifdef Q_OS_WIN
+HRESULT setWindowStringProperty(IPropertyStore* store,
+                                REFPROPERTYKEY key,
+                                const QString& text)
+{
+    const std::wstring nativeText = text.toStdWString();
+    PROPVARIANT value{};
+    value.vt = VT_LPWSTR;
+    value.pwszVal = const_cast<wchar_t*>(nativeText.c_str());
+    return store->SetValue(key, value);
+}
+
+void configureWindowsTaskbarProperties(HWND window)
+{
+    IPropertyStore* store = nullptr;
+    if (FAILED(SHGetPropertyStoreForWindow(window, IID_PPV_ARGS(&store)))) {
+        return;
+    }
+
+    const QString executable = QDir::toNativeSeparators(QCoreApplication::applicationFilePath());
+    const QString relaunchCommand = QStringLiteral("\"%1\"").arg(executable);
+    const HRESULT commandResult = setWindowStringProperty(
+        store, PKEY_AppUserModel_RelaunchCommand, relaunchCommand);
+    const HRESULT nameResult = setWindowStringProperty(
+        store, PKEY_AppUserModel_RelaunchDisplayNameResource, QStringLiteral("MdsScope"));
+
+    if (SUCCEEDED(commandResult) && SUCCEEDED(nameResult)) {
+        setWindowStringProperty(
+            store, PKEY_AppUserModel_RelaunchIconResource, executable + QStringLiteral(",0"));
+        // Set the ID last: this notifies the taskbar after all relaunch
+        // information needed to create a pinned shortcut is already present.
+        setWindowStringProperty(
+            store, PKEY_AppUserModel_ID, QStringLiteral("MdsScope.MdsScope"));
+    }
+    store->Release();
+}
+#endif
 }
 
 ThemeMode mdsScopeThemeMode()
@@ -746,6 +788,9 @@ int main(int argc, char* argv[])
     {
         MainWindow window(workDir.absolutePath());
         window.resize(1440, 920);
+#ifdef Q_OS_WIN
+        configureWindowsTaskbarProperties(reinterpret_cast<HWND>(window.winId()));
+#endif
         window.show();
         code = app.exec();
     }
