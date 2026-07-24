@@ -30,6 +30,7 @@
 #ifdef Q_OS_WIN
 #include <windows.h>
 #include <shellapi.h>
+#include <shlobj.h>
 #include <shobjidl.h>
 #include <propsys.h>
 #include <propkey.h>
@@ -635,9 +636,9 @@ bool ensureApiLoginBeforeMain(const QString& rootPath)
 }
 
 #ifdef Q_OS_WIN
-HRESULT setWindowStringProperty(IPropertyStore* store,
-                                REFPROPERTYKEY key,
-                                const QString& text)
+HRESULT setStringProperty(IPropertyStore* store,
+                          REFPROPERTYKEY key,
+                          const QString& text)
 {
     const std::wstring nativeText = text.toStdWString();
     PROPVARIANT value{};
@@ -646,29 +647,90 @@ HRESULT setWindowStringProperty(IPropertyStore* store,
     return store->SetValue(key, value);
 }
 
-void configureWindowsTaskbarProperties(HWND window)
+HRESULT createWindowsStartMenuShortcut()
 {
-    IPropertyStore* store = nullptr;
-    if (FAILED(SHGetPropertyStoreForWindow(window, IID_PPV_ARGS(&store)))) {
-        return;
+    PWSTR programsPath = nullptr;
+    HRESULT result = SHGetKnownFolderPath(FOLDERID_Programs, KF_FLAG_CREATE, nullptr, &programsPath);
+    if (FAILED(result)) {
+        return result;
     }
 
     const QString executable = QDir::toNativeSeparators(QCoreApplication::applicationFilePath());
-    const QString relaunchCommand = QStringLiteral("\"%1\"").arg(executable);
-    const HRESULT commandResult = setWindowStringProperty(
-        store, PKEY_AppUserModel_RelaunchCommand, relaunchCommand);
-    const HRESULT nameResult = setWindowStringProperty(
-        store, PKEY_AppUserModel_RelaunchDisplayNameResource, QStringLiteral("MdsScope"));
+    const QString shortcutPath = QDir(QString::fromWCharArray(programsPath))
+                                     .filePath(QStringLiteral("MdsScope.lnk"));
+    CoTaskMemFree(programsPath);
 
-    if (SUCCEEDED(commandResult) && SUCCEEDED(nameResult)) {
-        setWindowStringProperty(
-            store, PKEY_AppUserModel_RelaunchIconResource, executable + QStringLiteral(",0"));
-        // Set the ID last: this notifies the taskbar after all relaunch
-        // information needed to create a pinned shortcut is already present.
-        setWindowStringProperty(
-            store, PKEY_AppUserModel_ID, QStringLiteral("MdsScope.MdsScope"));
+    IShellLinkW* link = nullptr;
+    result = CoCreateInstance(CLSID_ShellLink,
+                              nullptr,
+                              CLSCTX_INPROC_SERVER,
+                              IID_PPV_ARGS(&link));
+    if (FAILED(result)) {
+        return result;
     }
-    store->Release();
+
+    const std::wstring executablePath = executable.toStdWString();
+    const std::wstring workingDirectory =
+        QDir::toNativeSeparators(QCoreApplication::applicationDirPath()).toStdWString();
+    result = link->SetPath(executablePath.c_str());
+    if (SUCCEEDED(result)) {
+        result = link->SetWorkingDirectory(workingDirectory.c_str());
+    }
+    if (SUCCEEDED(result)) {
+        result = link->SetDescription(L"MdsScope");
+    }
+    if (SUCCEEDED(result)) {
+        result = link->SetIconLocation(executablePath.c_str(), 0);
+    }
+
+    IPropertyStore* properties = nullptr;
+    if (SUCCEEDED(result)) {
+        result = link->QueryInterface(IID_PPV_ARGS(&properties));
+    }
+    if (SUCCEEDED(result)) {
+        result = setStringProperty(
+            properties, PKEY_AppUserModel_ID, QStringLiteral("MdsScope.MdsScope"));
+    }
+    if (SUCCEEDED(result)) {
+        result = properties->Commit();
+    }
+    if (properties) {
+        properties->Release();
+    }
+
+    IPersistFile* persistFile = nullptr;
+    if (SUCCEEDED(result)) {
+        result = link->QueryInterface(IID_PPV_ARGS(&persistFile));
+    }
+    if (SUCCEEDED(result)) {
+        const std::wstring nativeShortcutPath =
+            QDir::toNativeSeparators(shortcutPath).toStdWString();
+        result = persistFile->Save(nativeShortcutPath.c_str(), TRUE);
+        if (SUCCEEDED(result)) {
+            SHChangeNotify(SHCNE_UPDATEITEM,
+                           SHCNF_PATHW,
+                           nativeShortcutPath.c_str(),
+                           nullptr);
+        }
+    }
+    if (persistFile) {
+        persistFile->Release();
+    }
+    link->Release();
+    return result;
+}
+
+void ensureWindowsStartMenuShortcut()
+{
+    const HRESULT initializeResult =
+        CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    if (FAILED(initializeResult) && initializeResult != RPC_E_CHANGED_MODE) {
+        return;
+    }
+    createWindowsStartMenuShortcut();
+    if (SUCCEEDED(initializeResult)) {
+        CoUninitialize();
+    }
 }
 #endif
 }
@@ -723,6 +785,9 @@ int main(int argc, char* argv[])
     QApplication::setOrganizationName("MdsScope");
     QApplication app(argc, argv);
     QApplication::setWindowIcon(appIcon());
+#ifdef Q_OS_WIN
+    ensureWindowsStartMenuShortcut();
+#endif
     SystemThemeWatcher themeWatcher(app);
     QThreadPool::globalInstance()->setMaxThreadCount(16);
     QThreadPool::globalInstance()->setExpiryTimeout(300000);
@@ -789,9 +854,6 @@ int main(int argc, char* argv[])
     {
         MainWindow window(workDir.absolutePath());
         window.resize(1440, 920);
-#ifdef Q_OS_WIN
-        configureWindowsTaskbarProperties(reinterpret_cast<HWND>(window.winId()));
-#endif
         window.show();
         code = app.exec();
     }

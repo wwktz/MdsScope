@@ -169,7 +169,7 @@ if(WIN32)
     target_sources(MdsScope PRIVATE
         "${CMAKE_CURRENT_BINARY_DIR}/mdsscope.rc"
     )
-    target_link_libraries(MdsScope PRIVATE Shell32 Propsys)
+    target_link_libraries(MdsScope PRIVATE Shell32 Propsys Ole32 Uuid)
 endif()
 
 if(APPLE)
