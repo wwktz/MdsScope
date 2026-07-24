@@ -1,6 +1,10 @@
 #!/bin/sh
 
 package_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-export LD_LIBRARY_PATH="${package_dir}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
-export QT_PLUGIN_PATH="${package_dir}/plugins${QT_PLUGIN_PATH:+:${QT_PLUGIN_PATH}}"
+export LD_LIBRARY_PATH="${package_dir}/lib"
+export QT_PLUGIN_PATH="${package_dir}/plugins"
+export QT_QPA_PLATFORM_PLUGIN_PATH="${package_dir}/plugins/platforms"
+export GIO_MODULE_DIR="${package_dir}/gio-modules"
+export GIO_USE_VFS=local
+unset GIO_EXTRA_MODULES
 exec "${package_dir}/bin/transfer" "$@"
