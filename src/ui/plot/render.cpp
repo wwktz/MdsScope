@@ -237,6 +237,13 @@ void PlotWidget::drawSyncedPoint(QPainter& painter) const
                      QPointF(syncedPoint_.pixel.x(), syncedPoint_.plotRect.bottom()));
     painter.drawLine(QPointF(syncedPoint_.plotRect.left(), syncedPoint_.pixel.y()),
                      QPointF(syncedPoint_.plotRect.right(), syncedPoint_.pixel.y()));
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setPen(QPen(syncedPoint_.color, 2.0));
+    painter.setBrush(Qt::NoBrush);
+    painter.drawEllipse(QRectF(syncedPoint_.pixel.x() - 6.0,
+                               syncedPoint_.pixel.y() - 6.0,
+                               12.0,
+                               12.0));
     if (syncedPoint_.showText && !syncedPoint_.text.isEmpty()) {
         const QFont pointFont = pointReadoutFont(font());
         painter.setFont(pointFont);
