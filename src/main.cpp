@@ -28,10 +28,11 @@
 #include <QTimer>
 
 #ifdef Q_OS_WIN
-#include <propkey.h>
-#include <propsys.h>
+#include <windows.h>
 #include <shellapi.h>
 #include <shobjidl.h>
+#include <propsys.h>
+#include <propkey.h>
 #endif
 
 #include <algorithm>
