@@ -197,10 +197,25 @@ private:
         row->signalCompleter = makeCompleter(row->signalModel, row->signal);
         row->reverseTreePopup = new QListWidget(this);
         row->reverseTreePopup->setObjectName(QStringLiteral("reverseTreePopup"));
+        row->reverseTreePopup->setWindowFlags(Qt::ToolTip
+                                              | Qt::FramelessWindowHint
+                                              | Qt::WindowDoesNotAcceptFocus);
+        row->reverseTreePopup->setAttribute(Qt::WA_ShowWithoutActivating, true);
         row->reverseTreePopup->setFocusPolicy(Qt::NoFocus);
         row->reverseTreePopup->viewport()->setFocusPolicy(Qt::NoFocus);
         row->reverseTreePopup->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-        row->reverseTreePopup->setSelectionMode(QAbstractItemView::NoSelection);
+        row->reverseTreePopup->setSelectionMode(QAbstractItemView::SingleSelection);
+        row->reverseTreePopup->setSelectionBehavior(QAbstractItemView::SelectRows);
+        row->reverseTreePopup->setMouseTracking(true);
+        row->reverseTreePopup->viewport()->setMouseTracking(true);
+        row->reverseTreePopup->setAttribute(Qt::WA_Hover, true);
+        row->reverseTreePopup->viewport()->setAttribute(Qt::WA_Hover, true);
+        row->reverseTreePopup->setStyleSheet(
+            "QListWidget { outline: 0; }"
+            "QListWidget::item { padding: 2px 6px; }"
+            "QListWidget::item:hover, QListWidget::item:selected {"
+            " background: palette(highlight); color: palette(highlighted-text);"
+            "}");
         row->reverseTreePopup->hide();
         row->colorButton = new QPushButton(rowsHost_);
         row->hidden = new QCheckBox(rowsHost_);
@@ -261,6 +276,14 @@ private:
             }
             row->tree->setText(item->text());
             row->reverseTreePopup->hide();
+            if (row->signal) {
+                row->signal->setFocus(Qt::OtherFocusReason);
+            }
+        });
+        connect(row->reverseTreePopup, &QListWidget::itemEntered, this, [row](QListWidgetItem* item) {
+            if (row && row->reverseTreePopup && item) {
+                row->reverseTreePopup->setCurrentItem(item);
+            }
         });
         connect(row->deleteButton, &QPushButton::clicked, this, [row] {
             row->deleted = true;
@@ -526,6 +549,9 @@ private:
             row->reverseTreePopup->clear();
             row->reverseTreePopup->addItems(trees);
         }
+        if (row->reverseTreePopup->count() > 0 && !row->reverseTreePopup->currentItem()) {
+            row->reverseTreePopup->setCurrentRow(0);
+        }
 
         const QFontMetrics fm(row->reverseTreePopup->font());
         int popupWidth = row->tree->width();
@@ -535,7 +561,7 @@ private:
         const int visibleRows = std::min(8, static_cast<int>(trees.size()));
         const int rowHeight = std::max(fm.height() + 8, row->reverseTreePopup->sizeHintForRow(0));
         row->reverseTreePopup->resize(popupWidth, visibleRows * rowHeight + 4);
-        row->reverseTreePopup->move(row->tree->mapTo(this, QPoint(0, row->tree->height())));
+        row->reverseTreePopup->move(row->tree->mapToGlobal(QPoint(0, row->tree->height())));
         row->reverseTreePopup->show();
         row->reverseTreePopup->raise();
     }
@@ -599,6 +625,20 @@ private:
         }
         if (row->signalModel->stringList() != suggestions) {
             row->signalModel->setStringList(suggestions);
+        }
+        QString exactCandidate;
+        if (suggestions.size() == 1) {
+            exactCandidate = suggestions.front().toLower();
+            if (exactCandidate.startsWith('\\')) {
+                exactCandidate.remove(0, 1);
+            }
+        }
+        const bool uniqueExactMatch = exactCandidate == needle;
+        if (uniqueExactMatch) {
+            if (row->signalCompleter && row->signalCompleter->popup()) {
+                row->signalCompleter->popup()->hide();
+            }
+            return;
         }
         if (!row->signalCompleter || !row->signal->hasFocus()) {
             return;
