@@ -12,7 +12,7 @@ configuration, MDSIP defaults, login flow, and HTTP metadata API target EAST.
 
 - Load TOML and WebScope-style `.webscp` environment files.
 - Plot multiple synchronized MDSplus signal panels.
-- Three sampling quality modes: **thin** (fast preview), **medium** (high-resolution), and **full** (complete data).
+- Three sampling quality modes: **thin** (saved EAST preview when available), **medium** (0.1 ms server-side average), and **full** (complete data).
 - Apply single-shot or batch-shot expressions globally.
 - Use EAST HTTP metadata for latest shot and top-bar shot summary.
 - Run on Linux, macOS, and Windows.
@@ -21,13 +21,25 @@ configuration, MDSIP defaults, login flow, and HTTP metadata API target EAST.
 
 MdsScope offers three data sampling modes to balance speed and precision:
 
-- **Thin** (default): Fast preview mode for quick trend visualization.
+- **Thin**: Uses the prepared EAST `_s` signal when it is available. If no
+  saved signal exists, it falls back to the Medium strategy.
 
-- **Medium**: Higher-resolution sampled mode using real measured values. Recommended when spike amplitude matters.
+- **Medium**: Requests an approximately `0.1 ms` Average STC result from the
+  EAST server. If the original signal is less dense than `0.1 ms`, its native
+  resolution is retained instead of being interpolated.
 
 - **Full**: Reads all raw data with no sampling. Use for detailed analysis of specific time ranges.
 
-The mode can be set globally via the top toolbar dropdown, or overridden per signal in the source setup dialog. When zoomed to small time ranges, the application automatically uses full precision regardless of the selected mode.
+The current mode can be set globally with the top toolbar dropdown, per panel
+from the panel context menu, or per signal in the source setup dialog. The
+effective mode is the higher of the global mode and a signal's saved TOML mode.
+
+The global dropdown starts with the saved startup default. To change that
+default, first select the desired Rate, then right-click the Rate control and
+choose **Set Default**. Applying the startup default while opening a
+configuration does not modify the file. Later user-initiated global, panel, or
+source Rate changes are written to the current TOML file. Legacy `.webscp`
+files do not store Rate settings.
 
 ## Requirements
 
@@ -227,7 +239,9 @@ expressions:
 
 Useful signal options include `shot`, `hidden = true`, and
 `read_mode = "medium"` or `read_mode = "full"` for per-signal data mode
-overrides.
+overrides. Omitting `read_mode` means Thin at the source level; a higher saved
+startup/global Rate can still raise the effective read mode without rewriting
+the TOML file.
 
 Convert legacy `.webscp` files with `transfer`:
 

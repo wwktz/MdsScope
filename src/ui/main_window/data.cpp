@@ -25,7 +25,7 @@ QString readModeKey(DataReadMode readMode)
     return QStringLiteral("thin");
 }
 
-QString layoutReadModeKey(const LayoutConfig& config)
+QString layoutReadModeKey(const LayoutConfig& config, DataReadMode globalMode)
 {
     bool found = false;
     DataReadMode commonMode = DataReadMode::Thin;
@@ -35,10 +35,12 @@ QString layoutReadModeKey(const LayoutConfig& config)
                 if (sig.hidden) {
                     continue;
                 }
+                const DataReadMode effectiveMode =
+                    effectiveSignalReadMode(globalMode, sig);
                 if (!found) {
-                    commonMode = sig.readMode;
+                    commonMode = effectiveMode;
                     found = true;
-                } else if (sig.readMode != commonMode) {
+                } else if (effectiveMode != commonMode) {
                     return QStringLiteral("mixed");
                 }
             }
@@ -68,9 +70,9 @@ void MainWindow::refreshData()
     // read mode may have changed, so resuming the old fetch no longer applies.
     clearDataPause();
     syncDisplayConfig();
-    // UI rate actions write the exact current mode into each SignalSpec. Thin
-    // is only the fetch API's neutral floor, so it cannot override a source.
-    const DataReadMode readMode = DataReadMode::Thin;
+    // The startup/global Rate is a non-destructive floor. A higher per-source
+    // TOML mode still wins in effectiveSignalReadMode().
+    const DataReadMode readMode = globalRateMode_;
     const QString key = refreshKey(readMode);
     if (runningDataFetches_ > 0 || panelWatcher_.isRunning()) {
         if (key == activeRefreshKey_ || key == queuedRefreshKey_) {
@@ -146,7 +148,8 @@ void MainWindow::launchDataFetch(const LayoutConfig& snapshot, DataReadMode read
     const int generation = ++activeDataFetchGeneration_;
     dataCancel_ = std::make_shared<std::atomic_bool>(false);
     const auto cancel = dataCancel_;
-    setStatus(QString("Fetching MDS data (%1)...").arg(layoutReadModeKey(snapshot)));
+    setStatus(QString("Fetching MDS data (%1)...")
+                  .arg(layoutReadModeKey(snapshot, readMode)));
     auto* watcher = new QFutureWatcher<QVector<LoadedSignal>>(this);
     ++runningDataFetches_;
     connect(watcher, &QFutureWatcher<QVector<LoadedSignal>>::finished, this, [this, watcher, key, generation] {
@@ -479,7 +482,7 @@ void MainWindow::queuePanelRefresh(PanelRefreshRequest request)
 
 void MainWindow::refreshOne(int column, int row, int signal)
 {
-    refreshOne(column, row, signal, DataReadMode::Thin);
+    refreshOne(column, row, signal, globalRateMode_);
 }
 
 void MainWindow::refreshOne(int column, int row, int signal, DataReadMode readMode)
@@ -562,7 +565,7 @@ void MainWindow::refreshSignals(int column,
     activePanelRateRefreshView_ = rateRefreshView;
     panelCancel_ = std::make_shared<std::atomic_bool>(false);
     const auto cancel = panelCancel_;
-    const QString rate = layoutReadModeKey(snapshot);
+    const QString rate = layoutReadModeKey(snapshot, readMode);
     setStatus(partialSignalRefresh
                   ? QString("Fetching signal data (%1): col %2 row %3, %4 source(s)")
                         .arg(rate).arg(column + 1).arg(row + 1).arg(signalIndices.size())

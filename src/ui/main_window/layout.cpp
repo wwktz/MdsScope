@@ -474,6 +474,14 @@ void MainWindow::dataSourceSetupForCurrentPanel()
     }
 
     const QVector<SignalSpec> previousSpecs = plot.signalSpecs;
+    const bool rateChanged =
+        previousSpecs.size() == specs.size()
+        && !std::equal(previousSpecs.cbegin(),
+                       previousSpecs.cend(),
+                       specs.cbegin(),
+                       [](const SignalSpec& previous, const SignalSpec& current) {
+                           return previous.readMode == current.readMode;
+                       });
     const bool dataSourceChanged = !signalDataSourcesEqual(previousSpecs, specs);
     const bool rateOnlyDataChange = dataSourceChanged
                                     && signalDataSourcesEqualIgnoringRate(previousSpecs, specs);
@@ -498,6 +506,9 @@ void MainWindow::dataSourceSetupForCurrentPanel()
     const bool restoreView = (!dataSourceChanged || rateOnlyDataChange) && widget->hasView();
     const QRectF previousView = restoreView ? widget->currentView() : QRectF();
     syncDisplayConfig();
+    if (rateChanged) {
+        saveRateChangesToCurrentToml();
+    }
     if (restoreView) {
         widget->applyView(previousView);
     }
@@ -523,13 +534,13 @@ void MainWindow::dataSourceSetupForCurrentPanel()
             refreshSignals(selectedColumn_,
                            selectedRow_,
                            std::move(changedSignals),
-                           DataReadMode::Thin,
+                           globalRateMode_,
                            rateOnlyDataChange ? previousView : QRectF());
         } else {
             refreshSignals(selectedColumn_,
                            selectedRow_,
                            {},
-                           DataReadMode::Thin,
+                           globalRateMode_,
                            rateOnlyDataChange ? previousView : QRectF());
         }
     } else {

@@ -6,6 +6,28 @@
 #include "theme.hpp"
 #include "ssh_tunnel_manager.hpp"
 
+#include <QProxyStyle>
+
+namespace {
+
+class DownwardComboStyle final : public QProxyStyle {
+public:
+    using QProxyStyle::QProxyStyle;
+
+    int styleHint(StyleHint hint,
+                  const QStyleOption* option = nullptr,
+                  const QWidget* widget = nullptr,
+                  QStyleHintReturn* returnData = nullptr) const override
+    {
+        if (hint == QStyle::SH_ComboBox_Popup) {
+            return 0;
+        }
+        return QProxyStyle::styleHint(hint, option, widget, returnData);
+    }
+};
+
+} // namespace
+
 
 void MainWindow::changeEvent(QEvent* event)
 {
@@ -193,8 +215,48 @@ void MainWindow::buildUi()
     dataModeCombo_->addItem("Thin", static_cast<int>(DataReadMode::Thin));
     dataModeCombo_->addItem("Medium", static_cast<int>(DataReadMode::Medium));
     dataModeCombo_->addItem("Full", static_cast<int>(DataReadMode::Full));
-    dataModeCombo_->setCurrentIndex(0);
+    dataModeCombo_->setCurrentIndex(
+        dataModeCombo_->findData(static_cast<int>(globalRateMode_)));
     dataModeCombo_->setFixedWidth(90);
+    auto* downwardComboStyle = new DownwardComboStyle;
+    downwardComboStyle->setParent(dataModeCombo_);
+    dataModeCombo_->setStyle(downwardComboStyle);
+    auto updateRateToolTip = [this] {
+        const int defaultIndex =
+            dataModeCombo_->findData(static_cast<int>(defaultRateMode_));
+        dataModeCombo_->setToolTip(
+            QString("Startup default: %1\nRight-click to set the current Rate as default")
+                .arg(defaultIndex >= 0
+                         ? dataModeCombo_->itemText(defaultIndex)
+                         : QStringLiteral("Thin")));
+    };
+    auto setStartupDefault = [this, updateRateToolTip](DataReadMode mode,
+                                                       const QString& label) {
+        defaultRateMode_ = mode;
+        QSettings settings(uiSettingsPath(rootPath_), QSettings::IniFormat);
+        settings.setValue("rate/default_mode",
+                          static_cast<int>(defaultRateMode_));
+        updateRateToolTip();
+        setStatus(QString("Startup default Rate: %1").arg(label));
+    };
+    updateRateToolTip();
+    dataModeCombo_->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(dataModeCombo_,
+            &QWidget::customContextMenuRequested,
+            this,
+            [this, setStartupDefault](const QPoint& pos) {
+        QMenu menu(dataModeCombo_);
+        QAction* setDefault = menu.addAction("Set Default");
+        if (menu.exec(dataModeCombo_->mapToGlobal(pos)) != setDefault) {
+            return;
+        }
+        const QVariant value = dataModeCombo_->currentData();
+        if (!value.isValid()) {
+            return;
+        }
+        setStartupDefault(static_cast<DataReadMode>(value.toInt()),
+                          dataModeCombo_->currentText());
+    });
     topLayout->addWidget(dataModeCombo_);
 
     topInfoLabel_ = new QLabel("Shot: --", topControls);
@@ -311,7 +373,6 @@ void MainWindow::buildUi()
         }
         const DataReadMode mode = static_cast<DataReadMode>(value.toInt());
         globalRateMode_ = mode;
-        globalRateExplicitlySelected_ = true;
         bool changed = false;
         QHash<QString, QRectF> rateRefreshViews;
         for (int c = 0; c < config_.columns.size(); ++c) {
@@ -334,6 +395,9 @@ void MainWindow::buildUi()
         }
         queuedFullRateRefreshViews_ = rateRefreshViews;
         syncDisplayConfig();
+        if (changed) {
+            saveRateChangesToCurrentToml();
+        }
         for (auto it = rateRefreshViews.cbegin(); it != rateRefreshViews.cend(); ++it) {
             const QStringList parts = it.key().split(',');
             const int c = parts.value(0).toInt();
@@ -356,35 +420,6 @@ void MainWindow::updateGlobalRateControl()
 {
     if (!dataModeCombo_) {
         return;
-    }
-    bool found = false;
-    bool mixed = false;
-    DataReadMode commonMode = DataReadMode::Thin;
-    for (const QVector<PlotSpec>& column : std::as_const(config_.columns)) {
-        for (const PlotSpec& plot : column) {
-            for (const SignalSpec& sig : plot.signalSpecs) {
-                if (!found) {
-                    commonMode = sig.readMode;
-                    found = true;
-                } else if (sig.readMode != commonMode) {
-                    mixed = true;
-                    break;
-                }
-            }
-            if (mixed) {
-                break;
-            }
-        }
-        if (mixed) {
-            break;
-        }
-    }
-
-    // Before the user makes a global choice, a uniform environment can provide
-    // a useful initial value. Once chosen globally, panel/source overrides must
-    // not turn this control into an aggregate status indicator.
-    if (!globalRateExplicitlySelected_ && found && !mixed) {
-        globalRateMode_ = commonMode;
     }
     const int index = dataModeCombo_->findData(static_cast<int>(globalRateMode_));
     QSignalBlocker blocker(dataModeCombo_);
@@ -467,14 +502,19 @@ void MainWindow::showPanelContextMenu(PlotWidget* plot, int column, int row, con
             return;
         }
         syncDisplayConfig();
+        saveRateChangesToCurrentToml();
         if (rateRefreshView.isValid() && rateRefreshView.width() > 0.0 && rateRefreshView.height() > 0.0) {
             plot->applyView(rateRefreshView);
         }
         if (displayConfig_.columns[column][row].signalSpecs.size() == panel.signalSpecs.size()) {
-            refreshSignals(column, row, std::move(changedSignals), mode, rateRefreshView);
+            refreshSignals(column,
+                           row,
+                           std::move(changedSignals),
+                           globalRateMode_,
+                           rateRefreshView);
         } else {
             // Expanded shot expressions do not have a one-to-one source index.
-            refreshSignals(column, row, {}, mode, rateRefreshView);
+            refreshSignals(column, row, {}, globalRateMode_, rateRefreshView);
         }
     } else if (chosen == exportDataAction) {
         exportCurrentPanelData();

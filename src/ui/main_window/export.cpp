@@ -140,8 +140,7 @@ void MainWindow::exportDataForPanels(const QVector<QPair<int, int>>& panels,
         return;
     }
 
-    // SignalSpec stores the exact current rate; Thin is the neutral API floor.
-    const DataReadMode readMode = DataReadMode::Thin;
+    const DataReadMode readMode = globalRateMode_;
     const ExportFormat format = static_cast<ExportFormat>(exportFormat);
     setStatus(QString("Exporting data from %1 panels...").arg(panels.size()));
     QPointer<MainWindow> self(this);

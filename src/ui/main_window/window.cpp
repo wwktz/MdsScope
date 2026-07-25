@@ -19,6 +19,21 @@ MainWindow::MainWindow(QString rootPath, QWidget* parent)
     exportBasePath_ = QSettings(uiSettingsPath(rootPath_), QSettings::IniFormat)
                           .value("export/base_dir", defaultExportBaseDir())
                           .toString();
+    const int storedDefaultRate =
+        QSettings(uiSettingsPath(rootPath_), QSettings::IniFormat)
+            .value("rate/default_mode", static_cast<int>(DataReadMode::Thin))
+            .toInt();
+    switch (static_cast<DataReadMode>(storedDefaultRate)) {
+    case DataReadMode::Thin:
+    case DataReadMode::Medium:
+    case DataReadMode::Full:
+        defaultRateMode_ = static_cast<DataReadMode>(storedDefaultRate);
+        break;
+    default:
+        defaultRateMode_ = DataReadMode::Thin;
+        break;
+    }
+    globalRateMode_ = defaultRateMode_;
     loadFontSettings(rootPath_);
     buildUi();
     applyUiFont();

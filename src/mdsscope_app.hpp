@@ -51,8 +51,8 @@ enum class InteractionMode {
 };
 
 enum class DataReadMode {
-    Thin,    // Fast preview: SetTimeContext averaging, ~4s for 34 EAST signals
-    Medium,  // High-resolution stride sampling, ~8-11s, preserves spike amplitude
+    Thin,    // Prefer the prepared EAST _s signal; otherwise use Medium
+    Medium,  // Server-side 0.1 ms average resolution where native data is denser
     Full,    // All data, slowest, highest precision
 };
 
@@ -429,6 +429,7 @@ private:
     void saveCurrentEnvironment();
     void saveCurrentEnvironmentAs();
     bool saveEnvironmentFile(const QString& path) const;
+    bool saveRateChangesToCurrentToml();
     bool saveWebscpEnvironmentFile(const QString& path) const;
     PlotSpec defaultPlotFromSelection() const;
     void updateTopInfoLabels();
@@ -464,8 +465,8 @@ private:
     QComboBox* shotCombo_ = nullptr;
     QLineEdit* shotEdit_ = nullptr;
     QComboBox* dataModeCombo_ = nullptr;
+    DataReadMode defaultRateMode_ = DataReadMode::Thin;
     DataReadMode globalRateMode_ = DataReadMode::Thin;
-    bool globalRateExplicitlySelected_ = false;
     QAction* loginAction_ = nullptr;
     QAction* sshAction_ = nullptr;
     SshTunnelManager* sshTunnelManager_ = nullptr;
