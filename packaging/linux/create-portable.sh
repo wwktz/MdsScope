@@ -31,7 +31,16 @@ cmake -E copy "${project_root}/README.md" "${package_root}/README.md"
 cmake -E copy "${project_root}/COPYING" "${package_root}/COPYING"
 chmod +x "${package_root}/MdsScope" "${package_root}/transfer"
 
-qt_plugins="$(qtpaths6 --query QT_INSTALL_PLUGINS)"
+if command -v qtpaths >/dev/null 2>&1; then
+    qtpaths_command=qtpaths
+elif command -v qtpaths6 >/dev/null 2>&1; then
+    qtpaths_command=qtpaths6
+else
+    echo "Could not find qtpaths or qtpaths6" >&2
+    exit 1
+fi
+
+qt_plugins="$("${qtpaths_command}" --query QT_INSTALL_PLUGINS)"
 plugin_groups=(
     egldeviceintegrations
     generic

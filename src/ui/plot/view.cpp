@@ -393,7 +393,8 @@ const QVector<QVector<QPoint>>& PlotWidget::renderedPolylines() const
         return polylineCache_;
     }
 
-    polylineCache_.assign(series_.size(), {});
+    polylineCache_.clear();
+    polylineCache_.resize(series_.size());
     for (int i = 0; i < series_.size(); ++i) {
         if (!signalVisible(spec_, i)) {
             continue;

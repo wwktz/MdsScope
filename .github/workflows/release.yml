@@ -59,7 +59,7 @@ jobs:
           enterprise_10='{"include":[{"arch":"x86_64","runner":"ubuntu-24.04","image":"rockylinux/rockylinux:10","package":"el10","release":"1.el10"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","image":"rockylinux/rockylinux:10","package":"el10","release":"1.el10"}]}'
           all_rpm='{"include":[{"arch":"x86_64","runner":"ubuntu-24.04","image":"fedora:44","package":"fedora44","release":"1.fc44"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","image":"fedora:44","package":"fedora44","release":"1.fc44"},{"arch":"x86_64","runner":"ubuntu-24.04","image":"rockylinux:9","package":"el9","release":"1.el9"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","image":"rockylinux:9","package":"el9","release":"1.el9"},{"arch":"x86_64","runner":"ubuntu-24.04","image":"rockylinux/rockylinux:10","package":"el10","release":"1.el10"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","image":"rockylinux/rockylinux:10","package":"el10","release":"1.el10"}]}'
 
-          all_linux='{"include":[{"arch":"x86_64","runner":"ubuntu-24.04"},{"arch":"aarch64","runner":"ubuntu-24.04-arm"}]}'
+          all_linux='{"include":[{"arch":"x86_64","runner":"ubuntu-24.04","qt_host":"linux","qt_arch":"linux_gcc_64"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","qt_host":"linux_arm64","qt_arch":"linux_gcc_arm64"}]}'
 
           case "$TARGET" in
             all)
@@ -219,7 +219,15 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y build-essential cmake ninja-build qt6-base-dev qt6-base-dev-tools zip
+          sudo apt install -y build-essential cmake ninja-build zip
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4.3.1
+        with:
+          version: "6.8.3"
+          host: ${{ matrix.qt_host }}
+          target: desktop
+          arch: ${{ matrix.qt_arch }}
 
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
