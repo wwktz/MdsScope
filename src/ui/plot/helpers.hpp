@@ -12,6 +12,27 @@ inline bool signalVisible(const PlotSpec& spec, int index)
     return index < 0 || index >= spec.signalSpecs.size() || !spec.signalSpecs[index].hidden;
 }
 
+inline QString effectiveYLabel(const PlotSpec& spec, const QVector<SignalSeries>& series)
+{
+    const QString configuredLabel = spec.yLabel.trimmed();
+    if (!configuredLabel.isEmpty()) {
+        return configuredLabel;
+    }
+    for (int i = 0; i < spec.signalSpecs.size(); ++i) {
+        if (spec.signalSpecs[i].hidden) {
+            continue;
+        }
+        if (i < series.size()) {
+            const QString sourceUnit = series[i].unit.trimmed();
+            if (!sourceUnit.isEmpty()) {
+                return sourceUnit;
+            }
+        }
+        break;
+    }
+    return QStringLiteral("a.u.");
+}
+
 inline void rebuildMinMaxIndex(SignalSeries& series)
 {
     const int n = series.hasUniformData() ? series.uniformY.size() : series.points.size();

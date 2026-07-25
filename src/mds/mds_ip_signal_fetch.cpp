@@ -27,6 +27,26 @@ SignalSeries MdsIpClient::fetchSignalOnOpenSocket(QTcpSocket& socket,
         QElapsedTimer timer;
         timer.start();
         SignalSeries result = fetchSignalOnOpenSocketImpl(socket, plot, sig, readMode, maxPoints, timebaseCache, error);
+        if (socket.state() == QAbstractSocket::ConnectedState && !currentCanceled()) {
+            const ScaledSignalExpr scaledUnitExpr = scaledSimpleSignalExpr(sig.yExpr);
+            const QString unitSourceExpr = scaledUnitExpr.valid
+                                               ? scaledUnitExpr.baseExpr
+                                               : sig.yExpr;
+            QString unitError;
+            const Message unitMessage = value(socket,
+                                              QString("units_of(%1)").arg(unitSourceExpr),
+                                              &unitError);
+            if (unitError.isEmpty()
+                && (unitMessage.status & 1) != 0
+                && unitMessage.dtype == 14) {
+                result.unit = QString::fromUtf8(unitMessage.body);
+                result.unit.remove(QChar(u'\0'));
+                result.unit = result.unit.trimmed();
+                if (scaledUnitExpr.valid) {
+                    result.unit = scaledSiUnit(result.unit, scaledUnitExpr.scale);
+                }
+            }
+        }
         traceMdsLine(QString("signal_ms=%1 shot=%2 tree=%3 y=%4 points=%5 error=%6")
                          .arg(timer.elapsed())
                          .arg(plot.shot)

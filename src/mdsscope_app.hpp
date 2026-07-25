@@ -109,6 +109,7 @@ LayoutConfig expandedShotLayout(const LayoutConfig& config);
 
 struct SignalSeries {
     QString name;
+    QString unit;
     QString error;
     QVector<QPointF> points;
     QVector<float> uniformY;

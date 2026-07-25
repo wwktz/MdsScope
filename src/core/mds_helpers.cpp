@@ -24,6 +24,126 @@ QString normalizedMdsSignal(QString expr)
     return expr;
 }
 
+QString scaledSiUnit(QString unit, double numericScale)
+{
+    unit = unit.trimmed();
+    const double absoluteScale = std::abs(numericScale);
+    if (unit.isEmpty() || !std::isfinite(absoluteScale) || absoluteScale == 0.0) {
+        return unit;
+    }
+
+    // Dividing numeric values by 1000 changes J to kJ; multiplying them by
+    // 1000 changes J to mJ. Only exact powers of 1000 are converted so an
+    // arbitrary calibration factor never produces a guessed unit.
+    const double prefixStepsValue = -std::log(absoluteScale) / std::log(1000.0);
+    const int prefixSteps = static_cast<int>(std::llround(prefixStepsValue));
+    if (std::abs(prefixStepsValue - static_cast<double>(prefixSteps)) > 1e-10
+        || prefixSteps == 0) {
+        return unit;
+    }
+
+    struct Prefix {
+        QString symbol;
+        int steps = 0; // Each step represents a factor of 1000.
+    };
+    static const QVector<Prefix> prefixes = {
+        {QStringLiteral("Y"), 8},
+        {QStringLiteral("Z"), 7},
+        {QStringLiteral("E"), 6},
+        {QStringLiteral("P"), 5},
+        {QStringLiteral("T"), 4},
+        {QStringLiteral("G"), 3},
+        {QStringLiteral("M"), 2},
+        {QStringLiteral("k"), 1},
+        {QStringLiteral("m"), -1},
+        {QStringLiteral("u"), -2},
+        {QStringLiteral("µ"), -2},
+        {QStringLiteral("μ"), -2},
+        {QStringLiteral("n"), -3},
+        {QStringLiteral("p"), -4},
+        {QStringLiteral("f"), -5},
+        {QStringLiteral("a"), -6},
+        {QStringLiteral("z"), -7},
+        {QStringLiteral("y"), -8},
+    };
+    static const QStringList prefixableUnits = {
+        QStringLiteral("mol"),
+        QStringLiteral("kat"),
+        QStringLiteral("rad"),
+        QStringLiteral("bar"),
+        QStringLiteral("Ohm"),
+        QStringLiteral("Bq"),
+        QStringLiteral("Gy"),
+        QStringLiteral("Sv"),
+        QStringLiteral("Hz"),
+        QStringLiteral("Pa"),
+        QStringLiteral("Wb"),
+        QStringLiteral("eV"),
+        QStringLiteral("lm"),
+        QStringLiteral("lx"),
+        QStringLiteral("sr"),
+        QStringLiteral("Ω"),
+        QStringLiteral("W"),
+        QStringLiteral("J"),
+        QStringLiteral("V"),
+        QStringLiteral("A"),
+        QStringLiteral("s"),
+        QStringLiteral("g"),
+        QStringLiteral("m"),
+        QStringLiteral("K"),
+        QStringLiteral("C"),
+        QStringLiteral("N"),
+        QStringLiteral("F"),
+        QStringLiteral("S"),
+        QStringLiteral("T"),
+        QStringLiteral("H"),
+    };
+    const auto beginsWithUnit = [](const QString& text) {
+        for (const QString& base : prefixableUnits) {
+            if (!text.startsWith(base)) {
+                continue;
+            }
+            if (text.size() == base.size()) {
+                return true;
+            }
+            const QChar next = text.at(base.size());
+            if (next == '/' || next == '*' || next == '^' || next == ' '
+                || next == QChar(0x00b7) || next == QChar(0x22c5)) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    int currentSteps = 0;
+    QString baseUnit = unit;
+    for (const Prefix& prefix : prefixes) {
+        if (!unit.startsWith(prefix.symbol)) {
+            continue;
+        }
+        const QString candidate = unit.mid(prefix.symbol.size());
+        if (beginsWithUnit(candidate)) {
+            currentSteps = prefix.steps;
+            baseUnit = candidate;
+            break;
+        }
+    }
+    if (baseUnit == unit && !beginsWithUnit(baseUnit)) {
+        return unit;
+    }
+
+    const int targetSteps = currentSteps + prefixSteps;
+    if (targetSteps == 0) {
+        return baseUnit;
+    }
+    for (const Prefix& prefix : prefixes) {
+        if (prefix.steps == targetSteps) {
+            return prefix.symbol + baseUnit;
+        }
+    }
+    return unit;
+}
+
 QString effectiveSignalShot(const PlotSpec& plot, const SignalSpec& sig)
 {
     const QString shot = sig.shot.trimmed();

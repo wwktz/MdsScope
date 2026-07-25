@@ -429,7 +429,7 @@ void PlotWidget::renderBasePlot(QPainter& painter) const
 
     const int yTickCount = std::clamp(static_cast<int>(pr.height() / 34.0) + 1, 3, 6);
     const int preferredXTickCount = std::clamp(static_cast<int>(pr.width() / 78.0) + 1, 3, 7);
-    const QString yUnit = spec_.yLabel.trimmed().isEmpty() ? QStringLiteral("a.u.") : spec_.yLabel.trimmed();
+    const QString yUnit = effectiveYLabel(spec_, series_);
     const QFontMetrics axisFm(axisFont);
     const double yLabelLeft = pr.left() + 4.0;
     QVector<double> yValues;
