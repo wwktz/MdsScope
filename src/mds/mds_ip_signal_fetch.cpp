@@ -118,29 +118,34 @@ SignalSeries MdsIpClient::fetchSignalOnOpenSocketImpl(QTcpSocket& socket,
         }
         if (serverSideThin && xExpr.isEmpty() && scaledExpr.valid && isEastTimebaseCandidate(plot.shot, fastSig)) {
             if (readMode == DataReadMode::Thin) {
-                SignalSeries fixedResolution =
-                    fetchEastFixedResolutionSignalOnOpenSocket(socket,
-                                                               plot,
-                                                               fastSig,
-                                                               error);
-                if (fixedResolution.hasData()) {
-                    applySeriesScale(&fixedResolution,
-                                     sig.yExpr,
-                                     scaledExpr.scale);
-                    return fixedResolution;
-                }
-                if (error) {
-                    error->clear();
+                QString savedError;
+                SignalSeries saved =
+                    fetchSavedEastSignalOnOpenSocket(socket,
+                                                     plot,
+                                                     fastSig,
+                                                     maxPoints,
+                                                     &savedError);
+                if (saved.hasData()) {
+                    applySeriesScale(&saved, sig.yExpr, scaledExpr.scale);
+                    if (error) {
+                        error->clear();
+                    }
+                    return saved;
                 }
             }
-            QString savedError;
-            SignalSeries saved = fetchSavedEastSignalOnOpenSocket(socket, plot, fastSig, maxPoints, &savedError);
-            if (saved.hasData()) {
-                applySeriesScale(&saved, sig.yExpr, scaledExpr.scale);
-                if (error) {
-                    error->clear();
-                }
-                return saved;
+            SignalSeries fixedResolution =
+                fetchEastFixedResolutionSignalOnOpenSocket(socket,
+                                                           plot,
+                                                           fastSig,
+                                                           error);
+            if (fixedResolution.hasData()) {
+                applySeriesScale(&fixedResolution,
+                                 sig.yExpr,
+                                 scaledExpr.scale);
+                return fixedResolution;
+            }
+            if (error) {
+                error->clear();
             }
             // For thin/preview: full-read envelope (min/max per bucket) preserves
             // spikes perfectly (0% loss) at ~1.8s/signal vs stride-sampling's ~1.3s
@@ -346,10 +351,10 @@ SignalSeries MdsIpClient::fetchEastFixedResolutionSignalOnOpenSocket(
         }
 
         // Do not ask MDSplus to upsample a signal whose native time step is
-        // already at or above the Thin resolution. Returning the original
+        // already at or above the Medium resolution. Returning the original
         // samples is both cheaper and more accurate in that case.
         if (!plot.customXRange
-            && plan.timebase.step >= kThinTimeResolutionSeconds) {
+            && plan.timebase.step >= kMediumTimeResolutionSeconds) {
             const Message yMessage = value(
                 socket,
                 QString("( _jscope_0 = (%1), fs_float(_jscope_0))")
@@ -365,7 +370,7 @@ SignalSeries MdsIpClient::fetchEastFixedResolutionSignalOnOpenSocket(
                 return {};
             }
             traceMdsLine(
-                QString("east_fixed_thin_signal shot=%1 tree=%2 y=%3 method=direct points=%4 native_delta=%5")
+                QString("east_fixed_resolution_signal shot=%1 tree=%2 y=%3 method=direct points=%4 native_delta=%5")
                     .arg(plot.shot, sig.experiment, sig.yExpr)
                     .arg(result.pointCount())
                     .arg(plan.timebase.step, 0, 'g', 12));
@@ -375,7 +380,7 @@ SignalSeries MdsIpClient::fetchEastFixedResolutionSignalOnOpenSocket(
             return result;
         }
 
-        const double requestedStep = std::max(kThinTimeResolutionSeconds,
+        const double requestedStep = std::max(kMediumTimeResolutionSeconds,
                                               plan.timebase.step);
         value(socket,
               QString("SetTimeContext(%1,%2,%3)")
@@ -408,7 +413,7 @@ SignalSeries MdsIpClient::fetchEastFixedResolutionSignalOnOpenSocket(
             return {};
         }
         traceMdsLine(
-            QString("east_fixed_thin_signal shot=%1 tree=%2 y=%3 method=STC points=%4 delta=%5")
+            QString("east_fixed_resolution_signal shot=%1 tree=%2 y=%3 method=STC points=%4 delta=%5")
                 .arg(plot.shot, sig.experiment, sig.yExpr)
                 .arg(result.pointCount())
                 .arg(requestedStep, 0, 'g', 12));

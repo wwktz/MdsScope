@@ -89,7 +89,7 @@ private:
     static constexpr bool kSetServerResampleMode = false;
     static constexpr bool kSetTreeDefault = false;
     static constexpr int kMaxConnectionsPerGroup = 8;
-    static constexpr double kThinTimeResolutionSeconds = 0.0001;
+    static constexpr double kMediumTimeResolutionSeconds = 0.0001;
     static constexpr int kDefaultFullLargeSignalPoints = 8'000'000;
 
     class SemaphoreGuard {
@@ -266,9 +266,8 @@ private:
                                              const QHash<QString, UniformTimebase>* timebaseCache,
                                              QString* error) const;
 
-    // Oversampled envelope for thin/medium modes:
-    // - Thin (DataReadMode::Thin): SetTimeContext 20k-pt averaging, ~4s, fast preview
-    // - Medium (DataReadMode::Medium): stride 20k-pt sampling, ~8-11s, preserves spike amplitude
+    // Legacy fallback for thin/medium reads when neither the saved signal nor
+    // the fixed-resolution server-side read is available.
     SignalSeries fetchEastFullEnvelopeSignalOnOpenSocket(QTcpSocket& socket,
                                                          const PlotSpec& plot,
                                                          const SignalSpec& sig,
