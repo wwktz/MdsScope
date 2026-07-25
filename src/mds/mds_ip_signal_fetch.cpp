@@ -117,6 +117,22 @@ SignalSeries MdsIpClient::fetchSignalOnOpenSocketImpl(QTcpSocket& socket,
             }
         }
         if (serverSideThin && xExpr.isEmpty() && scaledExpr.valid && isEastTimebaseCandidate(plot.shot, fastSig)) {
+            if (readMode == DataReadMode::Thin) {
+                SignalSeries fixedResolution =
+                    fetchEastFixedResolutionSignalOnOpenSocket(socket,
+                                                               plot,
+                                                               fastSig,
+                                                               error);
+                if (fixedResolution.hasData()) {
+                    applySeriesScale(&fixedResolution,
+                                     sig.yExpr,
+                                     scaledExpr.scale);
+                    return fixedResolution;
+                }
+                if (error) {
+                    error->clear();
+                }
+            }
             QString savedError;
             SignalSeries saved = fetchSavedEastSignalOnOpenSocket(socket, plot, fastSig, maxPoints, &savedError);
             if (saved.hasData()) {
@@ -286,6 +302,118 @@ SignalSeries MdsIpClient::fetchSignalOnOpenSocketImpl(QTcpSocket& socket,
         result = makeSeries(result.name, y, x, displayMaxPoints);
         if (!result.hasData()) {
             result.error = "no numeric points";
+        }
+        return result;
+    }
+
+SignalSeries MdsIpClient::fetchEastFixedResolutionSignalOnOpenSocket(
+    QTcpSocket& socket,
+    const PlotSpec& plot,
+    const SignalSpec& sig,
+    QString* error) const
+{
+        SignalSeries result;
+        result.name = normalizedMdsSignal(sig.yExpr);
+
+        QString localError;
+        const EastThinPlan plan = eastThinPlan(socket,
+                                               plot.shot,
+                                               sig,
+                                               1,
+                                               &localError);
+        if (!plan.valid
+            || plan.sampling.sourceCount <= 0
+            || !plan.timebase.valid
+            || !std::isfinite(plan.timebase.start)
+            || !std::isfinite(plan.timebase.step)
+            || plan.timebase.step <= 0.0) {
+            return result;
+        }
+
+        double start = plan.timebase.start;
+        double end = start
+                     + static_cast<double>(plan.sampling.sourceCount - 1)
+                           * plan.timebase.step;
+        if (plot.customXRange
+            && std::isfinite(plot.xmin)
+            && std::isfinite(plot.xmax)
+            && plot.xmax > plot.xmin) {
+            start = plot.xmin;
+            end = plot.xmax;
+        }
+        if (!std::isfinite(end) || end <= start) {
+            return result;
+        }
+
+        // Do not ask MDSplus to upsample a signal whose native time step is
+        // already at or above the Thin resolution. Returning the original
+        // samples is both cheaper and more accurate in that case.
+        if (!plot.customXRange
+            && plan.timebase.step >= kThinTimeResolutionSeconds) {
+            const Message yMessage = value(
+                socket,
+                QString("( _jscope_0 = (%1), fs_float(_jscope_0))")
+                    .arg(sig.yExpr.trimmed()),
+                &localError);
+            result = makeSeriesUniformXFromMessage(result.name,
+                                                   yMessage,
+                                                   plan.timebase.start,
+                                                   plan.timebase.step,
+                                                   0,
+                                                   &localError);
+            if (!result.hasData()) {
+                return {};
+            }
+            traceMdsLine(
+                QString("east_fixed_thin_signal shot=%1 tree=%2 y=%3 method=direct points=%4 native_delta=%5")
+                    .arg(plot.shot, sig.experiment, sig.yExpr)
+                    .arg(result.pointCount())
+                    .arg(plan.timebase.step, 0, 'g', 12));
+            if (error) {
+                error->clear();
+            }
+            return result;
+        }
+
+        const double requestedStep = std::max(kThinTimeResolutionSeconds,
+                                              plan.timebase.step);
+        value(socket,
+              QString("SetTimeContext(%1,%2,%3)")
+                  .arg(start, 0, 'g', 12)
+                  .arg(end, 0, 'g', 12)
+                  .arg(requestedStep, 0, 'g', 12),
+              &localError);
+        if (!localError.isEmpty()) {
+            value(socket, "SetTimeContext()", &localError);
+            return result;
+        }
+
+        const Message yMessage = value(
+            socket,
+            QString("( _jscope_0 = (%1), fs_float(_jscope_0))")
+                .arg(sig.yExpr.trimmed()),
+            &localError);
+        value(socket, "SetTimeContext()", &localError);
+
+        result = makeSeriesUniformXFromMessage(result.name,
+                                               yMessage,
+                                               start,
+                                               requestedStep,
+                                               0,
+                                               &localError);
+        if (!result.hasData()) {
+            if (error) {
+                error->clear();
+            }
+            return {};
+        }
+        traceMdsLine(
+            QString("east_fixed_thin_signal shot=%1 tree=%2 y=%3 method=STC points=%4 delta=%5")
+                .arg(plot.shot, sig.experiment, sig.yExpr)
+                .arg(result.pointCount())
+                .arg(requestedStep, 0, 'g', 12));
+        if (error) {
+            error->clear();
         }
         return result;
     }

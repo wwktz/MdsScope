@@ -89,6 +89,7 @@ private:
     static constexpr bool kSetServerResampleMode = false;
     static constexpr bool kSetTreeDefault = false;
     static constexpr int kMaxConnectionsPerGroup = 8;
+    static constexpr double kThinTimeResolutionSeconds = 0.0001;
     static constexpr int kDefaultFullLargeSignalPoints = 8'000'000;
 
     class SemaphoreGuard {
@@ -274,6 +275,11 @@ private:
                                                          int maxPoints,
                                                          DataReadMode readMode,
                                                          QString* error) const;
+
+    SignalSeries fetchEastFixedResolutionSignalOnOpenSocket(QTcpSocket& socket,
+                                                            const PlotSpec& plot,
+                                                            const SignalSpec& sig,
+                                                            QString* error) const;
 
     SignalSeries fetchEastLengthSampledSignalOnOpenSocket(QTcpSocket& socket,
                                                           const PlotSpec& plot,
