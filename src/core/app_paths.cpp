@@ -121,6 +121,51 @@ static bool appendUniqueLine(const QString& path, const QString& value, Qt::Case
     return true;
 }
 
+static void normalizeSourceIndexFile(const QString& path)
+{
+    QMutexLocker locker(&sourceIndexMutex());
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return;
+    }
+
+    QStringList originalLines;
+    QStringList normalizedLines;
+    QSet<QString> seen;
+    QTextStream in(&file);
+    while (!in.atEnd()) {
+        const QString line = in.readLine().trimmed();
+        if (!line.isEmpty()) {
+            originalLines.push_back(line);
+        }
+        const QStringList nodeNames = sourceIndexSignalNames(line);
+        for (const QString& signal : nodeNames) {
+            const QString key = signal.toLower();
+            if (!seen.contains(key)) {
+                normalizedLines.push_back(signal);
+                seen.insert(key);
+            }
+        }
+    }
+    file.close();
+    normalizedLines.sort(Qt::CaseInsensitive);
+    if (originalLines == normalizedLines) {
+        return;
+    }
+
+    QSaveFile output(path);
+    if (!output.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        return;
+    }
+    QTextStream out(&output);
+    for (const QString& signal : std::as_const(normalizedLines)) {
+        out << signal << '\n';
+    }
+    if (output.commit()) {
+        sourceIndexContents().clear();
+    }
+}
+
 static void mergeSourceIndexFile(const QString& source, const QString& target)
 {
     QFile sourceFile(source);
@@ -219,8 +264,14 @@ bool ensureSourceIndexCache(const QString& rootPath)
         const QDir cacheSignals(QDir(cacheRoot).filePath("signals"));
         const auto files = sourceSignals.entryInfoList({"*.txt"}, QDir::Files, QDir::Name);
         for (const QFileInfo& file : files) {
-            mergeSourceIndexFile(file.absoluteFilePath(), cacheSignals.filePath(file.fileName()));
+            const QString cachePath = cacheSignals.filePath(file.fileName());
+            mergeSourceIndexFile(file.absoluteFilePath(), cachePath);
         }
+    }
+    const QDir cacheSignals(QDir(cacheRoot).filePath("signals"));
+    const auto cachedFiles = cacheSignals.entryInfoList({"*.txt"}, QDir::Files, QDir::Name);
+    for (const QFileInfo& file : cachedFiles) {
+        normalizeSourceIndexFile(file.absoluteFilePath());
     }
     return true;
 }
@@ -228,18 +279,21 @@ bool ensureSourceIndexCache(const QString& rootPath)
 bool addSourceIndexSignal(const QString& tree, const QString& signal)
 {
     const QString treeName = tree.trimmed();
-    const QString signalName = normalizedMdsSignal(signal);
+    const QStringList signalNames = sourceIndexSignalNames(signal);
     const QString signalFile = sourceIndexFileName(treeName);
-    if (treeName.isEmpty() || signalName.isEmpty() || signalFile.isEmpty()) {
+    if (treeName.isEmpty() || signalNames.isEmpty() || signalFile.isEmpty()) {
         return false;
     }
 
     const QString cacheRoot = sourceIndexCacheDir();
     QDir().mkpath(QDir(cacheRoot).filePath("signals"));
     appendUniqueLine(QDir(cacheRoot).filePath("trees.txt"), treeName.toLower(), Qt::CaseInsensitive);
-    return appendUniqueLine(QDir(QDir(cacheRoot).filePath("signals")).filePath(signalFile),
-                            signalName,
-                            Qt::CaseInsensitive);
+    const QString path = QDir(QDir(cacheRoot).filePath("signals")).filePath(signalFile);
+    bool changed = false;
+    for (const QString& signalName : signalNames) {
+        changed = appendUniqueLine(path, signalName, Qt::CaseInsensitive) || changed;
+    }
+    return changed;
 }
 
 QString defaultExportBaseDir()

@@ -24,6 +24,33 @@ QString normalizedMdsSignal(QString expr)
     return expr;
 }
 
+QStringList sourceIndexSignalNames(const QString& expression)
+{
+    static const QRegularExpression nodePattern(
+        QStringLiteral(R"(\\[A-Za-z][A-Za-z0-9_$:.]*)"));
+
+    QStringList nodeNames;
+    QSet<QString> seen;
+    QRegularExpressionMatchIterator matches = nodePattern.globalMatch(expression);
+    while (matches.hasNext()) {
+        const QString signal = normalizedMdsSignal(matches.next().captured()).trimmed();
+        const QString key = signal.toLower();
+        if (!signal.isEmpty() && !seen.contains(key)) {
+            nodeNames.push_back(signal);
+            seen.insert(key);
+        }
+    }
+    if (nodeNames.isEmpty()) {
+        const QString bareSignal = expression.trimmed();
+        static const QRegularExpression bareNodePattern(
+            QStringLiteral(R"(^[A-Za-z][A-Za-z0-9_$:.]*$)"));
+        if (bareNodePattern.match(bareSignal).hasMatch()) {
+            nodeNames.push_back(QChar('\\') + bareSignal);
+        }
+    }
+    return nodeNames;
+}
+
 QString scaledSiUnit(QString unit, double numericScale)
 {
     unit = unit.trimmed();

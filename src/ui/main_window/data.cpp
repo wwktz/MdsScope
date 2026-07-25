@@ -728,11 +728,16 @@ void MainWindow::rememberLoadedSourceSignal(const LoadedSignal& item)
     }
     const SignalSpec& sig = displayConfig_.columns[item.column][item.row].signalSpecs[item.signal];
     const QString tree = sig.experiment.trimmed().toLower();
-    const QString signal = normalizedMdsSignal(sig.yExpr).trimmed().toLower();
-    if (tree.isEmpty() || signal.isEmpty()) {
+    const QStringList nodeNames = sourceIndexSignalNames(sig.yExpr);
+    if (tree.isEmpty() || nodeNames.isEmpty()) {
         return;
     }
-    const QString key = tree + QChar('\n') + signal;
+    QStringList signalKeys;
+    signalKeys.reserve(nodeNames.size());
+    for (const QString& signal : nodeNames) {
+        signalKeys.push_back(signal.trimmed().toLower());
+    }
+    const QString key = tree + QChar('\n') + signalKeys.join(QChar(0x1f));
     if (rememberedSourceSignals_.contains(key)) {
         return;
     }
