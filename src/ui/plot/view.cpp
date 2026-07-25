@@ -375,3 +375,42 @@ QVector<QPointF> PlotWidget::displayPointsForSeries(const SignalSeries& series, 
                                pixelWidth,
                                [&](int index) { return series.pointAt(index); });
 }
+
+// Screen-space polylines exactly as drawn by renderBasePlot, one entry per
+// series (hidden or too-short series get an empty entry so indexes still line
+// up with series_). Curve picking measures against these instead of raw
+// samples: at high decimation ratios a pixel column collapses thousands of
+// samples into a min/max span, so the drawn curve can sit hundreds of pixels
+// away from any sample near the cursor's x.
+const QVector<QVector<QPoint>>& PlotWidget::renderedPolylines() const
+{
+    const QRectF pr = plotRect();
+    const QRectF view = effectiveView();
+    if (!polylineCacheDirty_
+        && polylineCache_.size() == series_.size()
+        && polylineCacheRect_ == pr
+        && polylineCacheView_ == view) {
+        return polylineCache_;
+    }
+
+    polylineCache_.assign(series_.size(), {});
+    for (int i = 0; i < series_.size(); ++i) {
+        if (!signalVisible(spec_, i)) {
+            continue;
+        }
+        const QVector<QPointF> displayPoints = displayPointsForSeries(series_[i], view, pr.width());
+        if (displayPoints.size() < 2) {
+            continue;
+        }
+        QVector<QPoint>& polyline = polylineCache_[i];
+        polyline.reserve(displayPoints.size());
+        for (const QPointF& point : displayPoints) {
+            const QPointF pixel = dataToPixel(point, view, pr);
+            polyline.push_back(QPoint(qRound(pixel.x()), qRound(pixel.y())));
+        }
+    }
+    polylineCacheRect_ = pr;
+    polylineCacheView_ = view;
+    polylineCacheDirty_ = false;
+    return polylineCache_;
+}

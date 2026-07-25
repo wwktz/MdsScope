@@ -33,10 +33,17 @@ void PlotWidget::mousePressEvent(QMouseEvent* event)
             const double dataX = hoverText_.isEmpty() ? pixelToData(event->position(), effectiveView(), plotRect()).x() : hoverData_.x();
             changed = updateHoverForSeriesX(legendIndex, dataX, true);
         } else {
-            changed = updateHover(event->position(), true);
-            if (!hoverSeriesLocked_) {
-                const double dataX = pixelToData(event->position(), effectiveView(), plotRect()).x();
-                changed = updateHoverForSeriesX(0, dataX, true) || changed;
+            const double dataX = pixelToData(event->position(), effectiveView(), plotRect()).x();
+            QPointF point;
+            const int pickedSeries = nearestSeriesAtPixel(event->position(), curvePickRadius(), &point, nullptr);
+            if (pickedSeries >= 0) {
+                changed = updateHoverForSeriesX(pickedSeries, point.x(), true);
+            } else if (hoverSeriesLocked_ && hoverSeriesIndex_ >= 0) {
+                // A click that hits no curve keeps the current selection and just
+                // moves the readout along it, rather than silently doing nothing.
+                changed = updateHoverForSeriesX(hoverSeriesIndex_, dataX, true);
+            } else {
+                changed = updateHoverForSeriesX(firstVisibleSeriesWithData(), dataX, true);
             }
         }
         if (changed && !hoverText_.isEmpty()) {

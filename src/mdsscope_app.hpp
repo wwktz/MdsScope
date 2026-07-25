@@ -242,12 +242,15 @@ private:
     void rebuildLegendCache();
     void expandFlatRange(QRectF& range) const;
     QVector<QPointF> displayPointsForSeries(const SignalSeries& series, const QRectF& view, double pixelWidth) const;
+    const QVector<QVector<QPoint>>& renderedPolylines() const;
     bool updateHover(const QPointF& pixelPos, bool lockSeries = false);
     bool updateHoverForSeriesX(int seriesIndex, double dataX, bool lockSeries);
     bool stepActivePoint(int delta);
-    bool nearestPointForSeries(int seriesIndex, double dataX, const QPointF* pixelPos, QPointF* point, QPointF* pixel, double* pixelDistance) const;
+    bool nearestPointForSeries(int seriesIndex, double dataX, QPointF* point, QPointF* pixel) const;
     bool pointForSeriesX(int seriesIndex, double dataX, bool interpolate, QPointF* point, QPointF* pixel) const;
     int nearestSeriesAtPixel(const QPointF& pixelPos, double maxDistance, QPointF* point, QPointF* pixel) const;
+    double curvePickRadius() const;
+    int firstVisibleSeriesWithData() const;
     int legendSeriesAt(const QPointF& pixelPos) const;
     void renderBasePlot(QPainter& painter) const;
     void drawSyncedPoint(QPainter& painter) const;
@@ -291,6 +294,10 @@ private:
     mutable QImage curveOccupancyMask_;
     mutable QSize baseCacheSize_;
     mutable bool baseCacheDirty_ = true;
+    mutable QVector<QVector<QPoint>> polylineCache_;
+    mutable QRectF polylineCacheRect_;
+    mutable QRectF polylineCacheView_;
+    mutable bool polylineCacheDirty_ = true;
     int hoverSeriesIndex_ = -1;
     bool hoverSeriesLocked_ = false;
     bool pointTrackingActive_ = false;

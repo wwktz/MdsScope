@@ -161,10 +161,8 @@ int PlotWidget::legendSeriesAt(const QPointF& pixelPos) const
 
 bool PlotWidget::nearestPointForSeries(int seriesIndex,
                                        double dataX,
-                                       const QPointF* pixelPos,
                                        QPointF* point,
-                                       QPointF* pixel,
-                                       double* pixelDistance) const
+                                       QPointF* pixel) const
 {
     if (seriesIndex < 0 || seriesIndex >= series_.size()) {
         return false;
@@ -177,54 +175,20 @@ bool PlotWidget::nearestPointForSeries(int seriesIndex,
         return false;
     }
 
-    const QRectF pr = plotRect();
-    const QRectF view = effectiveView();
     QPointF bestPoint;
-    QPointF bestPixel;
-    double bestDistance = std::numeric_limits<double>::infinity();
-    double bestDx = std::numeric_limits<double>::infinity();
-
     auto acceptPointByX = [&](const QPointF& p) {
         if (!std::isfinite(p.x()) || !std::isfinite(p.y())) {
             return false;
         }
         bestPoint = p;
-        bestPixel = dataToPixel(p, view, pr);
-        bestDistance = std::abs(p.x() - dataX);
-        bestDx = bestDistance;
         return true;
     };
 
-    auto considerPoint = [&](const QPointF& p) {
-        if (!std::isfinite(p.x()) || !std::isfinite(p.y())) {
-            return;
-        }
-        const QPointF pp = dataToPixel(p, view, pr);
-        double distance = std::abs(p.x() - dataX);
-        if (pixelPos) {
-            distance = std::hypot(pp.x() - pixelPos->x(), pp.y() - pixelPos->y());
-        }
-        const double dx = std::abs(p.x() - dataX);
-        if (distance < bestDistance || (distance == bestDistance && dx < bestDx)) {
-            bestPoint = p;
-            bestPixel = pp;
-            bestDistance = distance;
-            bestDx = dx;
-        }
-    };
-
+    bool found = false;
     if (s.hasUniformData() && s.uniformStep != 0.0) {
         int index = static_cast<int>(std::llround((dataX - s.uniformStart) / s.uniformStep));
         index = std::clamp(index, 0, static_cast<int>(s.uniformY.size()) - 1);
-        if (!pixelPos) {
-            acceptPointByX(s.pointAt(index));
-        } else {
-            const int begin = std::max(0, index - 4);
-            const int end = std::min(static_cast<int>(s.uniformY.size()) - 1, index + 4);
-            for (int i = begin; i <= end; ++i) {
-                considerPoint(s.pointAt(i));
-            }
-        }
+        found = acceptPointByX(s.pointAt(index));
     } else if (!s.points.isEmpty()) {
         const QVector<QPointF>& pointSamples = s.points;
         int lo = 0;
@@ -237,32 +201,21 @@ bool PlotWidget::nearestPointForSeries(int seriesIndex,
                 hi = mid;
             }
         }
-        if (!pixelPos) {
-            int index = std::clamp(lo, 0, static_cast<int>(pointSamples.size()) - 1);
-            if (index > 0 && std::abs(pointSamples[index - 1].x() - dataX) <= std::abs(pointSamples[index].x() - dataX)) {
-                --index;
-            }
-            acceptPointByX(pointSamples[index]);
-        } else {
-            const int begin = std::max(0, lo - 8);
-            const int end = std::min(static_cast<int>(pointSamples.size()) - 1, lo + 8);
-            for (int i = begin; i <= end; ++i) {
-                considerPoint(pointSamples[i]);
-            }
+        int index = std::clamp(lo, 0, static_cast<int>(pointSamples.size()) - 1);
+        if (index > 0 && std::abs(pointSamples[index - 1].x() - dataX) <= std::abs(pointSamples[index].x() - dataX)) {
+            --index;
         }
+        found = acceptPointByX(pointSamples[index]);
     }
 
-    if (!std::isfinite(bestDistance)) {
+    if (!found) {
         return false;
     }
     if (point) {
         *point = bestPoint;
     }
     if (pixel) {
-        *pixel = bestPixel;
-    }
-    if (pixelDistance) {
-        *pixelDistance = pixelPos ? bestDistance : std::abs(bestPoint.x() - dataX);
+        *pixel = dataToPixel(bestPoint, effectiveView(), plotRect());
     }
     return true;
 }
@@ -274,7 +227,7 @@ bool PlotWidget::pointForSeriesX(int seriesIndex,
                                  QPointF* pixel) const
 {
     if (!interpolate) {
-        return nearestPointForSeries(seriesIndex, dataX, nullptr, point, pixel, nullptr);
+        return nearestPointForSeries(seriesIndex, dataX, point, pixel);
     }
     if (seriesIndex < 0 || seriesIndex >= series_.size()
         || !signalVisible(spec_, seriesIndex) || !series_[seriesIndex].hasData()
@@ -311,7 +264,7 @@ bool PlotWidget::pointForSeriesX(int seriesIndex,
         return acceptPoint(QPointF(dataX, y));
     };
     auto nearestFallback = [&] {
-        return nearestPointForSeries(seriesIndex, dataX, nullptr, point, pixel, nullptr);
+        return nearestPointForSeries(seriesIndex, dataX, point, pixel);
     };
 
     if (series.hasUniformData()) {
@@ -375,39 +328,75 @@ bool PlotWidget::pointForSeriesX(int seriesIndex,
     return nearestFallback();
 }
 
+double PlotWidget::curvePickRadius() const
+{
+    return largeDisplayMode_ ? 22.0 : 16.0;
+}
+
+int PlotWidget::firstVisibleSeriesWithData() const
+{
+    for (int i = 0; i < series_.size(); ++i) {
+        if (signalVisible(spec_, i) && series_[i].hasData()) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 int PlotWidget::nearestSeriesAtPixel(const QPointF& pixelPos, double maxDistance, QPointF* point, QPointF* pixel) const
 {
     const QRectF pr = plotRect();
     if (!pr.contains(pixelPos)) {
         return -1;
     }
-    const double dataX = pixelToData(pixelPos, effectiveView(), pr).x();
+
+    // Measure against the drawn polyline segments, not just their vertices: on a
+    // steep edge two consecutive vertices can be a whole panel apart, and the
+    // cursor legitimately lands in the middle of that segment.
+    const QVector<QVector<QPoint>>& polylines = renderedPolylines();
     int bestSeries = -1;
-    QPointF bestPoint;
-    QPointF bestPixel;
     double bestDistance = std::numeric_limits<double>::infinity();
-    for (int i = 0; i < series_.size(); ++i) {
-        QPointF candidatePoint;
-        QPointF candidatePixel;
-        double candidateDistance = std::numeric_limits<double>::infinity();
-        if (!nearestPointForSeries(i, dataX, &pixelPos, &candidatePoint, &candidatePixel, &candidateDistance)) {
+    double bestX = qQNaN();
+    for (int i = 0; i < polylines.size(); ++i) {
+        const QVector<QPoint>& polyline = polylines[i];
+        if (polyline.size() < 2 || !series_[i].hasData()) {
             continue;
         }
-        if (candidateDistance < bestDistance) {
-            bestSeries = i;
-            bestPoint = candidatePoint;
-            bestPixel = candidatePixel;
-            bestDistance = candidateDistance;
+        for (int j = 0; j + 1 < polyline.size(); ++j) {
+            const QPointF a(polyline[j]);
+            const QPointF b(polyline[j + 1]);
+            // Cheap reject: the cursor cannot be within maxDistance of a segment
+            // whose bounding box it misses by more than that.
+            if (pixelPos.x() < std::min(a.x(), b.x()) - maxDistance
+                || pixelPos.x() > std::max(a.x(), b.x()) + maxDistance
+                || pixelPos.y() < std::min(a.y(), b.y()) - maxDistance
+                || pixelPos.y() > std::max(a.y(), b.y()) + maxDistance) {
+                continue;
+            }
+            const QPointF ab = b - a;
+            const double lengthSquared = ab.x() * ab.x() + ab.y() * ab.y();
+            double t = 0.0;
+            if (lengthSquared > 0.0) {
+                const QPointF ap = pixelPos - a;
+                t = std::clamp((ap.x() * ab.x() + ap.y() * ab.y()) / lengthSquared, 0.0, 1.0);
+            }
+            const QPointF closest = a + ab * t;
+            const double distance = std::hypot(closest.x() - pixelPos.x(), closest.y() - pixelPos.y());
+            if (distance < bestDistance) {
+                bestSeries = i;
+                bestDistance = distance;
+                bestX = closest.x();
+            }
         }
     }
     if (bestSeries < 0 || bestDistance > maxDistance) {
         return -1;
     }
-    if (point) {
-        *point = bestPoint;
-    }
-    if (pixel) {
-        *pixel = bestPixel;
+
+    // Report the real sample under the picked x so the readout stays on data.
+    const double dataX = pixelToData(QPointF(bestX, pixelPos.y()), effectiveView(), pr).x();
+    if (!nearestPointForSeries(bestSeries, dataX, point, pixel)) {
+        return -1;
     }
     return bestSeries;
 }
@@ -415,19 +404,11 @@ int PlotWidget::nearestSeriesAtPixel(const QPointF& pixelPos, double maxDistance
 bool PlotWidget::updateHoverForSeriesX(int seriesIndex, double dataX, bool lockSeries)
 {
     if (seriesIndex < 0 || seriesIndex >= series_.size() || !signalVisible(spec_, seriesIndex) || !series_[seriesIndex].hasData()) {
-        for (int i = 0; i < series_.size(); ++i) {
-            if (!signalVisible(spec_, i)) {
-                continue;
-            }
-            if (series_[i].hasData()) {
-                seriesIndex = i;
-                break;
-            }
-        }
+        seriesIndex = firstVisibleSeriesWithData();
     }
     QPointF point;
     QPointF pixel;
-    if (seriesIndex < 0 || !nearestPointForSeries(seriesIndex, dataX, nullptr, &point, &pixel, nullptr)) {
+    if (seriesIndex < 0 || !nearestPointForSeries(seriesIndex, dataX, &point, &pixel)) {
         const bool changed = !hoverText_.isEmpty();
         hoverText_.clear();
         return changed;
@@ -503,16 +484,7 @@ void PlotWidget::setSyncedPointX(double x, int seriesIndex, bool interpolate)
         return;
     }
     if (seriesIndex < 0 || seriesIndex >= series_.size() || !signalVisible(spec_, seriesIndex) || !series_[seriesIndex].hasData()) {
-        seriesIndex = -1;
-        for (int i = 0; i < series_.size(); ++i) {
-            if (!signalVisible(spec_, i)) {
-                continue;
-            }
-            if (series_[i].hasData()) {
-                seriesIndex = i;
-                break;
-            }
-        }
+        seriesIndex = firstVisibleSeriesWithData();
     }
 
     PointReadout next;
@@ -589,8 +561,7 @@ bool PlotWidget::updateHover(const QPointF& pixelPos, bool lockSeries)
 
     QPointF point;
     QPointF pixel;
-    constexpr double kCurvePickPixels = 16.0;
-    const int pickedSeries = nearestSeriesAtPixel(pixelPos, kCurvePickPixels, &point, &pixel);
+    const int pickedSeries = nearestSeriesAtPixel(pixelPos, curvePickRadius(), &point, &pixel);
     if (pickedSeries >= 0) {
         return updateHoverForSeriesX(pickedSeries, point.x(), lockSeries);
     } else if (hoverSeriesLocked_ && hoverSeriesIndex_ >= 0 && hoverSeriesIndex_ < series_.size()) {

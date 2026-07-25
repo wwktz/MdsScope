@@ -391,20 +391,11 @@ void PlotWidget::renderBasePlot(QPainter& painter) const
     occupancyPainter.setPen(QPen(Qt::white, 1));
 
     painter.setClipRect(pr.adjusted(1, 1, -1, -1));
-    for (int i = 0; i < series_.size(); ++i) {
-        if (i < spec_.signalSpecs.size() && spec_.signalSpecs[i].hidden) {
+    const QVector<QVector<QPoint>>& polylines = renderedPolylines();
+    for (int i = 0; i < polylines.size(); ++i) {
+        const QVector<QPoint>& polyline = polylines[i];
+        if (polyline.size() < 2) {
             continue;
-        }
-        const auto& s = series_[i];
-        const QVector<QPointF> displayPoints = displayPointsForSeries(s, view, pr.width());
-        if (displayPoints.size() < 2) {
-            continue;
-        }
-        QVector<QPoint> polyline;
-        polyline.reserve(displayPoints.size());
-        for (const QPointF& point : displayPoints) {
-            const QPointF pixel = dataToPixel(point, view, pr);
-            polyline.push_back(QPoint(qRound(pixel.x()), qRound(pixel.y())));
         }
         painter.setPen(QPen(seriesColor(i), 1));
         painter.drawPolyline(polyline.constData(), polyline.size());

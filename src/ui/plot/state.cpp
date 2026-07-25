@@ -231,4 +231,5 @@ void PlotWidget::rebuildLegendCache()
 void PlotWidget::invalidatePlotCache()
 {
     baseCacheDirty_ = true;
+    polylineCacheDirty_ = true;
 }
