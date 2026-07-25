@@ -64,13 +64,21 @@ bool MdsIpClient::readFully(QTcpSocket& socket, QByteArray* out, qsizetype size,
         idleTimer.start();
         out->reserve(size);
         while (out->size() < size) {
-            // A cancellation during a partial MDSIP response cannot preserve
-            // this socket safely: unread bytes would desynchronize the next
-            // request. Clean-boundary cancellation is handled by fetchGroup.
+            // Interactive Thin/Medium refreshes ask us to preserve connections
+            // when switching shots. Finish consuming the one response already
+            // in flight so the socket reaches a clean protocol boundary and the
+            // server is not left running an abandoned scan. Full uses an
+            // unbounded read timeout and remains immediately abortable because
+            // draining a large raw transfer could delay the next shot for too
+            // long.
             if (currentCanceled()) {
-                socket.abort();
-                *error = "operation canceled";
-                return false;
+                const bool canDrainCurrentResponse =
+                    currentPreserveConnectionsOnCancel() && idleTimeoutMs > 0;
+                if (!canDrainCurrentResponse) {
+                    socket.abort();
+                    *error = "operation canceled";
+                    return false;
+                }
             }
             if (socket.bytesAvailable() <= 0) {
                 if (!socket.waitForReadyRead(50)) {
