@@ -1,7 +1,7 @@
 # MdsScope
 
 MdsScope is a C++/Qt desktop application for browsing WebScope-style shot
-configuration files (`*.webscp`) and plotting MDSplus signal data through MDSIP.
+configuration files (`*.toml, *.webscp`) and plotting MDSplus signal data through MDSIP.
 
 It is intended to be a transparent, open-source alternative to older Java 8 based
 WebScope-style clients, which can be difficult to maintain on newer Java
@@ -21,14 +21,19 @@ configuration, MDSIP defaults, login flow, and HTTP metadata API target EAST.
 
 MdsScope offers three data sampling modes to balance speed and precision:
 
-- **Thin**: Uses the prepared EAST `_s` signal when it is available. If no
-  saved signal exists, it falls back to the Medium strategy.
+- **Thin**: The fastest choice for routine browsing and rapid shot switching.
+  It uses the prepared EAST `_s` signal when available and falls back to the
+  Medium strategy otherwise.
 
-- **Medium**: Requests an approximately `0.1 ms` Average STC result from the
-  EAST server. If the original signal is less dense than `0.1 ms`, its native
-  resolution is retained instead of being interpolated.
+- **Medium**: A balance between speed and signal detail, suitable when peaks,
+  pulses, and trigger shapes matter. It requests an approximately `0.1 ms`
+  Average STC result from the EAST server. If the original signal is less dense
+  than `0.1 ms`, its native resolution is retained instead of being
+  interpolated.
 
-- **Full**: Reads all raw data with no sampling. Use for detailed analysis of specific time ranges.
+- **Full**: Reads all raw data with no sampling. It has the highest transfer
+  and memory cost and is intended for detailed analysis requiring every
+  original sample.
 
 The current mode can be set globally with the top toolbar dropdown, per panel
 from the panel context menu, or per signal in the source setup dialog. The
@@ -201,9 +206,12 @@ obfuscated and bound to the current machine/user to reduce accidental
 disclosure. It is not designed to protect credentials from software running
 with the same user privileges.
 
-MdsScope supports native `*.toml` files and legacy WebScope-compatible
-`*.webscp` files. The default template is `init.toml`; saving from the GUI keeps
-TOML and WEBSCP files synchronized.
+MdsScope uses TOML as its native configuration format and also supports legacy
+WebScope-compatible `.webscp` files. Saving from the GUI writes same-named TOML
+and WebSCP files so a layout can still be opened by the old client. WebSCP only
+contains settings supported by the legacy format; MdsScope extensions such as
+per-source Rate remain in TOML. When both `init.toml` and `init.webscp` exist,
+MdsScope prefers the TOML file.
 
 Example TOML:
 
