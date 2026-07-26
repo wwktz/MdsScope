@@ -111,6 +111,16 @@ void RefreshCoordinator::resetForEnvironmentLoad()
     streamedFailed = 0;
 }
 
+void RefreshCoordinator::discardPreservedRateViews()
+{
+    queuedFullRateRefreshViews.clear();
+    activeFullRateRefreshViews.clear();
+    activePanelRateRefreshView = {};
+    for (PanelRefreshRequest& request : pendingPanelRefreshes) {
+        request.rateRefreshView = {};
+    }
+}
+
 void RefreshCoordinator::clearActivePanel()
 {
     activePanelRefreshKey.clear();

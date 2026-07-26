@@ -127,13 +127,32 @@ int main(int argc, char** argv)
     refresh.streamedOk = 2;
     refresh.streamedFailed = 1;
     refresh.resetForEnvironmentLoad();
-    return require(!refresh.pendingRefresh
-                       && refresh.activeRefreshKey.isEmpty()
-                       && refresh.activeDataFetchGeneration == 3
-                       && refresh.queuedFullRateRefreshViews.isEmpty()
+    if (const int error = require(!refresh.pendingRefresh
+                                      && refresh.activeRefreshKey.isEmpty()
+                                      && refresh.activeDataFetchGeneration == 3
+                                      && refresh.queuedFullRateRefreshViews.isEmpty()
+                                      && refresh.activeFullRateRefreshViews.isEmpty()
+                                      && refresh.attemptedSignals.isEmpty()
+                                      && refresh.streamedOk == 0
+                                      && refresh.streamedFailed == 0,
+                                  10)) {
+        return error;
+    }
+
+    PanelRefreshRequest pendingRateRefresh;
+    pendingRateRefresh.rateRefreshView = QRectF(0.0, -1.0, 1.0, 2.0);
+    refresh.pendingPanelRefreshes.push_back(pendingRateRefresh);
+    refresh.queuedFullRateRefreshViews.insert(QStringLiteral("0,0"),
+                                              QRectF(0.0, -1.0, 1.0, 2.0));
+    refresh.activeFullRateRefreshViews.insert(QStringLiteral("0,1"),
+                                              QRectF(0.0, -1.0, 1.0, 2.0));
+    refresh.activePanelRateRefreshView = QRectF(0.0, -1.0, 1.0, 2.0);
+    refresh.discardPreservedRateViews();
+    return require(refresh.queuedFullRateRefreshViews.isEmpty()
                        && refresh.activeFullRateRefreshViews.isEmpty()
-                       && refresh.attemptedSignals.isEmpty()
-                       && refresh.streamedOk == 0
-                       && refresh.streamedFailed == 0,
-                   10);
+                       && !refresh.activePanelRateRefreshView.isValid()
+                       && refresh.pendingPanelRefreshes.size() == 1
+                       && !refresh.pendingPanelRefreshes.front()
+                               .rateRefreshView.isValid(),
+                   12);
 }

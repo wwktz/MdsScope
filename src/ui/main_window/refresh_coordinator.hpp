@@ -50,6 +50,7 @@ public:
                                     const QRectF& currentView);
 
     void resetForEnvironmentLoad();
+    void discardPreservedRateViews();
     void clearActivePanel();
     void clearQueuedLoadedSignals();
 

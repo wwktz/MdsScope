@@ -126,7 +126,6 @@ void PlotWidget::resetScale(bool repaint)
 {
     hasView_ = false;
     view_ = {};
-    loadingView_ = {};
     invalidatePlotCache();
     if (repaint) {
         update();
@@ -140,7 +139,6 @@ void PlotWidget::applyView(const QRectF& view)
     }
     view_ = view;
     hasView_ = true;
-    loadingView_ = {};
     invalidatePlotCache();
     update();
 }
@@ -222,7 +220,6 @@ void PlotWidget::applyXRangeAutoY(double xmin, double xmax)
     expandFlatRange(next);
     view_ = next;
     hasView_ = true;
-    loadingView_ = {};
     invalidatePlotCache();
     update();
 }
@@ -248,7 +245,6 @@ void PlotWidget::applyYRangeKeepX(double ymin, double ymax)
     expandFlatRange(next);
     view_ = next;
     hasView_ = true;
-    loadingView_ = {};
     invalidatePlotCache();
     update();
 }
@@ -328,9 +324,6 @@ QRectF PlotWidget::effectiveView() const
 {
     if (hasView_ && view_.isValid()) {
         return view_;
-    }
-    if (loadingView_.isValid()) {
-        return loadingView_;
     }
     return dataBounds();
 }

@@ -39,13 +39,6 @@ QVector<SignalSeries> PlotWidget::seriesSnapshot() const
     return series_;
 }
 
-bool PlotWidget::hasSeriesData() const
-{
-    return std::any_of(series_.cbegin(), series_.cend(), [](const SignalSeries& series) {
-        return series.hasData();
-    });
-}
-
 void PlotWidget::setSeries(int index, SignalSeries series)
 {
     if (index >= series_.size()) {
@@ -76,35 +69,12 @@ void PlotWidget::clearSeries()
     invalidatePlotCache();
     clearSyncedPoint();
     hasView_ = false;
-    loadingView_ = {};
     hoverText_.clear();
     hoverSeriesIndex_ = -1;
     hoverSeriesLocked_ = false;
     pointTrackingActive_ = false;
     ++pointHoverGeneration_;
     pointHoverQueued_ = false;
-    scheduleUpdate();
-}
-
-void PlotWidget::clearSeriesForLoading()
-{
-    const QRectF previousView = effectiveView();
-    clearSeries();
-    if (previousView.isValid()
-        && previousView.width() > 0.0
-        && previousView.height() > 0.0) {
-        loadingView_ = previousView;
-        invalidatePlotCache();
-    }
-}
-
-void PlotWidget::finishSeriesLoading()
-{
-    if (!loadingView_.isValid()) {
-        return;
-    }
-    loadingView_ = {};
-    invalidatePlotCache();
     scheduleUpdate();
 }
 

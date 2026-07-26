@@ -125,7 +125,7 @@ private:
     void applyLoadedSignal(LoadedSignal item);
     void applyLoadedSignals(const QVector<LoadedSignal>& loaded);
     void applyPanelLoadedSignals(const QVector<LoadedSignal>& loaded);
-    void settleRefreshPanelIfComplete(int column, int row);
+    void fitRateRefreshPanelIfComplete(int column, int row);
     void fitRemainingRateRefreshPanels();
     void rememberLoadedSourceSignal(const LoadedSignal& item);
     void addPlotBelow();

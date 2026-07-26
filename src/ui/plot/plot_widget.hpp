@@ -26,11 +26,8 @@ public:
     void setSpec(PlotSpec spec);
     const PlotSpec& spec() const { return spec_; }
     QVector<SignalSeries> seriesSnapshot() const;
-    bool hasSeriesData() const;
     void setSeries(int index, SignalSeries series);
     void clearSeries();
-    void clearSeriesForLoading();
-    void finishSeriesLoading();
     void setSelected(bool selected);
     void setLargeDisplayMode(bool enabled);
     void refreshStyle();
@@ -123,7 +120,6 @@ private:
     QStringList legendLabels_;
     QVector<int> legendSeriesIndexes_;
     QRectF view_;
-    QRectF loadingView_;
     mutable QRectF cachedDataBounds_;
     mutable bool dataBoundsDirty_ = true;
     bool hasView_ = false;

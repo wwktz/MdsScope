@@ -45,6 +45,11 @@ void MainWindow::applyShot()
 
 void MainWindow::scheduleShotRefresh()
 {
+    // A preserved view belongs only to a Rate refresh of the same shot.
+    // Never let a queued or in-flight Rate change apply its old X range after
+    // Prev/Next has selected a different shot.
+    refresh_->discardPreservedRateViews();
+
     if (!layoutUsesFullRate(config_, globalRateMode_)) {
         refresh_->resetFullShotDebounce();
         refreshData();

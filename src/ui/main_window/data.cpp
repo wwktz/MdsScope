@@ -115,7 +115,7 @@ void MainWindow::refreshData()
         refresh_->clearQueuedLoadedSignals();
         for (auto& col : plotWidgets_) {
             for (PlotWidget* plot : col) {
-                plot->clearSeriesForLoading();
+                plot->clearSeries();
             }
         }
         for (auto it = refresh_->queuedFullRateRefreshViews.cbegin(); it != refresh_->queuedFullRateRefreshViews.cend(); ++it) {
@@ -147,7 +147,7 @@ void MainWindow::refreshData()
     refresh_->clearQueuedLoadedSignals();
     for (auto& col : plotWidgets_) {
         for (PlotWidget* plot : col) {
-            plot->clearSeriesForLoading();
+            plot->clearSeries();
         }
     }
     for (auto it = refresh_->queuedFullRateRefreshViews.cbegin(); it != refresh_->queuedFullRateRefreshViews.cend(); ++it) {
@@ -554,7 +554,7 @@ void MainWindow::refreshSignals(int column,
         return;
     }
     if (!partialSignalRefresh) {
-        plotWidgets_[column][row]->clearSeriesForLoading();
+        plotWidgets_[column][row]->clearSeries();
     }
     if (rateRefreshView.isValid() && rateRefreshView.width() > 0.0 && rateRefreshView.height() > 0.0) {
         plotWidgets_[column][row]->applyView(rateRefreshView);
@@ -631,7 +631,7 @@ void MainWindow::applyLoadedSignal(LoadedSignal item)
     // Record every delivered slot (loaded or failed) so a later Continue only
     // re-fetches signals that were never attempted.
     refresh_->attemptedSignals.insert(signalKey(item.column, item.row, item.signal));
-    settleRefreshPanelIfComplete(item.column, item.row);
+    fitRateRefreshPanelIfComplete(item.column, item.row);
     if (!hasData) {
         ++refresh_->streamedFailed;
     } else {
@@ -675,7 +675,7 @@ void MainWindow::applyLoadedSignals(const QVector<LoadedSignal>& loaded)
             }
             plotWidgets_[item.column][item.row]->setSeries(item.signal, item.series);
             refresh_->attemptedSignals.insert(key);
-            settleRefreshPanelIfComplete(item.column, item.row);
+            fitRateRefreshPanelIfComplete(item.column, item.row);
             if (!item.series.hasData()) {
                 ++failed;
             } else {
@@ -690,9 +690,12 @@ void MainWindow::applyLoadedSignals(const QVector<LoadedSignal>& loaded)
     fitRemainingRateRefreshPanels();
 }
 
-void MainWindow::settleRefreshPanelIfComplete(int column, int row)
+void MainWindow::fitRateRefreshPanelIfComplete(int column, int row)
 {
-    if (column < 0 || row < 0
+    const QString panelKey = QString::number(column) + ',' + QString::number(row);
+    auto viewIt = refresh_->activeFullRateRefreshViews.find(panelKey);
+    if (viewIt == refresh_->activeFullRateRefreshViews.end()
+        || column < 0 || row < 0
         || column >= refresh_->activeFetchSnapshot.columns.size()
         || row >= refresh_->activeFetchSnapshot.columns[column].size()
         || column >= plotWidgets_.size()
@@ -708,18 +711,10 @@ void MainWindow::settleRefreshPanelIfComplete(int column, int row)
         }
     }
 
-    PlotWidget* plot = plotWidgets_[column][row];
-    const QString panelKey = QString::number(column) + ',' + QString::number(row);
-    auto viewIt = refresh_->activeFullRateRefreshViews.find(panelKey);
-    if (viewIt != refresh_->activeFullRateRefreshViews.end()) {
-        const QRectF view = viewIt.value();
-        refresh_->activeFullRateRefreshViews.erase(viewIt);
-        if (view.isValid() && view.width() > 0.0) {
-            plot->applyXRangeAutoY(view.left(), view.right());
-        }
-    }
-    if (plot->hasSeriesData()) {
-        plot->finishSeriesLoading();
+    const QRectF view = viewIt.value();
+    refresh_->activeFullRateRefreshViews.erase(viewIt);
+    if (view.isValid() && view.width() > 0.0) {
+        plotWidgets_[column][row]->applyXRangeAutoY(view.left(), view.right());
     }
 }
 
@@ -778,12 +773,6 @@ void MainWindow::applyPanelLoadedSignals(const QVector<LoadedSignal>& loaded)
         && refresh_->activePanelRateRefreshView.width() > 0.0) {
         plotWidgets_[refresh_->activePanelColumn][refresh_->activePanelRow]->applyXRangeAutoY(
             refresh_->activePanelRateRefreshView.left(), refresh_->activePanelRateRefreshView.right());
-    }
-    if (ok > 0
-        && refresh_->activePanelColumn >= 0 && refresh_->activePanelRow >= 0
-        && refresh_->activePanelColumn < plotWidgets_.size()
-        && refresh_->activePanelRow < plotWidgets_[refresh_->activePanelColumn].size()) {
-        plotWidgets_[refresh_->activePanelColumn][refresh_->activePanelRow]->finishSeriesLoading();
     }
     refresh_->activePanelRateRefreshView = {};
     setStatus(QString("Panel refresh done: %1 signals loaded, %2 failed").arg(ok).arg(failed));
