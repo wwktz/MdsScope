@@ -37,6 +37,43 @@ MainWindow::MainWindow(QString rootPath, QWidget* parent)
     loadFontSettings(rootPath_);
     buildUi();
     applyUiFont();
+    connect(sshTunnelManager_,
+            &SshTunnelManager::preparationFinished,
+            this,
+            [this] {
+        // Queueing lets the original preparation return before the latest data
+        // request resumes. Obsolete reads are discarded by their generation;
+        // the persistent SSH forwarding process remains untouched.
+        bool resumeFullRefresh = sshFullRefreshPending_;
+        const bool resumePanelRefresh = sshPanelRefreshPending_;
+        const bool resumePrewarm = sshPrewarmPending_;
+        sshFullRefreshPending_ = false;
+        sshPanelRefreshPending_ = false;
+        sshPrewarmPending_ = false;
+
+        if (resumePrewarm && pendingPrewarmRefresh_
+            && !warmWatcher_.isRunning()) {
+            if (prewarmConnections()) {
+                return;
+            }
+            pendingPrewarmRefresh_ = false;
+            resumeFullRefresh = true;
+        }
+        if (resumeFullRefresh) {
+            pendingRefresh_ = false;
+            queuedRefreshKey_.clear();
+            refreshData();
+            return;
+        }
+        if (resumePanelRefresh) {
+            if (panelWatcher_.isRunning()) {
+                cancelPanelFetch();
+                activePanelRefreshKey_.clear();
+            }
+            startPendingFetchIfIdle();
+        }
+    },
+            Qt::QueuedConnection);
     latestShotPollTimer_.setInterval(20'000);
     connect(&latestShotPollTimer_, &QTimer::timeout, this, [this] {
         fetchLatestShotAsync(false);

@@ -30,6 +30,7 @@ public:
     const SshSettings& settings() const { return settings_; }
     State state() const { return state_; }
     QString lastError() const { return lastError_; }
+    bool preparationInProgress() const { return preparationInProgress_; }
 
     bool testConnection(const SshSettings& settings, QString* error);
     bool prepareLayout(const LayoutConfig& source, LayoutConfig* prepared, QString* error);
@@ -39,6 +40,7 @@ public:
 
 signals:
     void stateChanged(SshTunnelManager::State state, const QString& detail);
+    void preparationFinished();
 
 private:
     struct Tunnel {

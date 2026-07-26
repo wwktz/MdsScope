@@ -491,6 +491,9 @@ private:
     int selectedColumn_ = -1;
     int selectedRow_ = -1;
     bool pendingRefresh_ = false;
+    bool sshFullRefreshPending_ = false;
+    bool sshPanelRefreshPending_ = false;
+    bool sshPrewarmPending_ = false;
     QVector<PanelRefreshRequest> pendingPanelRefreshes_;
     bool singlePanelMaximized_ = false;
     int maximizedColumn_ = -1;

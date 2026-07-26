@@ -11,7 +11,7 @@
 #include <QNetworkProxy>
 #include <QProcess>
 #include <QProcessEnvironment>
-#include <QScopedValueRollback>
+#include <QScopeGuard>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTimer>
@@ -347,7 +347,11 @@ bool SshTunnelManager::prepareLayout(const LayoutConfig& source, LayoutConfig* p
         *error = QStringLiteral("SSH tunnel preparation is already in progress.");
         return false;
     }
-    QScopedValueRollback<bool> preparationGuard(preparationInProgress_, true);
+    preparationInProgress_ = true;
+    const auto preparationGuard = qScopeGuard([this] {
+        preparationInProgress_ = false;
+        emit preparationFinished();
+    });
 
     QHash<QString, QString> mapped;
     for (auto& column : prepared->columns) {
@@ -435,7 +439,11 @@ bool SshTunnelManager::prepareUrlImpl(const QString& source,
         *error = QStringLiteral("SSH tunnel preparation is already in progress.");
         return false;
     }
-    QScopedValueRollback<bool> preparationGuard(preparationInProgress_, true);
+    preparationInProgress_ = true;
+    const auto preparationGuard = qScopeGuard([this] {
+        preparationInProgress_ = false;
+        emit preparationFinished();
+    });
 
     const int remotePort = url.port(scheme == QStringLiteral("https") ? 443 : 80);
     const QString endpoint = url.host().contains(':')

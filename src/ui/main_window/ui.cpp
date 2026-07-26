@@ -454,11 +454,14 @@ void MainWindow::showPanelContextMenu(PlotWidget* plot, int column, int row, con
                             && row < config_.columns[column].size();
     rateMenu->setEnabled(validPanel && !config_.columns[column][row].signalSpecs.isEmpty());
     if (validPanel && !config_.columns[column][row].signalSpecs.isEmpty()) {
-        const DataReadMode firstMode = config_.columns[column][row].signalSpecs.front().readMode;
+        const DataReadMode firstMode =
+            effectiveSignalReadMode(globalRateMode_,
+                                    config_.columns[column][row].signalSpecs.front());
         const bool uniformMode = std::all_of(config_.columns[column][row].signalSpecs.cbegin(),
                                              config_.columns[column][row].signalSpecs.cend(),
-                                             [firstMode](const SignalSpec& sig) {
-                                                 return sig.readMode == firstMode;
+                                             [this, firstMode](const SignalSpec& sig) {
+                                                 return effectiveSignalReadMode(globalRateMode_, sig)
+                                                        == firstMode;
                                              });
         for (const auto& [action, mode] : rateActions) {
             action->setCheckable(true);

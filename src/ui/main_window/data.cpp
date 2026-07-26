@@ -4,6 +4,7 @@
 #include "mdsscope_internal.hpp"
 #include "shared.hpp"
 #include "mds_client.hpp"
+#include "ssh_tunnel_manager.hpp"
 #include "ui/plot/helpers.hpp"
 
 namespace {
@@ -110,6 +111,17 @@ void MainWindow::refreshData()
         setStatus("Data refresh queued until current work stops...");
         return;
     }
+    if (sshTunnelManager_ && sshTunnelManager_->preparationInProgress()) {
+        // A Rate/shot/config change does not need another SSH tunnel. Keep only
+        // the newest data request and run it when the in-flight preparation has
+        // made the persistent forwarding process available.
+        ++activeDataFetchGeneration_;
+        pendingRefresh_ = true;
+        queuedRefreshKey_ = key;
+        sshFullRefreshPending_ = true;
+        setStatus("Data refresh queued until SSH tunnel is ready...");
+        return;
+    }
     pendingRefresh_ = false;
     queuedLoadedSignals_.clear();
     queuedLoadedSignalApply_ = false;
@@ -136,8 +148,15 @@ void MainWindow::refreshData()
 
 void MainWindow::launchDataFetch(const LayoutConfig& snapshot, DataReadMode readMode, const QString& key)
 {
+    const int preparationGeneration = activeDataFetchGeneration_;
     LayoutConfig fetchSnapshot;
     if (!prepareSshLayout(snapshot, &fetchSnapshot)) {
+        activeRefreshKey_.clear();
+        return;
+    }
+    if (preparationGeneration != activeDataFetchGeneration_) {
+        // A newer Rate/shot/config request arrived while the persistent tunnel
+        // was being prepared. Do not start this obsolete data fetch.
         activeRefreshKey_.clear();
         return;
     }
@@ -355,14 +374,30 @@ bool MainWindow::prewarmConnections()
     if (config_.columns.isEmpty()) {
         return false;
     }
+    if (sshTunnelManager_ && sshTunnelManager_->preparationInProgress()) {
+        // A rapid config switch can arrive while the previous config is still
+        // establishing its forwarding process. Coalesce it instead of starting
+        // or rejecting a second tunnel preparation.
+        sshPrewarmPending_ = true;
+        setStatus("MDS prewarm queued until SSH tunnel is ready...");
+        return true;
+    }
     if (warmWatcher_.isRunning() || runningDataFetches_ > 0 || panelWatcher_.isRunning()) {
         return false;
     }
 
+    const int preparationGeneration = activeDataFetchGeneration_;
     const LayoutConfig source = expandedShotLayout(config_);
     LayoutConfig snapshot;
     if (!prepareSshLayout(source, &snapshot)) {
         return false;
+    }
+    if (preparationGeneration != activeDataFetchGeneration_
+        || sshFullRefreshPending_
+        || sshPanelRefreshPending_
+        || sshPrewarmPending_) {
+        // The completion notification will start only the newest queued work.
+        return true;
     }
     warmCancel_ = std::make_shared<std::atomic_bool>(false);
     const auto cancel = warmCancel_;
@@ -525,6 +560,14 @@ void MainWindow::refreshSignals(int column,
         setStatus(QString("Panel refresh queued: col %1 row %2").arg(column + 1).arg(row + 1));
         return;
     }
+    if (sshTunnelManager_ && sshTunnelManager_->preparationInProgress()) {
+        queuePanelRefresh({column, row, signalIndices, readMode, key, rateRefreshView});
+        sshPanelRefreshPending_ = true;
+        setStatus(QString("Panel refresh queued until SSH tunnel is ready: col %1 row %2")
+                      .arg(column + 1)
+                      .arg(row + 1));
+        return;
+    }
 
     LayoutConfig snapshot = displayConfig_;
     const bool partialSignalRefresh = !signalIndices.isEmpty();
@@ -550,6 +593,15 @@ void MainWindow::refreshSignals(int column,
         activePanelRow_ = -1;
         activePanelSignals_.clear();
         QTimer::singleShot(0, this, [this] { startPendingFetchIfIdle(); });
+        return;
+    }
+    if (sshPanelRefreshPending_ || sshFullRefreshPending_) {
+        // A newer request was queued during tunnel preparation. The completion
+        // notification will start it without launching this obsolete panel read.
+        activePanelRefreshKey_.clear();
+        activePanelColumn_ = -1;
+        activePanelRow_ = -1;
+        activePanelSignals_.clear();
         return;
     }
     if (!partialSignalRefresh) {
