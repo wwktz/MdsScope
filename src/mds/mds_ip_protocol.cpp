@@ -93,11 +93,12 @@ bool MdsIpClient::readFully(QTcpSocket& socket,
             // when switching shots. Finish consuming the one response already
             // in flight so the socket reaches a clean protocol boundary.
             //
-            // Full is adaptive: preserve the socket only when the observed
-            // transfer rate predicts that its remaining body will arrive faster
-            // than rebuilding an MDSIP connection. Otherwise abort immediately.
-            // A header wait has no known body size or useful throughput sample,
-            // so it remains immediately abortable.
+            // Reads without an idle deadline are adaptive on cancellation:
+            // preserve the socket only when the observed transfer rate predicts
+            // that its remaining body will arrive faster than rebuilding an
+            // MDSIP connection. Otherwise abort immediately. A header wait has
+            // no known body size or useful throughput sample, so it remains
+            // immediately abortable.
             if (currentCanceled()) {
                 bool canDrainCurrentResponse =
                     currentPreserveConnectionsOnCancel() && idleTimeoutMs > 0;
@@ -132,7 +133,7 @@ bool MdsIpClient::readFully(QTcpSocket& socket,
                         predictedFasterThanReconnect && cancelDrainTimer.elapsed() < reconnectMs;
                     if (!cancelDrainLogged || !canDrainCurrentResponse) {
                         traceMdsLine(
-                            QString("full_cancel_drain keep=%1 remaining=%2 buffered=%3 predicted_ms=%4 reconnect_ms=%5")
+                            QString("cancel_drain keep=%1 remaining=%2 buffered=%3 predicted_ms=%4 reconnect_ms=%5")
                                 .arg(canDrainCurrentResponse ? 1 : 0)
                                 .arg(remaining)
                                 .arg(buffered)
