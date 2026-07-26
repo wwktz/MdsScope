@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "mdsscope_internal.hpp"
+#include "refresh_coordinator.hpp"
 #include "shared.hpp"
 #include "theme.hpp"
 #include "ssh_tunnel_manager.hpp"
@@ -375,16 +376,28 @@ void MainWindow::buildUi()
         globalRateMode_ = mode;
         bool changed = false;
         QHash<QString, QRectF> rateRefreshViews;
+        // Preserve only an explicit user view. currentView() also returns the
+        // current automatic data bounds; preserving those would turn a Thin
+        // 0..1 auto-range into a fixed range for later Medium/Full reads.
+        for (int c = 0; c < plotWidgets_.size(); ++c) {
+            for (int r = 0; r < plotWidgets_[c].size(); ++r) {
+                if (c >= displayConfig_.columns.size()
+                    || r >= displayConfig_.columns[c].size()
+                    || displayConfig_.columns[c][r].signalSpecs.isEmpty()
+                    || !plotWidgets_[c][r]) {
+                    continue;
+                }
+                const QRectF view = RefreshCoordinator::preservedRateView(
+                    plotWidgets_[c][r]->hasView(),
+                    plotWidgets_[c][r]->currentView());
+                if (view.isValid()) {
+                    rateRefreshViews.insert(QString::number(c) + ',' + QString::number(r), view);
+                }
+            }
+        }
         for (int c = 0; c < config_.columns.size(); ++c) {
             for (int r = 0; r < config_.columns[c].size(); ++r) {
                 PlotSpec& plot = config_.columns[c][r];
-                if (!plot.signalSpecs.isEmpty()
-                    && c < plotWidgets_.size() && r < plotWidgets_[c].size()) {
-                    const QRectF view = plotWidgets_[c][r]->currentView();
-                    if (view.isValid() && view.width() > 0.0 && view.height() > 0.0) {
-                        rateRefreshViews.insert(QString::number(c) + ',' + QString::number(r), view);
-                    }
-                }
                 for (SignalSpec& sig : plot.signalSpecs) {
                     if (sig.readMode != mode || !sig.readModeExplicit) {
                         sig.readMode = mode;
@@ -394,7 +407,7 @@ void MainWindow::buildUi()
                 }
             }
         }
-        queuedFullRateRefreshViews_ = rateRefreshViews;
+        refresh_->queuedFullRateRefreshViews = rateRefreshViews;
         syncDisplayConfig();
         for (auto it = rateRefreshViews.cbegin(); it != rateRefreshViews.cend(); ++it) {
             const QStringList parts = it.key().split(',');
@@ -407,7 +420,7 @@ void MainWindow::buildUi()
         if (changed) {
             refreshData();
         } else {
-            queuedFullRateRefreshViews_.clear();
+            refresh_->queuedFullRateRefreshViews.clear();
             setStatus(QString("Global Rate unchanged: %1").arg(dataModeCombo_->currentText()));
         }
     });
@@ -490,7 +503,12 @@ void MainWindow::showPanelContextMenu(PlotWidget* plot, int column, int row, con
             chosen == fullRateAction ? DataReadMode::Full
             : chosen == mediumRateAction ? DataReadMode::Medium
                                          : DataReadMode::Thin;
-        const QRectF rateRefreshView = plot->currentView();
+        // An automatic range belongs to the old data and must be recomputed
+        // from the newly selected Rate. Preserve X only after the user has
+        // explicitly changed the view.
+        const QRectF rateRefreshView = RefreshCoordinator::preservedRateView(
+            plot->hasView(),
+            plot->currentView());
         PlotSpec& panel = config_.columns[column][row];
         QVector<int> changedSignals;
         for (int i = 0; i < panel.signalSpecs.size(); ++i) {

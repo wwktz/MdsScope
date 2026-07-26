@@ -74,6 +74,7 @@ if(UNIX AND NOT APPLE)
 endif()
 
 option(MDS_SCOPE_DEPLOY_RUNTIME "Deploy Qt runtime dependencies during installation" OFF)
+option(MDS_SCOPE_BUILD_TESTS "Build MdsScope internal tests" OFF)
 set(MDS_SCOPE_RPM_RELEASE "1" CACHE STRING "RPM release suffix")
 
 configure_file(
@@ -117,6 +118,7 @@ add_executable(MdsScope
     src/ui/main_window/environment.cpp
     src/ui/main_window/export.cpp
     src/ui/main_window/layout.cpp
+    src/ui/main_window/refresh_coordinator.cpp
     src/ui/main_window/scale.cpp
     src/ui/main_window/shared.cpp
     src/ui/main_window/shot.cpp
@@ -249,6 +251,47 @@ target_link_libraries(transfer PRIVATE
     Qt6::Network
     Qt6::Concurrent
 )
+
+if(MDS_SCOPE_BUILD_TESTS)
+    enable_testing()
+    add_executable(refresh_coordinator_test
+        tests/refresh_coordinator_test.cpp
+        src/ui/main_window/refresh_coordinator.cpp
+    )
+    set_target_properties(refresh_coordinator_test PROPERTIES AUTOMOC OFF)
+    target_include_directories(refresh_coordinator_test PRIVATE
+        src
+        src/core
+        src/mds
+        src/ui
+        src/ssh
+    )
+    target_link_libraries(refresh_coordinator_test PRIVATE
+        Qt6::Core
+        Qt6::Widgets
+        Qt6::Concurrent
+    )
+    add_test(NAME refresh_coordinator COMMAND refresh_coordinator_test)
+
+    add_executable(plot_helpers_test
+        tests/plot_helpers_test.cpp
+    )
+    set_target_properties(plot_helpers_test PROPERTIES AUTOMOC OFF)
+    target_include_directories(plot_helpers_test PRIVATE
+        src
+        src/core
+        src/mds
+        src/ssh
+        src/ui
+    )
+    target_link_libraries(plot_helpers_test PRIVATE
+        Qt6::Core
+        Qt6::Widgets
+        Qt6::Concurrent
+        Qt6::Network
+    )
+    add_test(NAME plot_helpers COMMAND plot_helpers_test)
+endif()
 
 if(UNIX AND NOT APPLE)
     target_link_libraries(MdsScope PRIVATE Qt6::DBus)

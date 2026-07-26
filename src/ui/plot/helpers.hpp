@@ -12,6 +12,58 @@ inline bool signalVisible(const PlotSpec& spec, int index)
     return index < 0 || index >= spec.signalSpecs.size() || !spec.signalSpecs[index].hidden;
 }
 
+inline void fillMissingAxisBounds(double* minValue,
+                                  double* maxValue,
+                                  double defaultMin,
+                                  double defaultMax)
+{
+    if (!minValue || !maxValue) {
+        return;
+    }
+    if (!std::isfinite(*minValue) && !std::isfinite(*maxValue)) {
+        *minValue = defaultMin;
+        *maxValue = defaultMax;
+    } else if (!std::isfinite(*minValue)) {
+        *minValue = *maxValue - (defaultMax - defaultMin);
+    } else if (!std::isfinite(*maxValue)) {
+        *maxValue = *minValue + (defaultMax - defaultMin);
+    }
+}
+
+inline QPair<int, int> sortedPointIndexRange(const QVector<QPointF>& points,
+                                             double xmin,
+                                             double xmax)
+{
+    if (points.isEmpty() || !std::isfinite(xmin) || !std::isfinite(xmax)) {
+        return {-1, -1};
+    }
+    if (xmax < xmin) {
+        std::swap(xmin, xmax);
+    }
+    const bool ascending = points.first().x() <= points.last().x();
+    const auto beginIt = ascending
+        ? std::lower_bound(points.cbegin(), points.cend(), xmin, [](const QPointF& point, double x) {
+              return point.x() < x;
+          })
+        : std::lower_bound(points.cbegin(), points.cend(), xmax, [](const QPointF& point, double x) {
+              return point.x() > x;
+          });
+    const auto endIt = ascending
+        ? std::upper_bound(points.cbegin(), points.cend(), xmax, [](double x, const QPointF& point) {
+              return x < point.x();
+          })
+        : std::upper_bound(points.cbegin(), points.cend(), xmin, [](double x, const QPointF& point) {
+              return x > point.x();
+          });
+    if (beginIt == endIt) {
+        return {-1, -1};
+    }
+    return {
+        static_cast<int>(std::distance(points.cbegin(), beginIt)),
+        static_cast<int>(std::distance(points.cbegin(), endIt)) - 1,
+    };
+}
+
 inline QString effectiveYLabel(const PlotSpec& spec, const QVector<SignalSeries>& series)
 {
     const QString configuredLabel = spec.yLabel.trimmed();

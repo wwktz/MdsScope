@@ -195,17 +195,10 @@ void PlotWidget::applyXRangeAutoY(double xmin, double xmax)
             if (s.points.isEmpty()) {
                 continue;
             }
-            auto lowerByX = [](const QPointF& point, double x) {
-                return point.x() < x;
-            };
-            const auto beginIt = std::lower_bound(s.points.cbegin(), s.points.cend(), xmin, lowerByX);
-            const auto endIt = std::upper_bound(s.points.cbegin(), s.points.cend(), xmax, [](double x, const QPointF& point) {
-                return x < point.x();
-            });
-            if (beginIt != endIt) {
-                const int startIndex = static_cast<int>(std::distance(s.points.cbegin(), beginIt));
-                const int endIndex = static_cast<int>(std::distance(s.points.cbegin(), endIt)) - 1;
-                considerIndexedYRange(s, startIndex, endIndex, [&](int i) {
+            const QPair<int, int> range =
+                sortedPointIndexRange(s.points, xmin, xmax);
+            if (range.first >= 0) {
+                considerIndexedYRange(s, range.first, range.second, [&](int i) {
                     return s.points[i].y();
                 }, &minY, &maxY);
             }
@@ -304,11 +297,11 @@ QRectF PlotWidget::dataBounds() const
     if (fixedMaxX) maxX = spec_.xmax;
     if (fixedMinY) minY = spec_.ymin;
     if (fixedMaxY) maxY = spec_.ymax;
-    if (!std::isfinite(minX) || !std::isfinite(maxX) || !std::isfinite(minY) || !std::isfinite(maxY)) {
-        cachedDataBounds_ = QRectF(0, -1, 1, 2);
-        dataBoundsDirty_ = false;
-        return cachedDataBounds_;
-    }
+    // Keep valid custom sides even when the panel has no numeric data. The
+    // previous all-or-nothing fallback discarded a configured 0..10 X range
+    // and displayed the generic 0..1 range on failed/empty panels.
+    fillMissingAxisBounds(&minX, &maxX, 0.0, 1.0);
+    fillMissingAxisBounds(&minY, &maxY, -1.0, 1.0);
     const double xPad = (maxX - minX) * 0.01;
     if (xPad > 0.0) {
         if (!fixedMinX) minX -= xPad;

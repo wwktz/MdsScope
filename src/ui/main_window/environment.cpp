@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "mdsscope_internal.hpp"
+#include "refresh_coordinator.hpp"
 #include "shared.hpp"
 
 namespace {
@@ -238,7 +239,7 @@ bool MainWindow::loadEnvironmentFile(const QString& path,
 {
     const QString previousShot = shotEdit_ ? shotEdit_->text().trimmed() : QString();
     const bool shouldFetchLatest = useLatestWhenNoCurrentShot && previousShot.isEmpty();
-    pendingPrewarmRefresh_ = false;
+    refresh_->pendingPrewarmRefresh = false;
     clearDataPause();
     cancelDataFetch();
     cancelPanelFetch();
@@ -247,17 +248,7 @@ bool MainWindow::loadEnvironmentFile(const QString& path,
     // load), prewarm may still be running in the background preparing the
     // connections this new configuration will need. Let it finish instead of
     // discarding that work, so the first fetch reuses the warm sockets.
-    ++activeDataFetchGeneration_;
-    activeRefreshKey_.clear();
-    activePanelRefreshKey_.clear();
-    activePanelColumn_ = -1;
-    activePanelRow_ = -1;
-    activePanelSignals_.clear();
-    pendingRefresh_ = false;
-    pendingPanelRefreshes_.clear();
-    queuedRefreshKey_.clear();
-    queuedLoadedSignals_.clear();
-    queuedLoadedSignalApply_ = false;
+    refresh_->resetForEnvironmentLoad();
     config_ = parseEnvironment(path);
     globalRateMode_ = defaultRateMode_;
     // Apply the startup default as a non-persistent minimum. Higher TOML
@@ -284,16 +275,16 @@ bool MainWindow::loadEnvironmentFile(const QString& path,
         rememberRecentEnvironmentFile(path);
     }
     if (prewarmBeforeRefresh && !shouldFetchLatest) {
-        pendingPrewarmRefresh_ = true;
+        refresh_->pendingPrewarmRefresh = true;
         setStatus(QString("Preparing MDS connections for %1...").arg(QFileInfo(path).fileName()));
         if (!prewarmConnections()) {
-            pendingPrewarmRefresh_ = false;
+            refresh_->pendingPrewarmRefresh = false;
             refreshData();
         }
     } else if (!shouldFetchLatest) {
         refreshData();
     } else if (prewarmBeforeRefresh) {
-        pendingPrewarmRefresh_ = true;
+        refresh_->pendingPrewarmRefresh = true;
     }
     if (shouldFetchLatest) {
         fetchLatestShotAsync();

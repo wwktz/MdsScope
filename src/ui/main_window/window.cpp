@@ -2,11 +2,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "mdsscope_internal.hpp"
+#include "refresh_coordinator.hpp"
 #include "mds_client.hpp"
 #include "ssh_tunnel_manager.hpp"
 
 MainWindow::MainWindow(QString rootPath, QWidget* parent)
-    : QMainWindow(parent), rootPath_(std::move(rootPath))
+    : QMainWindow(parent)
+    , rootPath_(std::move(rootPath))
+    , refresh_(std::make_unique<RefreshCoordinator>())
 {
     setWindowIcon(appIcon());
     sshTunnelManager_ = new SshTunnelManager(this);
@@ -44,31 +47,30 @@ MainWindow::MainWindow(QString rootPath, QWidget* parent)
         // Queueing lets the original preparation return before the latest data
         // request resumes. Obsolete reads are discarded by their generation;
         // the persistent SSH forwarding process remains untouched.
-        bool resumeFullRefresh = sshFullRefreshPending_;
-        const bool resumePanelRefresh = sshPanelRefreshPending_;
-        const bool resumePrewarm = sshPrewarmPending_;
-        sshFullRefreshPending_ = false;
-        sshPanelRefreshPending_ = false;
-        sshPrewarmPending_ = false;
+        const RefreshCoordinator::SshPendingWork work =
+            refresh_->takeSshPendingWork();
+        bool resumeFullRefresh = work.global;
+        const bool resumePanelRefresh = work.panel;
+        const bool resumePrewarm = work.prewarm;
 
-        if (resumePrewarm && pendingPrewarmRefresh_
-            && !warmWatcher_.isRunning()) {
+        if (resumePrewarm && refresh_->pendingPrewarmRefresh
+            && !refresh_->warmWatcher.isRunning()) {
             if (prewarmConnections()) {
                 return;
             }
-            pendingPrewarmRefresh_ = false;
+            refresh_->pendingPrewarmRefresh = false;
             resumeFullRefresh = true;
         }
         if (resumeFullRefresh) {
-            pendingRefresh_ = false;
-            queuedRefreshKey_.clear();
+            refresh_->pendingRefresh = false;
+            refresh_->queuedRefreshKey.clear();
             refreshData();
             return;
         }
         if (resumePanelRefresh) {
-            if (panelWatcher_.isRunning()) {
+            if (refresh_->panelWatcher.isRunning()) {
                 cancelPanelFetch();
-                activePanelRefreshKey_.clear();
+                refresh_->clearActivePanel();
             }
             startPendingFetchIfIdle();
         }
@@ -79,33 +81,29 @@ MainWindow::MainWindow(QString rootPath, QWidget* parent)
         fetchLatestShotAsync(false);
     });
     latestShotPollTimer_.start();
-    fullShotDebounceTimer_.setSingleShot(true);
-    connect(&fullShotDebounceTimer_, &QTimer::timeout, this, [this] {
+    refresh_->fullShotDebounceTimer.setSingleShot(true);
+    connect(&refresh_->fullShotDebounceTimer, &QTimer::timeout, this, [this] {
         refreshData();
     });
-    connect(&panelWatcher_, &QFutureWatcher<QVector<LoadedSignal>>::finished, this, [this] {
-        if (!activePanelRefreshKey_.isEmpty()) {
-            applyPanelLoadedSignals(panelWatcher_.result());
-            activePanelRefreshKey_.clear();
+    connect(&refresh_->panelWatcher, &QFutureWatcher<QVector<LoadedSignal>>::finished, this, [this] {
+        if (!refresh_->activePanelRefreshKey.isEmpty()) {
+            applyPanelLoadedSignals(refresh_->panelWatcher.result());
         }
-        activePanelColumn_ = -1;
-        activePanelRow_ = -1;
-        activePanelSignals_.clear();
-        activePanelRateRefreshView_ = {};
+        refresh_->clearActivePanel();
         startPendingFetchIfIdle();
     });
-    connect(&warmWatcher_, &QFutureWatcher<void>::finished, this, [this] {
-        if (pendingRefresh_ || !pendingPanelRefreshes_.isEmpty()) {
+    connect(&refresh_->warmWatcher, &QFutureWatcher<void>::finished, this, [this] {
+        if (refresh_->pendingRefresh || !refresh_->pendingPanelRefreshes.isEmpty()) {
             startPendingFetchIfIdle();
             return;
         }
         const bool idle = canStartDeferredRefresh();
-        if (pendingPrewarmRefresh_ && idle) {
-            pendingPrewarmRefresh_ = false;
+        if (refresh_->pendingPrewarmRefresh && idle) {
+            refresh_->pendingPrewarmRefresh = false;
             refreshData();
             return;
         }
-        // If a fetch is still in flight, keep pendingPrewarmRefresh_ set so the
+        // If a fetch is still in flight, keep the deferred flag set so the
         // fetch-completion handler triggers the deferred initial refresh once it
         // drains, rather than dropping it here.
         if (idle) {
@@ -122,7 +120,7 @@ MainWindow::~MainWindow()
     cancelDataFetch();
     cancelPanelFetch();
     cancelPrewarmConnections();
-    ++activeDataFetchGeneration_;
+    refresh_->invalidateDataFetch();
     ++latestShotGeneration_;
     ++topSummaryGeneration_;
     QThreadPool::globalInstance()->clear();

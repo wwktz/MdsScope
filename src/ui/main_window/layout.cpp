@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "mdsscope_internal.hpp"
+#include "refresh_coordinator.hpp"
 #include "layout_dialog.hpp"
 #include "shared.hpp"
 #include "signal_dialogs.hpp"
@@ -210,10 +211,7 @@ void MainWindow::openLayoutSetupDialog()
         return;
     }
 
-    const bool fetchWasRunning = runningDataFetches_ > 0
-                                 || panelWatcher_.isRunning()
-                                 || warmWatcher_.isRunning()
-                                 || !pendingPanelRefreshes_.isEmpty();
+    const bool fetchWasRunning = refresh_->hasScheduledWork();
     LayoutConfig next = config_;
     next.columns.clear();
     int selectColumn = -1;

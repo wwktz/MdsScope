@@ -38,6 +38,8 @@ class QRadioButton;
 class QResizeEvent;
 class QToolBar;
 class QToolButton;
+class RefreshCoordinator;
+struct PanelRefreshRequest;
 class SshTunnelManager;
 
 struct InternalWebBookmark {
@@ -144,15 +146,6 @@ struct LoadedSignal {
     int signal = -1;
     QString shot;
     SignalSeries series;
-};
-
-struct PanelRefreshRequest {
-    int column = -1;
-    int row = -1;
-    QVector<int> signalIndices; // Empty means every signal in the panel.
-    DataReadMode readMode = DataReadMode::Thin;
-    QString key;
-    QRectF rateRefreshView;
 };
 
 struct PointReadout {
@@ -383,7 +376,7 @@ private:
     void startPendingFetchIfIdle();
     bool prewarmConnections();
     // True when no full/panel/latest-shot fetch is running or queued, i.e. a
-    // deferred initial refresh (pendingPrewarmRefresh_) may be launched now.
+    // deferred initial refresh may be launched now.
     bool canStartDeferredRefresh() const;
     // If a prewarm-deferred initial refresh is pending and nothing else is in
     // flight, consume the flag and launch it. Safe to call from any fetch-
@@ -405,6 +398,7 @@ private:
     void applyLoadedSignals(const QVector<LoadedSignal>& loaded);
     void applyPanelLoadedSignals(const QVector<LoadedSignal>& loaded);
     void fitRateRefreshPanelIfComplete(int column, int row);
+    void fitRemainingRateRefreshPanels();
     void rememberLoadedSourceSignal(const LoadedSignal& item);
     void addPlotBelow();
     void deleteCurrentPlot();
@@ -484,12 +478,8 @@ private:
     QToolButton* zoomButton_ = nullptr;
     QToolButton* pointButton_ = nullptr;
     QVector<QVector<PlotWidget*>> plotWidgets_;
-    QFutureWatcher<QVector<LoadedSignal>> panelWatcher_;
-    QFutureWatcher<void> warmWatcher_;
+    std::unique_ptr<RefreshCoordinator> refresh_;
     QTimer latestShotPollTimer_;
-    QTimer fullShotDebounceTimer_;
-    QElapsedTimer fullShotCadenceTimer_;
-    int rapidFullShotChanges_ = 0;
     QString topSummaryShot_;
     QString topSummaryIp_;
     QString topSummaryPulse_;
@@ -499,44 +489,11 @@ private:
     int topSummaryGeneration_ = 0;
     int selectedColumn_ = -1;
     int selectedRow_ = -1;
-    bool pendingRefresh_ = false;
-    bool sshFullRefreshPending_ = false;
-    bool sshPanelRefreshPending_ = false;
-    bool sshPrewarmPending_ = false;
-    QVector<PanelRefreshRequest> pendingPanelRefreshes_;
     bool singlePanelMaximized_ = false;
     int maximizedColumn_ = -1;
     int maximizedRow_ = -1;
     InteractionMode currentInteractionMode_ = InteractionMode::Zoom;
-    QString activeRefreshKey_;
-    QString queuedRefreshKey_;
-    bool pendingPrewarmRefresh_ = false;
-    int runningDataFetches_ = 0;
-    int activeDataFetchGeneration_ = 0;
-    QString activePanelRefreshKey_;
-    int activePanelColumn_ = -1;
-    int activePanelRow_ = -1;
-    QVector<int> activePanelSignals_;
-    QRectF activePanelRateRefreshView_;
-    QHash<QString, QRectF> queuedFullRateRefreshViews_;
-    QHash<QString, QRectF> activeFullRateRefreshViews_;
-    int streamedOk_ = 0;
-    int streamedFailed_ = 0;
-    QVector<LoadedSignal> queuedLoadedSignals_;
-    bool queuedLoadedSignalApply_ = false;
-    std::shared_ptr<std::atomic_bool> dataCancel_;
-    std::shared_ptr<std::atomic_bool> panelCancel_;
-    std::shared_ptr<std::atomic_bool> warmCancel_;
     QPushButton* stopButton_ = nullptr;
-    bool dataRefreshPaused_ = false;
-    bool pendingResume_ = false;
-    LayoutConfig activeFetchSnapshot_;
-    DataReadMode activeFetchReadMode_ = DataReadMode::Thin;
-    LayoutConfig pausedSnapshot_;
-    LayoutConfig pendingResumeSnapshot_;
-    DataReadMode pausedReadMode_ = DataReadMode::Thin;
-    QString pausedKey_;
-    QSet<QString> attemptedSignals_;
     QSet<QString> rememberedSourceSignals_;
     QString latestShot_;
     bool latestShotFetchRunning_ = false;

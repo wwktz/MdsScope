@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "mdsscope_internal.hpp"
+#include "refresh_coordinator.hpp"
 #include "about_dialog.hpp"
 #include "shared.hpp"
 
@@ -43,35 +44,25 @@ void MainWindow::applyShot()
 void MainWindow::scheduleShotRefresh()
 {
     if (!layoutUsesFullRate(config_, globalRateMode_)) {
-        fullShotDebounceTimer_.stop();
-        rapidFullShotChanges_ = 0;
+        refresh_->resetFullShotDebounce();
         refreshData();
         return;
-    }
-
-    const qint64 sincePreviousMs =
-        fullShotCadenceTimer_.isValid() ? fullShotCadenceTimer_.elapsed() : -1;
-    fullShotCadenceTimer_.restart();
-    if (sincePreviousMs >= 0 && sincePreviousMs <= 450) {
-        rapidFullShotChanges_ = std::min(rapidFullShotChanges_ + 1, 4);
-    } else {
-        rapidFullShotChanges_ = 0;
     }
 
     // Suppress any late old-shot result immediately, but let its transfer run
     // during the short debounce window. It may reach a clean socket boundary
     // before the final shot is known, avoiding an unnecessary abort/reconnect.
-    if (runningDataFetches_ > 0) {
-        activeRefreshKey_.clear();
-        ++activeDataFetchGeneration_;
+    if (refresh_->runningDataFetches > 0) {
+        refresh_->activeRefreshKey.clear();
+        refresh_->invalidateDataFetch();
     }
-    if (panelWatcher_.isRunning()) {
-        activePanelRefreshKey_.clear();
+    if (refresh_->panelWatcher.isRunning()) {
+        refresh_->clearActivePanel();
     }
 
-    const int baseMs = (runningDataFetches_ > 0 || panelWatcher_.isRunning()) ? 220 : 120;
-    const int debounceMs = std::min(380, baseMs + rapidFullShotChanges_ * 40);
-    fullShotDebounceTimer_.start(debounceMs);
+    const int debounceMs = refresh_->fullShotDebounceDelay(
+        refresh_->dataOrPanelRunning());
+    refresh_->fullShotDebounceTimer.start(debounceMs);
     setStatus(QString("Shot selected; refreshing after %1 ms pause").arg(debounceMs));
 }
 
@@ -209,7 +200,7 @@ void MainWindow::fetchLatestShotAsync(bool applyLatest)
                 cachedApiSourceUrl_.clear();
                 cachedPreparedApiUrl_.clear();
                 if (shouldApply) {
-                    pendingPrewarmRefresh_ = false;
+                    refresh_->pendingPrewarmRefresh = false;
                     setStatus("Latest shot unavailable");
                 }
                 return;
@@ -221,14 +212,14 @@ void MainWindow::fetchLatestShotAsync(bool applyLatest)
             if (shotEdit_ && shotEdit_->text() != latestShot_) {
                 shotEdit_->setText(latestShot_);
             }
-            if (pendingPrewarmRefresh_) {
+            if (refresh_->pendingPrewarmRefresh) {
                 rememberShotExpression(latestShot_);
                 setAllPlotShots(latestShot_);
                 setStatus(QString("Preparing MDS connections for shot %1...").arg(latestShot_));
                 if (prewarmConnections()) {
                     return;
                 }
-                pendingPrewarmRefresh_ = false;
+                refresh_->pendingPrewarmRefresh = false;
             }
             applyShot();
         }, Qt::QueuedConnection);
