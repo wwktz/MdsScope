@@ -4,6 +4,7 @@
 #include "ssh_diagnostic.hpp"
 #include "ssh_tunnel_manager.hpp"
 #include "mds_client.hpp"
+#include "core/mdsscope_internal.hpp"
 
 #include <QTextStream>
 #include <QEventLoop>

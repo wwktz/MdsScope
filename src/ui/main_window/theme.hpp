@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "core/app_runtime.hpp"
 #include "shared.hpp"
 
 inline QString themeModeLabel(ThemeMode mode)
@@ -230,4 +231,3 @@ private:
     qreal thumbPosition_ = 0.5;
     bool dragging_ = false;
 };
-

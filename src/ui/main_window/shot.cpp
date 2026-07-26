@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "mdsscope_internal.hpp"
+#include "main_window.hpp"
 #include "refresh_coordinator.hpp"
 #include "about_dialog.hpp"
 #include "shared.hpp"
+#include "ui/login_dialog.hpp"
 
 namespace {
 bool layoutUsesFullRate(const LayoutConfig& config, DataReadMode globalMode)

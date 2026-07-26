@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "mdsscope_internal.hpp"
+#include "login_dialog.hpp"
 
 LoginDialog::LoginDialog(QString rootPath, QWidget* parent, QString apiOverride, bool allowSkip)
     : QDialog(parent), rootPath_(std::move(rootPath)), apiOverride_(std::move(apiOverride))

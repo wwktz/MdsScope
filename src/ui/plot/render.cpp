@@ -3,6 +3,7 @@
 
 #include "mdsscope_internal.hpp"
 #include "helpers.hpp"
+#include "plot_widget.hpp"
 
 namespace {
 

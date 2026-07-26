@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "mdsscope_app.hpp"
+#include "app_types.hpp"
 #include "ssh_settings.hpp"
 
 #include <QtConcurrent>

@@ -3,8 +3,8 @@
 
 #pragma once
 
-#include "mdsscope_app.hpp"
-#include "mdsscope_internal.hpp"
+#include "core/app_types.hpp"
+#include "ssh_settings.hpp"
 
 #include <QObject>
 #include <QHash>

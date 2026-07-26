@@ -3,7 +3,16 @@
 
 #pragma once
 
-#include "mdsscope_app.hpp"
+#include "core/app_types.hpp"
+
+#include <QElapsedTimer>
+#include <QFutureWatcher>
+#include <QHash>
+#include <QSet>
+#include <QTimer>
+
+#include <atomic>
+#include <memory>
 
 struct PanelRefreshRequest {
     int column = -1;

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "ssh_tunnel_manager.hpp"
+#include "core/mdsscope_internal.hpp"
 
 #include <QCoreApplication>
 #include <QDir>

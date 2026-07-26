@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "mdsscope_internal.hpp"
+#include "main_window.hpp"
 #include "refresh_coordinator.hpp"
+#include "ui/plot/plot_widget.hpp"
 #include "layout_dialog.hpp"
 #include "shared.hpp"
 #include "signal_dialogs.hpp"

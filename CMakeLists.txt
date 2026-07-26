@@ -89,6 +89,7 @@ add_custom_target(uninstall
 
 add_executable(MdsScope
     src/main.cpp
+    src/core/app_runtime.cpp
     src/core/api_auth.cpp
     src/core/benchmark.cpp
     src/core/environment_io.cpp
@@ -127,6 +128,8 @@ add_executable(MdsScope
     src/ui/main_window/web_bookmarks.cpp
     src/ui/main_window/ui.cpp
     src/mdsscope_app.hpp
+    src/core/app_runtime.hpp
+    src/core/app_types.hpp
     src/core/mdsscope_internal.hpp
     src/core/text_utils.hpp
     src/mds/mds_client.hpp
@@ -134,7 +137,9 @@ add_executable(MdsScope
     src/ssh/ssh_tunnel_manager.hpp
     src/ssh/ssh_diagnostic.hpp
     src/ssh/ssh_settings.hpp
+    src/ui/login_dialog.hpp
     src/ui/ssh_dialog.hpp
+    src/ui/main_window/main_window.hpp
     src/ui/main_window/about_dialog.hpp
     src/ui/main_window/export_dialog.hpp
     src/ui/main_window/layout_dialog.hpp
@@ -142,6 +147,7 @@ add_executable(MdsScope
     src/ui/main_window/shared.hpp
     src/ui/main_window/theme.hpp
     src/ui/plot/helpers.hpp
+    src/ui/plot/plot_widget.hpp
 )
 
 add_executable(transfer
@@ -152,7 +158,7 @@ add_executable(transfer
     src/core/app_paths.cpp
     src/core/visuals.cpp
     src/core/text_utils.cpp
-    src/mdsscope_app.hpp
+    src/core/app_types.hpp
     src/core/mdsscope_internal.hpp
     src/core/text_utils.hpp
 )
