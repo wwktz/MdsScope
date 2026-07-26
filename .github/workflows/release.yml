@@ -1,388 +1,352 @@
-name: Release
+name: Release packages
 
 on:
   push:
     tags:
       - "v*"
   workflow_dispatch:
-    inputs:
-      target:
-        description: "Package target"
-        required: true
-        default: "all"
-        type: choice
-        options:
-          - all
-          - ubuntu24.04
-          - ubuntu26.04
-          - rpm
-          - fedora44
-          - el9
-          - el10
-          - linux
-          - macos
-          - windows
 
 permissions:
   contents: write
 
+env:
+  FLUTTER_VERSION: 3.44.7
+
 jobs:
-  package-plan:
-    name: Select packages
-    runs-on: ubuntu-24.04
-    outputs:
-      deb_matrix: ${{ steps.plan.outputs.deb_matrix }}
-      rpm_matrix: ${{ steps.plan.outputs.rpm_matrix }}
-      linux_matrix: ${{ steps.plan.outputs.linux_matrix }}
-      macos: ${{ steps.plan.outputs.macos }}
-      windows: ${{ steps.plan.outputs.windows }}
-
-    steps:
-      - name: Build package plan
-        id: plan
-        shell: bash
-        env:
-          TARGET: ${{ inputs.target || 'all' }}
-        run: |
-          deb_matrix='{"include":[]}'
-          rpm_matrix='{"include":[]}'
-          linux_matrix='{"include":[]}'
-          macos=false
-          windows=false
-
-          ubuntu_24='{"include":[{"arch":"amd64","runner":"ubuntu-24.04","package":"ubuntu24.04"},{"arch":"arm64","runner":"ubuntu-24.04-arm","package":"ubuntu24.04"}]}'
-          ubuntu_26='{"include":[{"arch":"amd64","runner":"ubuntu-26.04","package":"ubuntu26.04"},{"arch":"arm64","runner":"ubuntu-26.04-arm","package":"ubuntu26.04"}]}'
-          all_deb='{"include":[{"arch":"amd64","runner":"ubuntu-24.04","package":"ubuntu24.04"},{"arch":"arm64","runner":"ubuntu-24.04-arm","package":"ubuntu24.04"},{"arch":"amd64","runner":"ubuntu-26.04","package":"ubuntu26.04"},{"arch":"arm64","runner":"ubuntu-26.04-arm","package":"ubuntu26.04"}]}'
-
-          fedora_44='{"include":[{"arch":"x86_64","runner":"ubuntu-24.04","image":"fedora:44","package":"fedora44","release":"1.fc44"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","image":"fedora:44","package":"fedora44","release":"1.fc44"}]}'
-          enterprise_9='{"include":[{"arch":"x86_64","runner":"ubuntu-24.04","image":"rockylinux:9","package":"el9","release":"1.el9"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","image":"rockylinux:9","package":"el9","release":"1.el9"}]}'
-          enterprise_10='{"include":[{"arch":"x86_64","runner":"ubuntu-24.04","image":"rockylinux/rockylinux:10","package":"el10","release":"1.el10"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","image":"rockylinux/rockylinux:10","package":"el10","release":"1.el10"}]}'
-          all_rpm='{"include":[{"arch":"x86_64","runner":"ubuntu-24.04","image":"fedora:44","package":"fedora44","release":"1.fc44"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","image":"fedora:44","package":"fedora44","release":"1.fc44"},{"arch":"x86_64","runner":"ubuntu-24.04","image":"rockylinux:9","package":"el9","release":"1.el9"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","image":"rockylinux:9","package":"el9","release":"1.el9"},{"arch":"x86_64","runner":"ubuntu-24.04","image":"rockylinux/rockylinux:10","package":"el10","release":"1.el10"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","image":"rockylinux/rockylinux:10","package":"el10","release":"1.el10"}]}'
-
-          all_linux='{"include":[{"arch":"x86_64","runner":"ubuntu-24.04","qt_host":"linux","qt_arch":"linux_gcc_64"},{"arch":"aarch64","runner":"ubuntu-24.04-arm","qt_host":"linux_arm64","qt_arch":"linux_gcc_arm64"}]}'
-
-          case "$TARGET" in
-            all)
-              deb_matrix="$all_deb"
-              rpm_matrix="$all_rpm"
-              linux_matrix="$all_linux"
-              macos=true
-              windows=true
-              ;;
-            ubuntu24.04)
-              deb_matrix="$ubuntu_24"
-              ;;
-            ubuntu26.04)
-              deb_matrix="$ubuntu_26"
-              ;;
-            rpm)
-              rpm_matrix="$all_rpm"
-              ;;
-            fedora44)
-              rpm_matrix="$fedora_44"
-              ;;
-            el9)
-              rpm_matrix="$enterprise_9"
-              ;;
-            el10)
-              rpm_matrix="$enterprise_10"
-              ;;
-            linux)
-              linux_matrix="$all_linux"
-              ;;
-            macos)
-              macos=true
-              ;;
-            windows)
-              windows=true
-              ;;
-            *)
-              echo "Unknown package target: $TARGET" >&2
-              exit 1
-              ;;
-          esac
-
-          echo "deb_matrix=$deb_matrix" >> "$GITHUB_OUTPUT"
-          echo "rpm_matrix=$rpm_matrix" >> "$GITHUB_OUTPUT"
-          echo "linux_matrix=$linux_matrix" >> "$GITHUB_OUTPUT"
-          echo "macos=$macos" >> "$GITHUB_OUTPUT"
-          echo "windows=$windows" >> "$GITHUB_OUTPUT"
-
-  deb:
-    name: Build DEB (${{ matrix.package }} ${{ matrix.arch }})
-    needs: package-plan
-    if: ${{ needs.package-plan.outputs.deb_matrix != '{"include":[]}' }}
+  windows:
+    name: Windows ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.package-plan.outputs.deb_matrix) }}
-
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-2025
+            channel: stable
+          - arch: arm64
+            runner: windows-11-arm
+            channel: main
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Install dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y build-essential cmake ninja-build dpkg-dev qt6-base-dev qt6-base-dev-tools
-
-      - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-
-      - name: Build
-        run: cmake --build build
-
-      - name: Package DEB
-        run: |
-          cpack --config build/CPackConfig.cmake -G DEB
-          arch="$(dpkg --print-architecture)"
-          mv build/*.deb "build/mdsscope-${{ matrix.package }}.${arch}.deb"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v7
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
         with:
-          name: mdsscope-deb-${{ matrix.package }}-${{ matrix.arch }}
-          path: build/*.deb
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: ${{ matrix.channel }}
+          cache: true
+      - uses: dtolnay/rust-toolchain@1.92.0
+      - name: Install Windows packagers
+        shell: powershell
+        run: choco install 7zip innosetup wixtoolset --no-progress -y
+      - name: Build packages
+        run: >-
+          python build_app.py -p windows -a ${{ matrix.arch }}
+          -f exe msi msix zip 7z tar.gz tar.xz tar.bz2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mdsscope-windows-${{ matrix.arch }}
+          path: build/dist/*
+          if-no-files-found: error
 
-  rpm:
-    name: Build RPM (${{ matrix.package }} ${{ matrix.arch }})
-    needs: package-plan
-    if: ${{ needs.package-plan.outputs.rpm_matrix != '{"include":[]}' }}
+  windows-msixbundle:
+    name: Windows MSIX bundle
+    needs: [windows]
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mdsscope-windows-*
+          path: msix-input
+          merge-multiple: true
+      - name: Build the unsigned multi-architecture bundle
+        run: >-
+          python scripts/build_msixbundle.py msix-input
+          build/dist/mdsscope-windows.msixbundle
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mdsscope-windows-msixbundle
+          path: build/dist/mdsscope-windows.msixbundle
+          if-no-files-found: error
+
+  macos:
+    name: macOS arm64, x64, and universal
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@1.92.0
+      - name: Install 7-Zip
+        run: brew install sevenzip
+      - name: Build packages
+        run: >-
+          python3 build_app.py -p macos -a universal
+          -f app dmg pkg xcarchive zip 7z tar.gz tar.xz tar.bz2
+      - name: Verify the application bundle
+        run: |
+          codesign --verify --deep --strict build/dist/mdsscope-macos-arm64-unsigned.app
+          codesign --verify --deep --strict build/dist/mdsscope-macos-x64-unsigned.app
+          codesign --verify --deep --strict build/dist/mdsscope-macos-universal-unsigned.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mdsscope-macos-all
+          path: build/dist/*
+          if-no-files-found: error
+
+  linux:
+    name: Linux ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    container: ubuntu:20.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+            channel: stable
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            channel: main
+    steps:
+      - name: Install baseline build tools
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            build-essential ca-certificates clang cmake curl git jq libgtk-3-dev \
+            libsecret-1-dev ninja-build nasm patchelf p7zip-full perl pkg-config python3 \
+            rpm squashfs-tools unzip xz-utils zstd
+      - name: Install AppImage tooling
+        shell: bash
+        run: |
+          case "${{ matrix.arch }}" in
+            x64) appimage_arch=x86_64 ;;
+            arm64) appimage_arch=aarch64 ;;
+          esac
+          mkdir -p /opt/appimagetool
+          curl -fL "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-${appimage_arch}.AppImage" \
+            -o /opt/appimagetool.AppImage
+          chmod +x /opt/appimagetool.AppImage
+          cd /opt/appimagetool
+          /opt/appimagetool.AppImage --appimage-extract
+          ln -s /opt/appimagetool/squashfs-root/AppRun /usr/local/bin/appimagetool
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: ${{ matrix.channel }}
+          cache: true
+      - name: Trust the cached Flutter SDK checkout
+        run: git config --global --add safe.directory "$FLUTTER_ROOT"
+      - uses: dtolnay/rust-toolchain@1.92.0
+      - name: Build packages
+        run: >-
+          python3 build_app.py -p linux -a ${{ matrix.arch }}
+          -f deb rpm pkg.tar.zst pkg.tar.xz AppImage snap
+          zip 7z tar.gz tar.xz tar.bz2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mdsscope-linux-${{ matrix.arch }}
+          path: build/dist/*
+          if-no-files-found: error
+
+  linux-flatpak:
+    name: Linux Flatpak ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+            channel: stable
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            channel: main
+    steps:
+      - name: Install build tools and Flatpak runtime
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            build-essential clang cmake flatpak libgtk-3-dev libsecret-1-dev \
+            ninja-build nasm patchelf perl pkg-config
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --noninteractive flathub org.gnome.Platform//48 org.gnome.Sdk//48
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: ${{ matrix.channel }}
+          cache: true
+      - uses: dtolnay/rust-toolchain@1.92.0
+      - name: Build Flatpak package
+        run: python3 build_app.py -p linux -a ${{ matrix.arch }} -f flatpak
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mdsscope-linux-flatpak-${{ matrix.arch }}
+          path: build/dist/*.flatpak
+          if-no-files-found: error
+
+  linux-portable-runtime:
+    needs: [linux]
     runs-on: ${{ matrix.runner }}
     container: ${{ matrix.image }}
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.package-plan.outputs.rpm_matrix) }}
-
+      matrix:
+        include:
+          - name: Ubuntu 24.04
+            runner: ubuntu-24.04
+            arch: x64
+            image: ubuntu:24.04
+            family: debian
+            launch: true
+          - name: Fedora 44
+            runner: ubuntu-24.04
+            arch: x64
+            image: fedora:44
+            family: fedora
+            launch: true
+          - name: Enterprise Linux 10
+            runner: ubuntu-24.04
+            arch: x64
+            image: rockylinux/rockylinux:10
+            family: enterprise
+            launch: false
+          - name: Enterprise Linux 10 ARM64
+            runner: ubuntu-24.04-arm
+            arch: arm64
+            image: rockylinux/rockylinux:10
+            family: enterprise
+            launch: false
+    name: Portable Linux / ${{ matrix.name }}
     steps:
-      - name: Enable EPEL 9
-        if: ${{ matrix.package == 'el9' }}
-        run: |
-          dnf install -y dnf-plugins-core
-          dnf config-manager --set-enabled crb
-          dnf install -y epel-release
-
-      - name: Enable CRB 10
-        if: ${{ matrix.package == 'el10' }}
-        run: |
-          dnf install -y dnf-plugins-core
-          dnf config-manager --set-enabled crb
-
-      - name: Install dependencies
-        run: dnf install -y git gcc-c++ cmake ninja-build rpm-build qt6-qtbase-devel
-
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Configure
-        run: >
-          cmake -S . -B build -G Ninja
-          -DCMAKE_BUILD_TYPE=Release
-          -DMDS_SCOPE_RPM_RELEASE=${{ matrix.release }}
-
-      - name: Build
-        run: cmake --build build
-
-      - name: Package and verify RPM
+      - name: Install Ubuntu verifier runtime
+        if: matrix.family == 'debian'
         shell: bash
         run: |
-          cpack --config build/CPackConfig.cmake -G RPM
-          mapfile -t packages < <(find build -maxdepth 1 -type f -name '*.rpm')
-          if [[ ${#packages[@]} -ne 1 ]]; then
-              printf 'Expected one RPM, found %s\n' "${#packages[@]}" >&2
-              exit 1
-          fi
-          rpm -qpl "${packages[0]}"
-          rpm -qpR "${packages[0]}"
-          dnf install -y "${packages[0]}"
-          mv "${packages[0]}" "build/mdsscope-${{ matrix.package }}.${{ matrix.arch }}.rpm"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: mdsscope-rpm-${{ matrix.package }}-${{ matrix.arch }}
-          path: build/*.rpm
-
-  linux-portable:
-    name: Build Linux ZIP (${{ matrix.arch }})
-    needs: package-plan
-    if: ${{ needs.package-plan.outputs.linux_matrix != '{"include":[]}' }}
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.package-plan.outputs.linux_matrix) }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Install dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y build-essential cmake ninja-build zip
-
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v4.3.1
-        with:
-          version: "6.8.3"
-          host: ${{ matrix.qt_host }}
-          target: desktop
-          arch: ${{ matrix.qt_arch }}
-
-      - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-
-      - name: Build
-        run: cmake --build build
-
-      - name: Package portable ZIP
-        run: packaging/linux/create-portable.sh build "build/mdsscope-linux-${{ matrix.arch }}.zip"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v7
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            binutils git libegl-mesa0 libegl1 libgl1-mesa-dri \
+            libgles2 libgtk-3-0t64 libsecret-1-0 libstdc++6 python3 unzip xvfb
+      - name: Install Fedora verifier runtime
+        if: matrix.family == 'fedora'
+        run: >-
+          dnf install -y binutils git gnome-settings-daemon gtk3 libepoxy
+          libglvnd-egl libsecret libstdc++ mesa-dri-drivers mesa-libEGL
+          python3 unzip
+          xorg-x11-server-Xvfb
+      - name: Install Enterprise Linux verifier runtime
+        if: matrix.family == 'enterprise'
+        run: >-
+          dnf install -y binutils git gtk3 libepoxy libsecret libstdc++
+          python3 unzip
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
           name: mdsscope-linux-${{ matrix.arch }}
-          path: build/mdsscope-linux-${{ matrix.arch }}.zip
+          path: build/dist
+      - name: Verify portable dependency closure
+        run: >-
+          python3 scripts/verify_linux_portable.py
+          build/dist/mdsscope-linux-${{ matrix.arch }}.zip
+          --max-glibc 2.31
+      - name: Smoke-launch portable application
+        if: matrix.launch
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: >-
+          python3 scripts/verify_linux_portable.py
+          build/dist/mdsscope-linux-${{ matrix.arch }}.zip
+          --max-glibc 2.31 --launch
 
-  macos:
-    name: Build macOS packages (Apple Silicon)
-    needs: package-plan
-    if: ${{ needs.package-plan.outputs.macos == 'true' }}
-    runs-on: macos-15
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v4.3.1
-        with:
-          version: "6.8.3"
-          host: mac
-          target: desktop
-          arch: clang_64
-
-      - name: Configure
-        run: >
-          cmake -S . -B build -G Ninja
-          -DCMAKE_BUILD_TYPE=Release
-          -DMDS_SCOPE_DEPLOY_RUNTIME=ON
-
-      - name: Build
-        run: cmake --build build
-
-      - name: Install and deploy app
-        run: |
-          cmake --install build --prefix "$PWD/build/macos-stage" --component app
-          file build/macos-stage/MdsScope.app/Contents/MacOS/MdsScope
-          codesign --force --deep --sign - build/macos-stage/MdsScope.app
-          codesign --verify --deep --strict --verbose=2 build/macos-stage/MdsScope.app
-
-      - name: Package ZIP and DMG
-        run: |
-          ditto -c -k --sequesterRsrc --keepParent \
-            build/macos-stage/MdsScope.app \
-            build/mdsscope-macos-arm64.zip
-
-          mkdir -p build/dmg-root
-          ditto build/macos-stage/MdsScope.app build/dmg-root/MdsScope.app
-          ln -s /Applications build/dmg-root/Applications
-          hdiutil create \
-            -volname MdsScope \
-            -srcfolder build/dmg-root \
-            -ov \
-            -format UDZO \
-            build/mdsscope-macos-arm64.dmg
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: mdsscope-macos-arm64
-          path: |
-            build/mdsscope-macos-arm64.zip
-            build/mdsscope-macos-arm64.dmg
-
-  windows:
-    name: Build Windows portable ZIP
-    needs: package-plan
-    if: ${{ needs.package-plan.outputs.windows == 'true' }}
-    runs-on: windows-2022
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v4.3.1
-        with:
-          version: "6.8.3"
-          host: windows
-          target: desktop
-          arch: win64_msvc2022_64
-
-      - name: Configure
-        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-
-      - name: Build
-        run: cmake --build build --config Release
-
-      - name: Package portable ZIP
-        shell: pwsh
-        run: |
-          $stage = Join-Path $env:GITHUB_WORKSPACE "build\windows-package\MdsScope"
-          New-Item -ItemType Directory -Force $stage | Out-Null
-
-          Copy-Item "build\Release\MdsScope.exe" $stage
-          Copy-Item "build\Release\transfer.exe" $stage
-
-          windeployqt --release --compiler-runtime --no-translations --dir $stage (Join-Path $stage "MdsScope.exe")
-
-          Copy-Item "resources" (Join-Path $stage "resources") -Recurse
-          Copy-Item "COPYING" $stage
-          Copy-Item "README.md" $stage
-          Copy-Item "packaging\linux\mdsscope.svg" $stage
-
-          Compress-Archive -Path $stage -DestinationPath "build\mdsscope-windows-x64.zip" -Force
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: mdsscope-windows-x64
-          path: build/mdsscope-windows-x64.zip
-
-  release:
-    needs:
-      - deb
-      - rpm
-      - linux-portable
-      - macos
-      - windows
-    if: >-
-      ${{
-        always() &&
-        startsWith(github.ref, 'refs/tags/') &&
-        needs.deb.result == 'success' &&
-        needs.rpm.result == 'success' &&
-        needs.linux-portable.result == 'success' &&
-        needs.macos.result == 'success' &&
-        needs.windows.result == 'success'
-      }}
+  android:
+    name: Android
     runs-on: ubuntu-24.04
-
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      MDSSCOPE_ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      MDSSCOPE_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      MDSSCOPE_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
     steps:
-      - name: Download release artifacts
-        uses: actions/download-artifact@v8
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@1.92.0
+      - name: Install the pinned Android NDK
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;28.2.13676358"'
+      - name: Install pinned bundletool
+        run: |
+          curl -fL https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar \
+            -o "$RUNNER_TEMP/bundletool-all-1.18.3.jar"
+          echo "BUNDLETOOL_JAR=$RUNNER_TEMP/bundletool-all-1.18.3.jar" >> "$GITHUB_ENV"
+      - name: Install Android release key when configured
+        shell: bash
+        run: |
+          if [[ -n "$ANDROID_KEYSTORE_BASE64" ]]; then
+            keystore="$RUNNER_TEMP/mdsscope-release.jks"
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+            echo "MDSSCOPE_ANDROID_KEYSTORE=$keystore" >> "$GITHUB_ENV"
+          else
+            echo "::warning::Android signing secrets are absent; APKs will use the local test identity."
+          fi
+      - name: Build APKs and Android App Bundle
+        run: python3 build_app.py -p android -f apk aab apks
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mdsscope-android
+          path: build/dist/*
+          if-no-files-found: error
+
+  apple-mobile:
+    name: iOS and iPadOS
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - uses: dtolnay/rust-toolchain@1.92.0
+      - name: Install 7-Zip
+        run: brew install sevenzip
+      - name: Build unsigned Apple mobile packages
+        run: >-
+          python3 build_app.py -p ios -p ipados
+          -f unsigned-ipa unsigned-app xcarchive zip 7z tar.gz tar.xz tar.bz2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mdsscope-apple-mobile
+          path: build/dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [windows, windows-msixbundle, macos, linux, linux-flatpak, linux-portable-runtime, android, apple-mobile]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
         with:
           path: artifacts
-          pattern: mdsscope-*
           merge-multiple: true
-
-      - name: Create GitHub release
-        uses: softprops/action-gh-release@v3
-        with:
-          files: |
-            artifacts/*.deb
-            artifacts/*.rpm
-            artifacts/*.zip
-            artifacts/*.dmg
-          generate_release_notes: true
+      - name: Generate release checksums
+        working-directory: artifacts
+        run: find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\n' | sort | xargs sha256sum > SHA256SUMS
+      - name: Upload packages to the tag release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 || gh release create "${GITHUB_REF_NAME}" --generate-notes
+          find artifacts -maxdepth 1 -type f -print0 | xargs -0 gh release upload "${GITHUB_REF_NAME}" --clobber

@@ -1,0 +1,139 @@
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file('local.properties')
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withReader('UTF-8') { reader ->
+        localProperties.load(reader)
+    }
+}
+
+def flutterVersionCode = localProperties.getProperty('flutter.versionCode')
+if (flutterVersionCode == null) {
+    flutterVersionCode = '1'
+}
+
+def flutterVersionName = localProperties.getProperty('flutter.versionName')
+if (flutterVersionName == null) {
+    flutterVersionName = '1.0'
+}
+
+def releaseStorePath = System.getenv('MDSSCOPE_ANDROID_KEYSTORE')
+def releaseStorePassword = System.getenv('MDSSCOPE_ANDROID_STORE_PASSWORD')
+def releaseKeyAlias = System.getenv('MDSSCOPE_ANDROID_KEY_ALIAS')
+def releaseKeyPassword = System.getenv('MDSSCOPE_ANDROID_KEY_PASSWORD')
+def hasReleaseSigning = releaseStorePath != null &&
+    new File(releaseStorePath).isFile() &&
+    releaseStorePassword != null &&
+    releaseKeyAlias != null &&
+    releaseKeyPassword != null
+
+android {
+    namespace "com.mdsscope.app"
+    compileSdk 36
+    ndkVersion "28.2.13676358"
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
+    sourceSets {
+        main.java.srcDirs += 'src/main/kotlin'
+        main.jniLibs.srcDirs += layout.buildDirectory.dir('rustJniLibs').get().asFile
+    }
+
+    defaultConfig {
+        applicationId "com.mdsscope.app"
+        minSdkVersion flutter.minSdkVersion
+        targetSdk 36
+        versionCode flutterVersionCode.toInteger()
+        versionName flutterVersionName
+    }
+
+    signingConfigs {
+        release {
+            if (hasReleaseSigning) {
+                storeFile file(releaseStorePath)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            } else {
+                // Keep one-command local device builds possible. CI and store
+                // releases should always supply the four MDSSCOPE_ANDROID_*
+                // signing variables so the package has a stable identity.
+                logger.warn('MdsScope release signing is not configured; using the local debug key.')
+                signingConfig signingConfigs.debug
+            }
+        }
+    }
+}
+
+flutter {
+    source '../..'
+}
+
+def rustJniOutput = layout.buildDirectory.dir('rustJniLibs')
+def rustBuildScript = rootProject.file('../scripts/build_android_rust.sh')
+def flutterTargetPlatforms = providers.gradleProperty('target-platform')
+    .orElse('android-arm64')
+
+tasks.register('buildRustAndroid', Exec) {
+    group = 'build'
+    description = 'Builds and stages the Rust FFI library for Android.'
+    inputs.files(rootProject.fileTree('../rust') {
+        include '**/*.rs'
+        include '**/build.rs'
+        include '**/Cargo.toml'
+        include 'Cargo.lock'
+    })
+    def gitHeadLog = rootProject.file('../.git/logs/HEAD')
+    if (gitHeadLog.isFile()) {
+        inputs.file(gitHeadLog)
+    }
+    inputs.file(rustBuildScript)
+    inputs.property('flutterTargetPlatforms', flutterTargetPlatforms)
+    outputs.dir(rustJniOutput)
+
+    doFirst {
+        // The requested Flutter ABI set can change between builds. Remove the
+        // previous staging tree so a single-ABI APK cannot retain stale Rust
+        // libraries from an earlier universal build.
+        delete(rustJniOutput.get().asFile)
+        def sdkDir = localProperties.getProperty('sdk.dir')
+        if (sdkDir == null || sdkDir.trim().isEmpty()) {
+            throw new GradleException('Android SDK path is missing from local.properties')
+        }
+        def ndkDir = new File(sdkDir, "ndk/${android.ndkVersion}")
+        if (!ndkDir.isDirectory()) {
+            throw new GradleException("Required Android NDK was not found: ${ndkDir}")
+        }
+        commandLine(
+            'bash',
+            rustBuildScript.absolutePath,
+            ndkDir.absolutePath,
+            rustJniOutput.get().asFile.absolutePath,
+            flutterTargetPlatforms.get(),
+        )
+    }
+}
+
+tasks.named('preBuild') {
+    dependsOn tasks.named('buildRustAndroid')
+}

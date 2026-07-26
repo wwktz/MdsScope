@@ -1,0 +1,39 @@
+[workspace]
+resolver = "2"
+members = ["mds-bridge", "mds-core", "mds-ip", "mds-ssh", "mds-auth"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+authors = ["MdsScope Contributors"]
+rust-version = "1.92"
+
+[workspace.dependencies]
+# Data
+toml = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# SSH
+ssh2 = { version = "0.9", features = ["vendored-openssl"] }
+
+# Utilities
+tracing = "0.1"
+base64 = "0.22"
+sha2 = "0.10"
+ring = "0.17"
+
+# Internal crates
+mds-core = { path = "mds-core" }
+mds-ip = { path = "mds-ip" }
+mds-ssh = { path = "mds-ssh" }
+mds-auth = { path = "mds-auth" }
+
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"
