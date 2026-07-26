@@ -22,17 +22,6 @@ void warmMdsConnections(const LayoutConfig& snapshot, std::shared_ptr<std::atomi
     client.warmConnections(snapshot);
 }
 
-SignalSeries fetchMdsSignal(const PlotSpec& plot, const SignalSpec& sig, DataReadMode readMode)
-{
-    mds_client_internal::MdsIpClient client(readMode);
-    return client.fetch(plot, sig);
-}
-
-void clearMdsCurrentThreadConnections()
-{
-    mds_client_internal::MdsIpClient::clearCurrentThreadConnections();
-}
-
 void shutdownMdsConnectionWorkers()
 {
     mds_client_internal::MdsIpClient::shutdownWorkers();

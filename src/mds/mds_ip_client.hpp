@@ -72,22 +72,11 @@ public:
 
     void warmConnections(const LayoutConfig& snapshot) const;
 
-    SignalSeries fetch(const PlotSpec& plot, const SignalSpec& sig) const;
-
 private:
     DataReadMode readMode_ = DataReadMode::Thin;
     ResultCallback callback_;
     std::shared_ptr<std::atomic_bool> cancel_;
     bool preserveConnectionsOnCancel_ = false;
-    static constexpr bool kEnableMultiSignalBatch = false;
-    static constexpr bool kEnableCombinedSignalFetch = false;
-    static constexpr bool kUseServerSideThin = true;
-    static constexpr bool kEnableEastTimeContextBatch = false;
-    static constexpr bool kEnableEastTimebasePrefetch = false;
-    static constexpr bool kEnablePipelinedDirectFetch = false;
-    static constexpr bool kEnableEastThinPipeline = false;
-    static constexpr bool kSetServerResampleMode = false;
-    static constexpr bool kSetTreeDefault = false;
     static constexpr int kMaxConnectionsPerGroup = 8;
     static constexpr int kConnectionSetupTimeoutMs = 8'000;
     static constexpr int kConnectionSetupLimit = 8;
@@ -226,13 +215,9 @@ private:
 
     static void resetConnection(CachedMdsConnection* connection);
 
-    static int connectionCountForGroup(int requestCount);
-
     static int heavyThinConnectionLimit();
 
     static bool isLikelyHeavySignal(const SignalSpec& sig);
-
-    static bool prefersEastTimeContext(const QString& baseExpr);
 
     static bool chunkHasLikelyHeavySignal(const QVector<NativeRequest>& chunk);
 
@@ -240,23 +225,7 @@ private:
 
     static void appendConnectionChunks(const QVector<NativeRequest>& requests, QVector<QVector<NativeRequest>>* chunks);
 
-    void fetchGroup(const QVector<NativeRequest>& requests, QVector<LoadedSignal>* loaded) const;
-
     QVector<SignalFetchResult> fetchGroupResults(const QVector<NativeRequest>& requests, bool openOnly = false) const;
-
-    QVector<SignalFetchResult> fetchEastThinPipelinedOnOpenSocket(QTcpSocket& socket,
-                                                                  const QVector<NativeRequest>& requests,
-                                                                  QString* error) const;
-
-    QVector<SignalFetchResult> fetchDirectPipelinedOnOpenSocket(QTcpSocket& socket,
-                                                                const QVector<NativeRequest>& requests,
-                                                                const QHash<QString, UniformTimebase>& timebaseCache,
-                                                                QString* error) const;
-
-    QVector<SignalFetchResult> fetchEastTimeContextBatchOnOpenSocket(QTcpSocket& socket,
-                                                                     const QVector<NativeRequest>& requests,
-                                                                     const QSet<int>& fetchedIndexes,
-                                                                     QString* error) const;
 
     static QVector<SignalFetchResult> groupErrorResults(const QVector<NativeRequest>& requests, const QString& error);
 
@@ -276,14 +245,11 @@ private:
 
     void emitResults(const QVector<NativeRequest>& requests, const QVector<SignalFetchResult>& results) const;
 
-    QVector<SignalFetchResult> fetchThinBatchOnOpenSocket(QTcpSocket& socket, const QVector<NativeRequest>& requests, QString* error) const;
-
     SignalSeries fetchSignalOnOpenSocket(QTcpSocket& socket,
                                          const PlotSpec& plot,
                                          const SignalSpec& sig,
                                          DataReadMode readMode,
                                          int maxPoints,
-                                         const QHash<QString, UniformTimebase>* timebaseCache,
                                          QString* error) const;
 
     SignalSeries fetchSignalOnOpenSocketImpl(QTcpSocket& socket,
@@ -291,7 +257,6 @@ private:
                                              const SignalSpec& sig,
                                              DataReadMode readMode,
                                              int maxPoints,
-                                             const QHash<QString, UniformTimebase>* timebaseCache,
                                              QString* error) const;
 
     // Legacy fallback for thin/medium reads when neither the saved signal nor
@@ -318,7 +283,6 @@ private:
                                                         const PlotSpec& plot,
                                                         const SignalSpec& sig,
                                                         int maxPoints,
-                                                        const QHash<QString, UniformTimebase>* timebaseCache,
                                                         QString* error) const;
 
     SignalSeries fetchSavedEastSignalOnOpenSocket(QTcpSocket& socket,
@@ -352,12 +316,6 @@ private:
 
     static quint8 nextMessageId();
 
-    static bool sendValue(QTcpSocket& socket, const QString& expr, QString* error);
-
-    static bool queueValue(QTcpSocket& socket, const QString& expr, QString* error);
-
-    static bool flushQueuedValues(QTcpSocket& socket, QString* error);
-
     static Message value(QTcpSocket& socket, const QString& expr, QString* error);
 
     static bool clearTimeContext(QTcpSocket& socket, QString* error);
@@ -366,14 +324,7 @@ private:
 
     static QVector<double> numericValue(QTcpSocket& socket, const QString& expr, QString* error);
 
-    static QVector<double> cachedNumericValue(QTcpSocket& socket,
-                                              const QString& expr,
-                                              QHash<QString, QVector<double>>* cache,
-                                              QString* error);
-
     static int intValue(QTcpSocket& socket, const QString& expr, QString* error);
-
-    static QVector<int> intVectorValue(QTcpSocket& socket, const QString& expr, QString* error);
 
     static bool isSimpleMdsNode(const QString& expr);
 
@@ -382,10 +333,6 @@ private:
     static void applySeriesScale(SignalSeries* series, const QString& name, double scale);
 
     static bool isEastTimebaseCandidate(const QString& shotText, const SignalSpec& sig);
-
-    static QString eastTimebaseKey(const QString& shotText, const SignalSpec& sig);
-
-    static QHash<QString, UniformTimebase> prefetchEastTimebases(QTcpSocket& socket, const QVector<NativeRequest>& requests);
 
     static UniformTimebase eastUniformTimebase(QTcpSocket& socket,
                                                const QString& shotText,
@@ -399,17 +346,6 @@ private:
                                      QString* error);
 
     static ThinSampling samplingFromPointCount(int pointCount, int maxPoints);
-
-    static QVector<ThinSampling> thinSamplings(QTcpSocket& socket, const QVector<NativeRequest>& requests, QString* error);
-
-    static QVector<ThinSampling> thinSamplingsBestEffort(QTcpSocket& socket, const QVector<NativeRequest>& requests, QString* error);
-
-    static void fillThinSamplings(QTcpSocket& socket,
-                                  const QVector<NativeRequest>& requests,
-                                  int start,
-                                  int count,
-                                  QVector<ThinSampling>* out,
-                                  QString* error);
 
     static ThinSampling thinSampling(QTcpSocket& socket, const QString& yExpr, int maxPoints, QString* error);
 
@@ -432,9 +368,6 @@ private:
                                                       int maxPoints,
                                                       QString* error);
 
-    static SignalSeries makeSeriesFromAdjacentSegments(QString name, const QVector<double>& values, int offset, int count, int maxPoints);
-
-    static SignalSeries makeSeriesFromCombined(QString name, const QVector<double>& xy, int maxPoints);
 };
 
 } // namespace mds_client_internal

@@ -171,7 +171,6 @@ QString colorForIndex(int index);
 bool isDefaultSeriesColor(const QString& colorName, int index);
 int colorIndexForName(const QString& colorName, int fallback);
 void normalizePresetColors(QVector<SignalSpec>& specs);
-QString compactAxisValue(double value);
 QStringList uniformAxisValues(const QVector<double>& values);
 QIcon appIcon();
 QIcon gearIcon();

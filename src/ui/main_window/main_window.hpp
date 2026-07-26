@@ -18,7 +18,6 @@ class QEvent;
 class QGridLayout;
 class QLabel;
 class QLineEdit;
-class QListWidget;
 class QMenu;
 class QPushButton;
 class QScrollArea;
@@ -42,7 +41,6 @@ private:
     void buildUi();
     void loadDefaultEnvironment(bool useLatestWhenNoCurrentShot = false);
     void loadEnvironmentList(bool useLatestWhenNoCurrentShot = false);
-    void loadSelectedEnvironment();
     void openEnvironmentFile();
     void openRecentEnvironmentFile(const QString& path);
     void showRecentEnvironmentMenu();
@@ -109,11 +107,6 @@ private:
                             int row,
                             const QVector<int>& signalIndices,
                             DataReadMode readMode) const;
-    void refreshOne(int column, int row, int signal);
-    void refreshOne(int column,
-                    int row,
-                    int signal,
-                    DataReadMode readMode);
     void refreshSignals(int column,
                         int row,
                         QVector<int> signalIndices,
@@ -128,10 +121,6 @@ private:
     void fitRateRefreshPanelIfComplete(int column, int row);
     void fitRemainingRateRefreshPanels();
     void rememberLoadedSourceSignal(const LoadedSignal& item);
-    void addPlotBelow();
-    void deleteCurrentPlot();
-    void addSignalToCurrentPlot();
-    void deleteSignalFromCurrentPlot();
     void panelSetupForCurrentPanel();
     void dataSourceSetupForCurrentPanel();
     void openExportDataDialog();
@@ -184,7 +173,6 @@ private:
     LayoutConfig displayConfig_;
     QMenu* recentEnvironmentMenu_ = nullptr;
     QMenu* internalWebMenu_ = nullptr;
-    QListWidget* environmentList_ = nullptr;
     QWidget* gridHost_ = nullptr;
     QGridLayout* gridLayout_ = nullptr;
     QScrollArea* scrollArea_ = nullptr;

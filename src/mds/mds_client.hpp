@@ -16,6 +16,4 @@ QVector<LoadedSignal> fetchMdsSignals(const LayoutConfig& snapshot,
                                       std::shared_ptr<std::atomic_bool> cancel = {},
                                       bool preserveConnectionsOnCancel = false);
 void warmMdsConnections(const LayoutConfig& snapshot, std::shared_ptr<std::atomic_bool> cancel = {});
-SignalSeries fetchMdsSignal(const PlotSpec& plot, const SignalSpec& sig, DataReadMode readMode);
-void clearMdsCurrentThreadConnections();
 void shutdownMdsConnectionWorkers();

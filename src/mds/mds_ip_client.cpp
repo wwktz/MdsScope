@@ -251,30 +251,6 @@ void MdsIpClient::warmConnections(const LayoutConfig& snapshot) const
         }
     }
 
-SignalSeries MdsIpClient::fetch(const PlotSpec& plot, const SignalSpec& sig) const
-{
-        SignalSeries result;
-        result.name = normalizedMdsSignal(sig.yExpr);
-        const QString shot = effectiveSignalShot(plot, sig);
-        if (sig.serverIp.isEmpty() || sig.experiment.isEmpty() || shot.isEmpty() || sig.yExpr.isEmpty()) {
-            result.error = "missing server/tree/shot/signal";
-            return result;
-        }
-        NativeRequest request;
-        request.loadedIndex = 0;
-        request.plot = plot;
-        request.plot.shot = shot;
-        request.shot = shot;
-        request.sig = sig;
-        request.readMode = effectiveSignalReadMode(readMode_, sig);
-        request.maxPoints = maxPointsForSignal(plot, sig);
-        QVector<NativeRequest> requests = {request};
-        QVector<LoadedSignal> loaded(1);
-        loaded[0].series = result;
-        fetchGroup(requests, &loaded);
-        return loaded[0].series;
-    }
-
 bool MdsIpClient::isCanceled() const
 {
         return cancel_ && cancel_->load(std::memory_order_relaxed);
@@ -492,23 +468,6 @@ void MdsIpClient::resetConnection(CachedMdsConnection* connection)
         connection->currentShot.clear();
     }
 
-int MdsIpClient::connectionCountForGroup(int requestCount)
-{
-        if (requestCount >= 16) {
-            return kMaxConnectionsPerGroup;
-        }
-        if (requestCount >= 8) {
-            return std::min(8, kMaxConnectionsPerGroup);
-        }
-        if (requestCount >= 4) {
-            return std::min(4, kMaxConnectionsPerGroup);
-        }
-        if (requestCount >= 2) {
-            return 2;
-        }
-        return 1;
-    }
-
 int MdsIpClient::heavyThinConnectionLimit()
 {
         bool ok = false;
@@ -524,13 +483,6 @@ bool MdsIpClient::isLikelyHeavySignal(const SignalSpec& sig)
         const QString experiment = sig.experiment.trimmed().toLower();
         const QString y = normalizedMdsSignal(sig.yExpr).toLower();
         return experiment == "east" && (y.startsWith("\\hrs") || y.startsWith("hrs"));
-    }
-
-bool MdsIpClient::prefersEastTimeContext(const QString& baseExpr)
-{
-        const QString y = baseExpr.trimmed().toLower();
-        return y.startsWith("\\hrs")
-               || y.startsWith("\\ssnpa");
     }
 
 bool MdsIpClient::chunkHasLikelyHeavySignal(const QVector<NativeRequest>& chunk)
@@ -615,11 +567,6 @@ void MdsIpClient::appendConnectionChunks(const QVector<NativeRequest>& requests,
         }
 
         chunks->push_back(std::move(normal));
-    }
-
-void MdsIpClient::fetchGroup(const QVector<NativeRequest>& requests, QVector<LoadedSignal>* loaded) const
-{
-        applyFetchResults(fetchGroupResults(requests), loaded);
     }
 
 QVector<SignalFetchResult> MdsIpClient::groupErrorResults(const QVector<NativeRequest>& requests, const QString& error)

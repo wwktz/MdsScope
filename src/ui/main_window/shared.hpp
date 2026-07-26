@@ -30,7 +30,6 @@ enum class ExportRange {
 };
 
 QString exportFormatExtension(ExportFormat format);
-QString exportFormatName(ExportFormat format);
 QString exportFormatSettingValue(ExportFormat format);
 ExportFormat exportFormatFromSetting(QString value);
 QString uniqueExportPath(const QDir& dir, const QString& baseName, ExportFormat format);

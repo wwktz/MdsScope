@@ -17,7 +17,6 @@ SignalSeries MdsIpClient::fetchSignalOnOpenSocket(QTcpSocket& socket,
                                      const SignalSpec& sig,
                                      DataReadMode readMode,
                                      int maxPoints,
-                                     const QHash<QString, UniformTimebase>* timebaseCache,
                                      QString* error) const
 {
         // Shot duration and server-side resampling cost are independent of the
@@ -30,7 +29,7 @@ SignalSeries MdsIpClient::fetchSignalOnOpenSocket(QTcpSocket& socket,
         CurrentReadTimeoutGuard readTimeoutGuard(0);
         QElapsedTimer timer;
         timer.start();
-        SignalSeries result = fetchSignalOnOpenSocketImpl(socket, plot, sig, readMode, maxPoints, timebaseCache, error);
+        SignalSeries result = fetchSignalOnOpenSocketImpl(socket, plot, sig, readMode, maxPoints, error);
         if (socket.state() == QAbstractSocket::ConnectedState && !currentCanceled()) {
             const ScaledSignalExpr scaledUnitExpr = scaledSimpleSignalExpr(sig.yExpr);
             const QString unitSourceExpr = scaledUnitExpr.valid
@@ -66,7 +65,6 @@ SignalSeries MdsIpClient::fetchSignalOnOpenSocketImpl(QTcpSocket& socket,
                                          const SignalSpec& sig,
                                          DataReadMode readMode,
                                          int maxPoints,
-                                         const QHash<QString, UniformTimebase>* timebaseCache,
                                          QString* error) const
 {
         SignalSeries result;
@@ -75,7 +73,7 @@ SignalSeries MdsIpClient::fetchSignalOnOpenSocketImpl(QTcpSocket& socket,
         ThinSampling sampling;
         UniformTimebase fastTimebase;
         const QString xExpr = sig.xExpr.trimmed();
-        const bool serverSideThin = (readMode == DataReadMode::Thin || readMode == DataReadMode::Medium) && kUseServerSideThin;
+        const bool serverSideThin = readMode == DataReadMode::Thin || readMode == DataReadMode::Medium;
         SignalSpec fastSig = sig;
         const ScaledSignalExpr scaledExpr = scaledSimpleSignalExpr(sig.yExpr);
         if (scaledExpr.valid) {
@@ -169,7 +167,7 @@ SignalSeries MdsIpClient::fetchSignalOnOpenSocketImpl(QTcpSocket& socket,
             // striding ([1:*:step] forces a full 11M-point read, ~1.3s; the windowed
             // resample is ~0.25s). This is what Java's freq-mode path uses. Fall
             // back to length sampling only if the time-context read yields no data.
-            SignalSeries contextual = fetchEastTimeContextSignalOnOpenSocket(socket, plot, fastSig, maxPoints, timebaseCache, error);
+            SignalSeries contextual = fetchEastTimeContextSignalOnOpenSocket(socket, plot, fastSig, maxPoints, error);
             if (contextual.hasData()) {
                 applySeriesScale(&contextual, sig.yExpr, scaledExpr.scale);
                 return contextual;
@@ -204,35 +202,12 @@ SignalSeries MdsIpClient::fetchSignalOnOpenSocketImpl(QTcpSocket& socket,
         }
         const int sampleStep = serverSideThin ? sampling.step : 1;
         const int displayMaxPoints = readMode == DataReadMode::Thin ? maxPoints : 0;
-        if (kEnableCombinedSignalFetch && sampleStep > 1) {
-            const QString xSource = sig.xExpr.trimmed().isEmpty()
-                                        ? QString("dim_of(%1)").arg(sig.yExpr)
-                                        : sig.xExpr.trimmed();
-            const QString xyExpr = QString("( _jscope_0 = (data(%1)[1:*:%2]), _jscope_1 = (data(%3)[1:*:%2]), fs_float([_jscope_1, _jscope_0]))")
-                                       .arg(sig.yExpr)
-                                       .arg(sampleStep)
-                                       .arg(xSource);
-            const QVector<double> xy = numericValue(socket, xyExpr, error);
-            if (xy.size() >= 2) {
-                result = makeSeriesFromCombined(result.name, xy, displayMaxPoints);
-                if (result.hasData()) {
-                    return result;
-                }
-            }
-        }
-
         const QString yExpr = sampleStep > 1
                                   ? QString("( _jscope_0 = (data(%1)[1:*:%2]), fs_float(_jscope_0))").arg(sig.yExpr).arg(sampleStep)
                                   : QString("( _jscope_0 = (%1), fs_float(_jscope_0))").arg(sig.yExpr);
 
         if (readMode == DataReadMode::Thin && xExpr.isEmpty()) {
             UniformTimebase timebase = fastTimebase;
-            if (timebaseCache) {
-                const UniformTimebase cached = timebaseCache->value(eastTimebaseKey(plot.shot, sig));
-                if (cached.valid) {
-                    timebase = cached;
-                }
-            }
             if (!timebase.valid) {
                 timebase = eastUniformTimebase(socket, plot.shot, sig, error);
             }
@@ -287,13 +262,7 @@ SignalSeries MdsIpClient::fetchSignalOnOpenSocketImpl(QTcpSocket& socket,
         }
         if (x.isEmpty()) {
             if (xExpr.isEmpty()) {
-                UniformTimebase timebase;
-                if (timebaseCache) {
-                    timebase = timebaseCache->value(eastTimebaseKey(plot.shot, sig));
-                }
-                if (!timebase.valid) {
-                    timebase = eastUniformTimebase(socket, plot.shot, sig, error);
-                }
+                const UniformTimebase timebase = eastUniformTimebase(socket, plot.shot, sig, error);
                 if (timebase.valid) {
                     const double sampledStart = sampleStep > 1 ? timebase.start + timebase.step : timebase.start;
                     const double sampledStep = timebase.step * static_cast<double>(sampleStep);
@@ -560,7 +529,6 @@ SignalSeries MdsIpClient::fetchEastTimeContextSignalOnOpenSocket(QTcpSocket& soc
                                                     const PlotSpec& plot,
                                                     const SignalSpec& sig,
                                                     int maxPoints,
-                                                    const QHash<QString, UniformTimebase>*,
                                                     QString* error) const
 {
         SignalSeries result;

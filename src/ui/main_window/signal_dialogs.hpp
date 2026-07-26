@@ -5,59 +5,6 @@
 
 #include "shared.hpp"
 
-class SignalDialog final : public QDialog {
-public:
-    explicit SignalDialog(const PlotSpec& base, QWidget* parent = nullptr)
-        : QDialog(parent)
-    {
-        setWindowTitle("Signal");
-        auto* layout = new QFormLayout(this);
-        shot_ = new QLineEdit(base.shot, this);
-        y_ = new QLineEdit(this);
-        x_ = new QLineEdit(this);
-        experiment_ = new QLineEdit(this);
-        server_ = new QLineEdit(this);
-        if (!base.signalSpecs.isEmpty()) {
-            experiment_->setText(base.signalSpecs.front().experiment);
-            server_->setText(base.signalSpecs.front().serverIp);
-        }
-        layout->addRow("Shot", shot_);
-        layout->addRow("Y expr", y_);
-        layout->addRow("X expr", x_);
-        layout->addRow("Tree", experiment_);
-        layout->addRow("Server", server_);
-
-        auto* buttons = new QHBoxLayout;
-        auto* ok = new QPushButton("OK", this);
-        auto* cancel = new QPushButton("Cancel", this);
-        buttons->addStretch();
-        buttons->addWidget(ok);
-        buttons->addWidget(cancel);
-        layout->addRow(buttons);
-        connect(ok, &QPushButton::clicked, this, &QDialog::accept);
-        connect(cancel, &QPushButton::clicked, this, &QDialog::reject);
-    }
-
-    QString shot() const { return shot_->text().trimmed(); }
-    SignalSpec signal() const
-    {
-        SignalSpec sig;
-        sig.yExpr = y_->text().trimmed();
-        sig.xExpr = x_->text().trimmed();
-        sig.experiment = experiment_->text().trimmed();
-        sig.serverIp = server_->text().trimmed();
-        sig.colorName = colorForIndex(0);
-        return sig;
-    }
-
-private:
-    QLineEdit* shot_ = nullptr;
-    QLineEdit* y_ = nullptr;
-    QLineEdit* x_ = nullptr;
-    QLineEdit* experiment_ = nullptr;
-    QLineEdit* server_ = nullptr;
-};
-
 class DataSourceDialog final : public QDialog {
 public:
     explicit DataSourceDialog(const PlotSpec& base,

@@ -130,35 +130,4 @@ SignalSeries MdsIpClient::makeSeriesUniformXFromMessage(QString name,
         return out;
     }
 
-SignalSeries MdsIpClient::makeSeriesFromAdjacentSegments(QString name, const QVector<double>& values, int offset, int count, int)
-{
-        SignalSeries out;
-        out.name = std::move(name);
-        const int n = std::min(count, static_cast<int>((values.size() - offset) / 2));
-        out.points.reserve(n);
-        for (int i = 0; i < n; ++i) {
-            const double px = values[offset + i];
-            const double py = values[offset + n + i];
-            if (std::isfinite(px) && std::isfinite(py)) {
-                out.points.push_back(QPointF(px, py));
-            }
-        }
-        return out;
-    }
-
-SignalSeries MdsIpClient::makeSeriesFromCombined(QString name, const QVector<double>& xy, int)
-{
-        SignalSeries out;
-        out.name = std::move(name);
-        const int n = static_cast<int>(xy.size() / 2);
-        out.points.reserve(n);
-        for (int i = 0; i < n; ++i) {
-            const double px = xy[i];
-            const double py = xy[n + i];
-            if (std::isfinite(px) && std::isfinite(py)) {
-                out.points.push_back(QPointF(px, py));
-            }
-        }
-        return out;
-    }
 } // namespace mds_client_internal

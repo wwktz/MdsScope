@@ -47,27 +47,6 @@ void normalizePresetColors(QVector<SignalSpec>& specs)
     }
 }
 
-QString compactAxisValue(double value)
-{
-    if (!std::isfinite(value)) {
-        return {};
-    }
-    const double absValue = std::abs(value);
-    if (absValue >= 1000.0) {
-        return QString::number(value, 'e', 1);
-    }
-    if (absValue > 0.0 && absValue < 0.001) {
-        return QString::number(value, 'g', 2);
-    }
-    if (absValue >= 100.0) {
-        return QString::number(value, 'f', 0);
-    }
-    if (absValue >= 10.0) {
-        return QString::number(value, 'f', 1);
-    }
-    return QString::number(value, 'g', 3);
-}
-
 QStringList uniformAxisValues(const QVector<double>& values)
 {
     QStringList labels;

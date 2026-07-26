@@ -182,24 +182,6 @@ QVector<SignalFetchResult> MdsIpClient::fetchGroupResults(const QVector<NativeRe
             return errorResults;
         }
         QTcpSocket& socket = *socketPtr;
-        if (kSetServerResampleMode) {
-            value(socket, "setenv('MDSPLUS_DEFAULT_RESAMPLE_MODE=MinMax')", &error);
-            if (!error.isEmpty()) {
-                resetConnection(cached);
-                QVector<SignalFetchResult> errorResults = groupErrorResults(requests, error);
-                emitResults(requests, errorResults);
-                return errorResults;
-            }
-        }
-        if (kSetTreeDefault) {
-            value(socket, QString("TreeSetDefault(\"\\\\%1::TOP\")").arg(escapedMdsExpr(firstSig.experiment)), &error);
-            if (!error.isEmpty()) {
-                resetConnection(cached);
-                QVector<SignalFetchResult> errorResults = groupErrorResults(requests, error);
-                emitResults(requests, errorResults);
-                return errorResults;
-            }
-        }
         traceMdsLine(QString("group_open_ms=%1 tree=%2 shot=%3 count=%4")
                          .arg(groupTimer.elapsed())
                          .arg(firstSig.experiment)
@@ -220,75 +202,6 @@ QVector<SignalFetchResult> MdsIpClient::fetchGroupResults(const QVector<NativeRe
                          .arg(firstPlot.shot)
                          .arg(requests.size()));
 
-        // All five thin/batch pipeline features below are compile-time disabled.
-        // Guard the whole section (including the thinRequests copy) with
-        // if constexpr so it is not built on the default Thin fetch path; the
-        // trailing loop reads timebaseCache/fetchedIndexes, so those stay in
-        // scope and simply remain empty when the features are off.
-        QHash<QString, UniformTimebase> timebaseCache;
-        QSet<int> fetchedIndexes;
-        if constexpr (kEnableEastTimebasePrefetch || kEnableEastThinPipeline
-                      || kEnablePipelinedDirectFetch || kEnableMultiSignalBatch
-                      || kEnableEastTimeContextBatch) {
-        QVector<NativeRequest> thinRequests;
-        thinRequests.reserve(requests.size());
-        for (const NativeRequest& request : requests) {
-            if (request.readMode == DataReadMode::Thin) {
-                thinRequests.push_back(request);
-            }
-        }
-
-        if (kEnableEastTimebasePrefetch && !thinRequests.isEmpty()) {
-            timebaseCache = prefetchEastTimebases(socket, thinRequests);
-        }
-
-        if (kEnableEastThinPipeline && !thinRequests.isEmpty() && kUseServerSideThin) {
-            QVector<SignalFetchResult> pipelinedEastResults = fetchEastThinPipelinedOnOpenSocket(socket, thinRequests, &error);
-            if (!pipelinedEastResults.isEmpty()) {
-                for (const SignalFetchResult& result : pipelinedEastResults) {
-                    fetchedIndexes.insert(result.loadedIndex);
-                }
-                results += pipelinedEastResults;
-            }
-        }
-
-        if (kEnablePipelinedDirectFetch && !thinRequests.isEmpty() && !kUseServerSideThin && !kEnableMultiSignalBatch) {
-            QVector<SignalFetchResult> pipelinedResults = fetchDirectPipelinedOnOpenSocket(socket, thinRequests, timebaseCache, &error);
-            if (pipelinedResults.size() == thinRequests.size()) {
-                emitResults(thinRequests, pipelinedResults);
-                if (thinRequests.size() == requests.size()) {
-                    return pipelinedResults;
-                }
-                for (const SignalFetchResult& result : pipelinedResults) {
-                    fetchedIndexes.insert(result.loadedIndex);
-                }
-                results += pipelinedResults;
-            }
-        }
-
-        if (kEnableMultiSignalBatch && thinRequests.size() > 1) {
-            QVector<SignalFetchResult> batchResults = fetchThinBatchOnOpenSocket(socket, thinRequests, &error);
-            if (!batchResults.isEmpty()) {
-                for (const SignalFetchResult& result : batchResults) {
-                    fetchedIndexes.insert(result.loadedIndex);
-                }
-                emitResults(thinRequests, batchResults);
-                results += batchResults;
-            }
-        }
-
-        if (kEnableEastTimeContextBatch && !thinRequests.isEmpty() && kUseServerSideThin) {
-            QVector<SignalFetchResult> contextResults = fetchEastTimeContextBatchOnOpenSocket(socket, thinRequests, fetchedIndexes, &error);
-            if (!contextResults.isEmpty()) {
-                for (const SignalFetchResult& result : contextResults) {
-                    fetchedIndexes.insert(result.loadedIndex);
-                }
-                emitResults(thinRequests, contextResults);
-                results += contextResults;
-            }
-        }
-        } // if constexpr (thin/batch pipeline features)
-
         for (int i = 0; i < requests.size(); ++i) {
             if (isCanceled()) {
                 // Cancelled between signals on a clean boundary (previous response
@@ -296,9 +209,6 @@ QVector<SignalFetchResult> MdsIpClient::fetchGroupResults(const QVector<NativeRe
                 break;
             }
             const NativeRequest& request = requests[i];
-            if (fetchedIndexes.contains(request.loadedIndex)) {
-                continue;
-            }
             QString signalError;
             SignalFetchResult result;
             result.loadedIndex = request.loadedIndex;
@@ -307,7 +217,6 @@ QVector<SignalFetchResult> MdsIpClient::fetchGroupResults(const QVector<NativeRe
                                                     request.sig,
                                                     request.readMode,
                                                     request.maxPoints,
-                                                    &timebaseCache,
                                                     &signalError);
             emitResult(request, result);
             results.push_back(std::move(result));

@@ -49,11 +49,6 @@ void MainWindow::loadEnvironmentList(bool useLatestWhenNoCurrentShot)
     setStatus("No environment files found");
 }
 
-void MainWindow::loadSelectedEnvironment()
-{
-    openEnvironmentFile();
-}
-
 QString MainWindow::rememberedFileDialogDir() const
 {
     QSettings settings(uiSettingsPath(rootPath_), QSettings::IniFormat);

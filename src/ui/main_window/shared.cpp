@@ -189,21 +189,6 @@ QString exportFormatExtension(ExportFormat format)
     }
 }
 
-QString exportFormatName(ExportFormat format)
-{
-    switch (format) {
-    case ExportFormat::Csv:
-        return QStringLiteral("CSV");
-    case ExportFormat::Tsv:
-        return QStringLiteral("TSV");
-    case ExportFormat::Json:
-        return QStringLiteral("JSON");
-    case ExportFormat::Text:
-    default:
-        return QStringLiteral("Text");
-    }
-}
-
 QString exportFormatSettingValue(ExportFormat format)
 {
     switch (format) {

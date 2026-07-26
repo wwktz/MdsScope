@@ -462,16 +462,6 @@ void MainWindow::queuePanelRefresh(PanelRefreshRequest request)
     refresh_->queuePanel(std::move(request));
 }
 
-void MainWindow::refreshOne(int column, int row, int signal)
-{
-    refreshOne(column, row, signal, globalRateMode_);
-}
-
-void MainWindow::refreshOne(int column, int row, int signal, DataReadMode readMode)
-{
-    refreshSignals(column, row, signal >= 0 ? QVector<int>{signal} : QVector<int>{}, readMode);
-}
-
 void MainWindow::refreshSignals(int column,
                                 int row,
                                 QVector<int> signalIndices,

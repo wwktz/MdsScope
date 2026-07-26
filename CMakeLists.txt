@@ -101,7 +101,6 @@ add_executable(MdsScope
     src/mds/mds_ip_client.cpp
     src/mds/mds_ip_east.cpp
     src/mds/mds_ip_fetch.cpp
-    src/mds/mds_ip_pipeline.cpp
     src/mds/mds_ip_protocol.cpp
     src/mds/mds_ip_signal_fetch.cpp
     src/mds/mds_ip_series.cpp

@@ -230,63 +230,6 @@ quint8 MdsIpClient::nextMessageId()
         return currentMessageId;
     }
 
-bool MdsIpClient::sendValue(QTcpSocket& socket, const QString& expr, QString* error)
-{
-        error->clear();
-        const QByteArray body = expr.toUtf8();
-        return writeMessage(socket, message(14, 1, 0, nextMessageId(), body), error);
-    }
-
-bool MdsIpClient::queueValue(QTcpSocket& socket, const QString& expr, QString* error)
-{
-        error->clear();
-        if (currentCanceled()) {
-            *error = "operation canceled";
-            return false;
-        }
-        if (socket.state() != QAbstractSocket::ConnectedState || !socket.isOpen()) {
-            *error = socket.errorString().isEmpty()
-                         ? QStringLiteral("MDS socket is not connected")
-                         : socket.errorString();
-            return false;
-        }
-        const QByteArray body = expr.toUtf8();
-        const QByteArray packet = message(14, 1, 0, nextMessageId(), body);
-        if (socket.write(packet) != packet.size()) {
-            *error = socket.errorString();
-            return false;
-        }
-        return true;
-    }
-
-bool MdsIpClient::flushQueuedValues(QTcpSocket& socket, QString* error)
-{
-        QElapsedTimer timer;
-        timer.start();
-        while (socket.bytesToWrite() > 0) {
-            if (shouldAbortForCurrentCancel()) {
-                socket.abort();
-                *error = "operation canceled";
-                return false;
-            }
-            if (!socket.waitForBytesWritten(50)) {
-                if (socket.state() != QAbstractSocket::ConnectedState) {
-                    *error = socket.errorString();
-                    return false;
-                }
-                if (timer.elapsed() >= kNetworkTimeoutMs) {
-                    // A timed-out socket is desynced from the peer; abort it so it
-                    // cannot be reused as a warm connection with a half-written
-                    // request still pending.
-                    *error = socket.errorString();
-                    socket.abort();
-                    return false;
-                }
-            }
-        }
-        return true;
-    }
-
 Message MdsIpClient::value(QTcpSocket& socket, const QString& expr, QString* error)
 {
         error->clear();
@@ -381,27 +324,6 @@ QVector<double> MdsIpClient::numericValue(QTcpSocket& socket, const QString& exp
         return numericFromMessage(value(socket, expr, error), error);
     }
 
-QVector<double> MdsIpClient::cachedNumericValue(QTcpSocket& socket,
-                                          const QString& expr,
-                                          QHash<QString, QVector<double>>* cache,
-                                          QString* error)
-{
-        if (!cache) {
-            return numericValue(socket, expr, error);
-        }
-        if (cache->contains(expr)) {
-            if (error) {
-                error->clear();
-            }
-            return cache->value(expr);
-        }
-        QVector<double> values = numericValue(socket, expr, error);
-        if (!values.isEmpty()) {
-            cache->insert(expr, values);
-        }
-        return values;
-    }
-
 int MdsIpClient::intValue(QTcpSocket& socket, const QString& expr, QString* error)
 {
         const Message msg = value(socket, expr, error);
@@ -452,42 +374,4 @@ int MdsIpClient::intValue(QTcpSocket& socket, const QString& expr, QString* erro
         return 0;
     }
 
-QVector<int> MdsIpClient::intVectorValue(QTcpSocket& socket, const QString& expr, QString* error)
-{
-        const Message msg = value(socket, expr, error);
-        if (!error->isEmpty() || msg.body.isEmpty()) {
-            return {};
-        }
-        if (msg.dtype == 14) {
-            *error = QString::fromUtf8(msg.body).trimmed();
-            return {};
-        }
-
-        QVector<int> values;
-        QDataStream in(msg.body);
-        in.setByteOrder(QDataStream::BigEndian);
-        if (msg.body.size() % 4 == 0) {
-            values.reserve(msg.body.size() / 4);
-            while (!in.atEnd()) {
-                qint32 v = 0;
-                in >> v;
-                values.push_back(v > 0 ? v : 0);
-            }
-            return values;
-        }
-        if (msg.body.size() % 2 == 0) {
-            values.reserve(msg.body.size() / 2);
-            while (!in.atEnd()) {
-                qint16 v = 0;
-                in >> v;
-                values.push_back(v > 0 ? v : 0);
-            }
-            return values;
-        }
-        values.reserve(msg.body.size());
-        for (char byte : msg.body) {
-            values.push_back(static_cast<quint8>(byte));
-        }
-        return values;
-    }
 } // namespace mds_client_internal
