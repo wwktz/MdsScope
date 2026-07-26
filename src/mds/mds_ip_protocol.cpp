@@ -30,7 +30,24 @@ QByteArray MdsIpClient::message(qint8 dtype, qint8 nargs, qint8 descrIdx, quint8
 
 bool MdsIpClient::writeMessage(QTcpSocket& socket, const QByteArray& packet, QString* error)
 {
-        socket.write(packet);
+        // Never start another MDSIP request after cancellation. Thin/Medium may
+        // finish draining the response that was already in flight, but fallback
+        // paths must not write a new request afterwards. Full cancellation may
+        // already have aborted the socket in readFully().
+        if (currentCanceled()) {
+            *error = "operation canceled";
+            return false;
+        }
+        if (socket.state() != QAbstractSocket::ConnectedState || !socket.isOpen()) {
+            *error = socket.errorString().isEmpty()
+                         ? QStringLiteral("MDS socket is not connected")
+                         : socket.errorString();
+            return false;
+        }
+        if (socket.write(packet) != packet.size()) {
+            *error = socket.errorString();
+            return false;
+        }
         QElapsedTimer timer;
         timer.start();
         while (socket.bytesToWrite() > 0) {
@@ -169,6 +186,16 @@ bool MdsIpClient::sendValue(QTcpSocket& socket, const QString& expr, QString* er
 bool MdsIpClient::queueValue(QTcpSocket& socket, const QString& expr, QString* error)
 {
         error->clear();
+        if (currentCanceled()) {
+            *error = "operation canceled";
+            return false;
+        }
+        if (socket.state() != QAbstractSocket::ConnectedState || !socket.isOpen()) {
+            *error = socket.errorString().isEmpty()
+                         ? QStringLiteral("MDS socket is not connected")
+                         : socket.errorString();
+            return false;
+        }
         const QByteArray body = expr.toUtf8();
         const QByteArray packet = message(14, 1, 0, nextMessageId(), body);
         if (socket.write(packet) != packet.size()) {
