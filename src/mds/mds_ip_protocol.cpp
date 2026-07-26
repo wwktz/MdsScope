@@ -74,23 +74,70 @@ bool MdsIpClient::writeMessage(QTcpSocket& socket, const QByteArray& packet, QSt
         return true;
     }
 
-bool MdsIpClient::readFully(QTcpSocket& socket, QByteArray* out, qsizetype size, QString* error)
+bool MdsIpClient::readFully(QTcpSocket& socket,
+                            QByteArray* out,
+                            qsizetype size,
+                            bool knownResponseBody,
+                            QString* error)
 {
         const int idleTimeoutMs = currentReadIdleTimeoutMs();
         QElapsedTimer idleTimer;
         idleTimer.start();
+        QElapsedTimer transferTimer;
+        transferTimer.start();
+        QElapsedTimer cancelDrainTimer;
+        bool cancelDrainLogged = false;
         out->reserve(size);
         while (out->size() < size) {
             // Interactive Thin/Medium refreshes ask us to preserve connections
             // when switching shots. Finish consuming the one response already
-            // in flight so the socket reaches a clean protocol boundary and the
-            // server is not left running an abandoned scan. Full uses an
-            // unbounded read timeout and remains immediately abortable because
-            // draining a large raw transfer could delay the next shot for too
-            // long.
+            // in flight so the socket reaches a clean protocol boundary.
+            //
+            // Full is adaptive: preserve the socket only when the observed
+            // transfer rate predicts that its remaining body will arrive faster
+            // than rebuilding an MDSIP connection. Otherwise abort immediately.
+            // A header wait has no known body size or useful throughput sample,
+            // so it remains immediately abortable.
             if (currentCanceled()) {
-                const bool canDrainCurrentResponse =
+                bool canDrainCurrentResponse =
                     currentPreserveConnectionsOnCancel() && idleTimeoutMs > 0;
+                if (currentPreserveConnectionsOnCancel() && idleTimeoutMs == 0 && knownResponseBody) {
+                    if (!cancelDrainTimer.isValid()) {
+                        cancelDrainTimer.start();
+                    }
+                    const qsizetype remaining = size - out->size();
+                    const qsizetype buffered =
+                        std::min(remaining, static_cast<qsizetype>(socket.bytesAvailable()));
+                    const int reconnectMs = std::clamp(reconnectCostEstimateMs(), 250, 1'500);
+                    bool predictedFasterThanReconnect = buffered >= remaining;
+                    qint64 predictedRemainingMs = 0;
+                    if (!predictedFasterThanReconnect && out->size() == 0 && buffered > 0) {
+                        // Consume one already-buffered chunk to obtain a real
+                        // throughput sample before choosing drain vs abort.
+                        predictedFasterThanReconnect = true;
+                    } else if (!predictedFasterThanReconnect && out->size() > 0) {
+                        const qint64 elapsedMs = std::max<qint64>(1, transferTimer.elapsed());
+                        const long double estimate =
+                            static_cast<long double>(remaining - buffered)
+                            * static_cast<long double>(elapsedMs)
+                            / static_cast<long double>(out->size());
+                        predictedRemainingMs =
+                            static_cast<qint64>(std::min<long double>(estimate, 60'000.0L));
+                        predictedFasterThanReconnect = predictedRemainingMs <= reconnectMs;
+                    }
+                    canDrainCurrentResponse =
+                        predictedFasterThanReconnect && cancelDrainTimer.elapsed() < reconnectMs;
+                    if (!cancelDrainLogged || !canDrainCurrentResponse) {
+                        traceMdsLine(
+                            QString("full_cancel_drain keep=%1 remaining=%2 buffered=%3 predicted_ms=%4 reconnect_ms=%5")
+                                .arg(canDrainCurrentResponse ? 1 : 0)
+                                .arg(remaining)
+                                .arg(buffered)
+                                .arg(predictedRemainingMs)
+                                .arg(reconnectMs));
+                        cancelDrainLogged = true;
+                    }
+                }
                 if (!canDrainCurrentResponse) {
                     socket.abort();
                     *error = "operation canceled";
@@ -134,7 +181,7 @@ Message MdsIpClient::readMessage(QTcpSocket& socket, QString* error)
         error->clear();
         QByteArray header;
         Message msg;
-        if (!readFully(socket, &header, 48, error)) {
+        if (!readFully(socket, &header, 48, false, error)) {
             return msg;
         }
         QDataStream in(header);
@@ -150,7 +197,7 @@ Message MdsIpClient::readMessage(QTcpSocket& socket, QString* error)
             *error = "invalid MDSIP message length";
             return msg;
         }
-        if (!readFully(socket, &msg.body, msgLen - 48, error)) {
+        if (!readFully(socket, &msg.body, msgLen - 48, true, error)) {
             msg.body.clear();
         }
         return msg;
@@ -242,6 +289,44 @@ Message MdsIpClient::value(QTcpSocket& socket, const QString& expr, QString* err
             return {};
         }
         return readMessage(socket, error);
+    }
+
+bool MdsIpClient::clearTimeContext(QTcpSocket& socket, QString* error)
+{
+        QString cleanupError;
+        if (socket.state() != QAbstractSocket::ConnectedState || !socket.isOpen()) {
+            cleanupError = socket.errorString().isEmpty()
+                               ? QStringLiteral("MDS socket is not connected")
+                               : socket.errorString();
+        } else {
+            // SetTimeContext is session state. Even after cancellation, this
+            // paired cleanup is required before the socket may be reused by a
+            // later Thin/Medium/Full request. Suppress cancellation only for
+            // this one protocol exchange; every other post-cancel write remains
+            // blocked by writeMessage().
+            CurrentCancelSuppressionGuard cancelSuppression;
+            const Message reply = value(socket, QStringLiteral("SetTimeContext()"), &cleanupError);
+            if (cleanupError.isEmpty() && (reply.status & 1) == 0) {
+                cleanupError = QStringLiteral("SetTimeContext cleanup failed");
+            }
+        }
+        if (cleanupError.isEmpty()) {
+            if (currentCanceled()) {
+                traceMdsLine(QStringLiteral("time_context_cleanup_after_cancel ok=1"));
+            }
+            return true;
+        }
+
+        // A socket with uncertain server-side context must never return to the
+        // warm pool. Only this MDS connection is discarded; other worker
+        // sockets and the outer SSH tunnel remain untouched.
+        traceMdsLine(QString("time_context_cleanup_after_cancel ok=0 error=%1")
+                         .arg(cleanupError.simplified()));
+        socket.abort();
+        if (error && error->isEmpty()) {
+            *error = cleanupError;
+        }
+        return false;
     }
 
 QVector<double> MdsIpClient::numericFromMessage(const Message& msg, QString* error)

@@ -79,6 +79,10 @@ MainWindow::MainWindow(QString rootPath, QWidget* parent)
         fetchLatestShotAsync(false);
     });
     latestShotPollTimer_.start();
+    fullShotDebounceTimer_.setSingleShot(true);
+    connect(&fullShotDebounceTimer_, &QTimer::timeout, this, [this] {
+        refreshData();
+    });
     connect(&panelWatcher_, &QFutureWatcher<QVector<LoadedSignal>>::finished, this, [this] {
         if (!activePanelRefreshKey_.isEmpty()) {
             applyPanelLoadedSignals(panelWatcher_.result());

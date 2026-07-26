@@ -11,6 +11,12 @@ using SignalFetchResult = MdsIpClient::SignalFetchResult;
 
 constexpr int kGroupFetchThreadLimit = 16;
 
+std::atomic_int& reconnectCostEstimateStorage()
+{
+    static std::atomic_int estimateMs {1'100};
+    return estimateMs;
+}
+
 QThreadPool*& groupFetchPoolStorage()
 {
     static QThreadPool* pool = nullptr;
@@ -299,6 +305,28 @@ int& MdsIpClient::currentReadIdleTimeoutMs()
 bool MdsIpClient::shouldAbortForCurrentCancel()
 {
         return currentCanceled() && !currentPreserveConnectionsOnCancel();
+    }
+
+int MdsIpClient::reconnectCostEstimateMs()
+{
+        // A fresh process has no observations yet. The default reflects a
+        // single EAST MDSIP handshake, not the much longer 16-socket startup
+        // prewarm. Runtime reconnects continuously refine this estimate.
+        return reconnectCostEstimateStorage().load(std::memory_order_relaxed);
+    }
+
+void MdsIpClient::observeReconnectCost(int elapsedMs)
+{
+        if (elapsedMs <= 0) {
+            return;
+        }
+        std::atomic_int& estimateMs = reconnectCostEstimateStorage();
+        int previous = estimateMs.load(std::memory_order_relaxed);
+        const int sample = std::clamp(elapsedMs, 100, 5'000);
+        while (!estimateMs.compare_exchange_weak(previous,
+                                                 (previous * 3 + sample) / 4,
+                                                 std::memory_order_relaxed)) {
+        }
     }
 
 QString MdsIpClient::groupKey(const NativeRequest& request)

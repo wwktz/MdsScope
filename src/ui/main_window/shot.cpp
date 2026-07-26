@@ -5,6 +5,22 @@
 #include "about_dialog.hpp"
 #include "shared.hpp"
 
+namespace {
+bool layoutUsesFullRate(const LayoutConfig& config, DataReadMode globalMode)
+{
+    for (const QVector<PlotSpec>& column : config.columns) {
+        for (const PlotSpec& plot : column) {
+            for (const SignalSpec& sig : plot.signalSpecs) {
+                if (!sig.hidden
+                    && effectiveSignalReadMode(globalMode, sig) == DataReadMode::Full) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+}
 
 void MainWindow::applyShot()
 {
@@ -21,7 +37,42 @@ void MainWindow::applyShot()
     rememberShotExpression(shot);
     ++latestShotGeneration_;
     setAllPlotShots(shot);
-    refreshData();
+    scheduleShotRefresh();
+}
+
+void MainWindow::scheduleShotRefresh()
+{
+    if (!layoutUsesFullRate(config_, globalRateMode_)) {
+        fullShotDebounceTimer_.stop();
+        rapidFullShotChanges_ = 0;
+        refreshData();
+        return;
+    }
+
+    const qint64 sincePreviousMs =
+        fullShotCadenceTimer_.isValid() ? fullShotCadenceTimer_.elapsed() : -1;
+    fullShotCadenceTimer_.restart();
+    if (sincePreviousMs >= 0 && sincePreviousMs <= 450) {
+        rapidFullShotChanges_ = std::min(rapidFullShotChanges_ + 1, 4);
+    } else {
+        rapidFullShotChanges_ = 0;
+    }
+
+    // Suppress any late old-shot result immediately, but let its transfer run
+    // during the short debounce window. It may reach a clean socket boundary
+    // before the final shot is known, avoiding an unnecessary abort/reconnect.
+    if (runningDataFetches_ > 0) {
+        activeRefreshKey_.clear();
+        ++activeDataFetchGeneration_;
+    }
+    if (panelWatcher_.isRunning()) {
+        activePanelRefreshKey_.clear();
+    }
+
+    const int baseMs = (runningDataFetches_ > 0 || panelWatcher_.isRunning()) ? 220 : 120;
+    const int debounceMs = std::min(380, baseMs + rapidFullShotChanges_ * 40);
+    fullShotDebounceTimer_.start(debounceMs);
+    setStatus(QString("Shot selected; refreshing after %1 ms pause").arg(debounceMs));
 }
 
 void MainWindow::stepShot(int delta)

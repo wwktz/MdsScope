@@ -55,6 +55,7 @@ QString layoutReadModeKey(const LayoutConfig& config, DataReadMode globalMode)
 
 void MainWindow::refreshData()
 {
+    fullShotDebounceTimer_.stop();
     pendingPrewarmRefresh_ = false;
     // A manual load must not block the UI or interrupt the global prewarm.
     // Queue its refresh; the warm-watcher completion starts it on the same
@@ -679,6 +680,7 @@ void MainWindow::applyLoadedSignal(LoadedSignal item)
     // Record every delivered slot (loaded or failed) so a later Continue only
     // re-fetches signals that were never attempted.
     attemptedSignals_.insert(signalKey(item.column, item.row, item.signal));
+    fitRateRefreshPanelIfComplete(item.column, item.row);
     if (!hasData) {
         ++streamedFailed_;
     } else {
@@ -697,19 +699,11 @@ void MainWindow::applyLoadedSignals(const QVector<LoadedSignal>& loaded)
         return;
     }
     activeRefreshKey_.clear();
-    const auto fitRateViews = [this] {
-        for (auto it = activeFullRateRefreshViews_.cbegin(); it != activeFullRateRefreshViews_.cend(); ++it) {
-            const QStringList parts = it.key().split(',');
-            const int column = parts.value(0).toInt();
-            const int row = parts.value(1).toInt();
-            if (column < plotWidgets_.size() && row < plotWidgets_[column].size()) {
-                plotWidgets_[column][row]->applyXRangeAutoY(it.value().left(), it.value().right());
-            }
-        }
-        activeFullRateRefreshViews_.clear();
-    };
     if (streamedOk_ + streamedFailed_ >= loaded.size()) {
-        fitRateViews();
+        // Every completed panel already fitted itself while streaming. Any
+        // leftover entry belongs to a panel that never completed this fetch and
+        // must not be fitted from partial data.
+        activeFullRateRefreshViews_.clear();
         setStatus(QString("Data refresh done: %1 signals loaded, %2 failed").arg(streamedOk_).arg(streamedFailed_));
         return;
     }
@@ -727,6 +721,7 @@ void MainWindow::applyLoadedSignals(const QVector<LoadedSignal>& loaded)
             }
             plotWidgets_[item.column][item.row]->setSeries(item.signal, item.series);
             attemptedSignals_.insert(key);
+            fitRateRefreshPanelIfComplete(item.column, item.row);
             if (!item.series.hasData()) {
                 ++failed;
             } else {
@@ -738,7 +733,35 @@ void MainWindow::applyLoadedSignals(const QVector<LoadedSignal>& loaded)
     setStatus(QString("Data refresh done: %1 signals loaded, %2 failed")
                   .arg(streamedOk_ + ok)
                   .arg(streamedFailed_ + failed));
-    fitRateViews();
+    activeFullRateRefreshViews_.clear();
+}
+
+void MainWindow::fitRateRefreshPanelIfComplete(int column, int row)
+{
+    const QString panelKey = QString::number(column) + ',' + QString::number(row);
+    auto viewIt = activeFullRateRefreshViews_.find(panelKey);
+    if (viewIt == activeFullRateRefreshViews_.end()
+        || column < 0 || row < 0
+        || column >= activeFetchSnapshot_.columns.size()
+        || row >= activeFetchSnapshot_.columns[column].size()
+        || column >= plotWidgets_.size()
+        || row >= plotWidgets_[column].size()) {
+        return;
+    }
+
+    const PlotSpec& panel = activeFetchSnapshot_.columns[column][row];
+    for (int signal = 0; signal < panel.signalSpecs.size(); ++signal) {
+        if (!panel.signalSpecs[signal].hidden
+            && !attemptedSignals_.contains(signalKey(column, row, signal))) {
+            return;
+        }
+    }
+
+    const QRectF view = viewIt.value();
+    activeFullRateRefreshViews_.erase(viewIt);
+    if (view.isValid() && view.width() > 0.0) {
+        plotWidgets_[column][row]->applyXRangeAutoY(view.left(), view.right());
+    }
 }
 
 void MainWindow::applyPanelLoadedSignals(const QVector<LoadedSignal>& loaded)

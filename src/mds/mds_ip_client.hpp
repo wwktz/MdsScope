@@ -162,6 +162,26 @@ private:
         int previous_ = kNetworkTimeoutMs;
     };
 
+    class CurrentCancelSuppressionGuard {
+    public:
+        CurrentCancelSuppressionGuard()
+            : previous_(currentCancel())
+        {
+            currentCancel() = nullptr;
+        }
+
+        ~CurrentCancelSuppressionGuard()
+        {
+            currentCancel() = previous_;
+        }
+
+        CurrentCancelSuppressionGuard(const CurrentCancelSuppressionGuard&) = delete;
+        CurrentCancelSuppressionGuard& operator=(const CurrentCancelSuppressionGuard&) = delete;
+
+    private:
+        const std::atomic_bool* previous_ = nullptr;
+    };
+
     static const std::atomic_bool*& currentCancel();
 
     static bool& currentPreserveConnectionsOnCancel();
@@ -171,6 +191,10 @@ private:
     static bool currentCanceled();
 
     static bool shouldAbortForCurrentCancel();
+
+    static int reconnectCostEstimateMs();
+
+    static void observeReconnectCost(int elapsedMs);
 
     static QString groupKey(const NativeRequest& request);
 
@@ -312,7 +336,11 @@ private:
 
     static bool writeMessage(QTcpSocket& socket, const QByteArray& packet, QString* error);
 
-    static bool readFully(QTcpSocket& socket, QByteArray* out, qsizetype size, QString* error);
+    static bool readFully(QTcpSocket& socket,
+                          QByteArray* out,
+                          qsizetype size,
+                          bool knownResponseBody,
+                          QString* error);
 
     static Message readMessage(QTcpSocket& socket, QString* error);
 
@@ -327,6 +355,8 @@ private:
     static bool flushQueuedValues(QTcpSocket& socket, QString* error);
 
     static Message value(QTcpSocket& socket, const QString& expr, QString* error);
+
+    static bool clearTimeContext(QTcpSocket& socket, QString* error);
 
     static QVector<double> numericFromMessage(const Message& msg, QString* error);
 

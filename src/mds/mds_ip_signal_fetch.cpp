@@ -389,7 +389,7 @@ SignalSeries MdsIpClient::fetchEastFixedResolutionSignalOnOpenSocket(
                   .arg(requestedStep, 0, 'g', 12),
               &localError);
         if (!localError.isEmpty()) {
-            value(socket, "SetTimeContext()", &localError);
+            clearTimeContext(socket, &localError);
             return result;
         }
 
@@ -398,7 +398,7 @@ SignalSeries MdsIpClient::fetchEastFixedResolutionSignalOnOpenSocket(
             QString("( _jscope_0 = (%1), fs_float(_jscope_0))")
                 .arg(sig.yExpr.trimmed()),
             &localError);
-        value(socket, "SetTimeContext()", &localError);
+        clearTimeContext(socket, &localError);
 
         result = makeSeriesUniformXFromMessage(result.name,
                                                yMessage,
@@ -479,14 +479,14 @@ SignalSeries MdsIpClient::fetchEastFullEnvelopeSignalOnOpenSocket(QTcpSocket& so
                       .arg(delta, 0, 'g', 12),
                   &localError);
             if (!localError.isEmpty()) {
-                value(socket, "SetTimeContext()", &localError);
+                clearTimeContext(socket, &localError);
                 return result;
             }
 
             const Message yMessage = value(socket,
                                            QString("( _jscope_0 = (%1), fs_float(_jscope_0))").arg(sig.yExpr.trimmed()),
                                            &localError);
-            value(socket, "SetTimeContext()", &localError);
+            clearTimeContext(socket, &localError);
 
             result = makeSeriesUniformXFromMessage(result.name, yMessage, start, delta, oversampledPoints, &localError);
             if (!result.hasData()) {
@@ -598,6 +598,7 @@ SignalSeries MdsIpClient::fetchEastTimeContextSignalOnOpenSocket(QTcpSocket& soc
                   .arg(delta, 0, 'g', 12),
               &localError);
         if (!localError.isEmpty()) {
+            clearTimeContext(socket, &localError);
             if (error) {
                 error->clear();
             }
@@ -607,7 +608,7 @@ SignalSeries MdsIpClient::fetchEastTimeContextSignalOnOpenSocket(QTcpSocket& soc
         const Message yMessage = value(socket,
                                        QString("( _jscope_0 = (%1), fs_float(_jscope_0))").arg(sig.yExpr),
                                        &localError);
-        value(socket, "SetTimeContext()", &localError);
+        clearTimeContext(socket, &localError);
 
         result = makeSeriesUniformXFromMessage(result.name, yMessage, start, delta, maxPoints, error);
         if (!result.hasData()) {

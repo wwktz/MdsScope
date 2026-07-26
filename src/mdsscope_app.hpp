@@ -4,6 +4,7 @@
 #pragma once
 
 #include <QDialog>
+#include <QElapsedTimer>
 #include <QFutureWatcher>
 #include <QColor>
 #include <QHash>
@@ -363,6 +364,7 @@ private:
     void setAllPlotShots(const QString& shot);
     QString maxShotInConfig() const;
     QString latestShotFromApi(const QString& apiOverride = {}) const;
+    void scheduleShotRefresh();
     void refreshData();
     void stopDataRefresh();
     void onStopOrContinue();
@@ -398,6 +400,7 @@ private:
     void applyLoadedSignal(LoadedSignal item);
     void applyLoadedSignals(const QVector<LoadedSignal>& loaded);
     void applyPanelLoadedSignals(const QVector<LoadedSignal>& loaded);
+    void fitRateRefreshPanelIfComplete(int column, int row);
     void rememberLoadedSourceSignal(const LoadedSignal& item);
     void addPlotBelow();
     void deleteCurrentPlot();
@@ -481,6 +484,9 @@ private:
     QFutureWatcher<QVector<LoadedSignal>> panelWatcher_;
     QFutureWatcher<void> warmWatcher_;
     QTimer latestShotPollTimer_;
+    QTimer fullShotDebounceTimer_;
+    QElapsedTimer fullShotCadenceTimer_;
+    int rapidFullShotChanges_ = 0;
     QString topSummaryShot_;
     QString topSummaryIp_;
     QString topSummaryPulse_;

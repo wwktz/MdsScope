@@ -89,6 +89,11 @@ QVector<SignalFetchResult> MdsIpClient::fetchGroupResults(const QVector<NativeRe
                     break;
                 }
                 handshakeMs = stageTimer.elapsed();
+                if (!openOnly) {
+                    // Do not let the deliberately concurrent 16-socket startup
+                    // prewarm inflate the cost of one later lazy reconnect.
+                    observeReconnectCost(static_cast<int>(connectMs + handshakeMs));
+                }
             }
 
             socketPtr = cached->socket.get();

@@ -307,7 +307,7 @@ QVector<SignalFetchResult> MdsIpClient::fetchEastTimeContextBatchOnOpenSocket(QT
                   .arg(delta, 0, 'g', 12),
               &localError);
         if (!localError.isEmpty()) {
-            value(socket, "SetTimeContext()", &localError);
+            clearTimeContext(socket, &localError);
             if (error) {
                 error->clear();
             }
@@ -344,7 +344,7 @@ QVector<SignalFetchResult> MdsIpClient::fetchEastTimeContextBatchOnOpenSocket(QT
             results.push_back(std::move(result));
         }
 
-        value(socket, "SetTimeContext()", &localError);
+        clearTimeContext(socket, &localError);
         traceMdsLine(QString("east_time_context_batch count=%1 start=%2 delta=%3")
                          .arg(results.size())
                          .arg(start, 0, 'g', 12)
