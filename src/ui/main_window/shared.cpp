@@ -55,6 +55,7 @@ QString signalRefreshSignature(const SignalSpec& sig)
         sig.manualColor ? QStringLiteral("manual-color") : QStringLiteral("auto-color"),
         sig.hidden ? QStringLiteral("hidden") : QStringLiteral("shown"),
         QString::number(static_cast<int>(sig.readMode)),
+        sig.readModeExplicit ? QStringLiteral("explicit-rate") : QStringLiteral("inherited-rate"),
     }.join(QChar(0x1f));
 }
 
@@ -101,7 +102,8 @@ bool signalDataSourceEqual(const SignalSpec& lhs, const SignalSpec& rhs)
            && lhs.experiment == rhs.experiment
            && lhs.serverIp == rhs.serverIp
            && lhs.hidden == rhs.hidden
-           && lhs.readMode == rhs.readMode;
+           && lhs.readMode == rhs.readMode
+           && lhs.readModeExplicit == rhs.readModeExplicit;
 }
 
 bool signalDataSourcesEqual(const QVector<SignalSpec>& lhs, const QVector<SignalSpec>& rhs)
@@ -400,4 +402,3 @@ QIcon recentArrowIcon()
     });
     return QIcon(pixmap);
 }
-

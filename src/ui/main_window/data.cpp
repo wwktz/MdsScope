@@ -50,6 +50,24 @@ QString layoutReadModeKey(const LayoutConfig& config, DataReadMode globalMode)
     return readModeKey(commonMode);
 }
 
+bool loadedSignalSourceStillCurrent(const LayoutConfig& fetchSnapshot,
+                                    const LayoutConfig& currentConfig,
+                                    const LoadedSignal& item)
+{
+    if (item.column < 0 || item.row < 0 || item.signal < 0
+        || item.column >= fetchSnapshot.columns.size()
+        || item.row >= fetchSnapshot.columns[item.column].size()
+        || item.signal >= fetchSnapshot.columns[item.column][item.row].signalSpecs.size()
+        || item.column >= currentConfig.columns.size()
+        || item.row >= currentConfig.columns[item.column].size()
+        || item.signal >= currentConfig.columns[item.column][item.row].signalSpecs.size()) {
+        return false;
+    }
+    return signalDataSourceEqual(
+        fetchSnapshot.columns[item.column][item.row].signalSpecs[item.signal],
+        currentConfig.columns[item.column][item.row].signalSpecs[item.signal]);
+}
+
 }
 
 
@@ -72,8 +90,9 @@ void MainWindow::refreshData()
     // read mode may have changed, so resuming the old fetch no longer applies.
     clearDataPause();
     syncDisplayConfig();
-    // The startup/global Rate is a non-destructive floor. A higher per-source
-    // TOML mode still wins in effectiveSignalReadMode().
+    // Rates were resolved once when the configuration opened. The global value
+    // now identifies the last global choice; each signal carries its current
+    // freely editable Rate.
     const DataReadMode readMode = globalRateMode_;
     const QString key = refreshKey(readMode);
     if (runningDataFetches_ > 0 || panelWatcher_.isRunning()) {
@@ -230,7 +249,11 @@ void MainWindow::stopDataRefresh()
     const bool wasRunning = runningDataFetches_ > 0;
     cancelDataFetch();
     cancelPanelFetch();
-    const int remaining = countRemainingSignals(activeFetchSnapshot_);
+    // Configuration or panel Rate edits can occur while the original global
+    // fetch is still winding down. Continue must resume the current sources,
+    // not the obsolete snapshot that launched that fetch.
+    const LayoutConfig resumeSnapshot = displayConfig_;
+    const int remaining = countRemainingSignals(resumeSnapshot);
     const QString activeKey = activeRefreshKey_;
     const DataReadMode activeMode = activeFetchReadMode_;
     activeRefreshKey_.clear();
@@ -246,9 +269,9 @@ void MainWindow::stopDataRefresh()
     queuedLoadedSignals_.clear();
     queuedLoadedSignalApply_ = false;
     if (wasRunning && remaining > 0) {
-        pausedSnapshot_ = activeFetchSnapshot_;
+        pausedSnapshot_ = resumeSnapshot;
         pausedReadMode_ = activeMode;
-        pausedKey_ = activeKey;
+        pausedKey_ = activeKey.isEmpty() ? refreshKey(activeMode) : activeKey;
         setStopButtonPaused(true);
         setStatus(QString("Data refresh paused: %1 signals remaining").arg(remaining));
     } else {
@@ -547,6 +570,17 @@ void MainWindow::refreshSignals(int column,
 
     syncDisplayConfig();
     const QString key = panelRefreshKey(column, row, signalIndices, readMode);
+    if (signalIndices.isEmpty()) {
+        for (int signal = 0;
+             signal < displayConfig_.columns[column][row].signalSpecs.size();
+             ++signal) {
+            attemptedSignals_.remove(signalKey(column, row, signal));
+        }
+    } else {
+        for (int signal : std::as_const(signalIndices)) {
+            attemptedSignals_.remove(signalKey(column, row, signal));
+        }
+    }
 
     if (runningDataFetches_ > 0 || panelWatcher_.isRunning() || warmWatcher_.isRunning()) {
         const bool alreadyQueued = std::any_of(pendingPanelRefreshes_.cbegin(), pendingPanelRefreshes_.cend(),
@@ -666,7 +700,10 @@ void MainWindow::applyLoadedSignal(LoadedSignal item)
     }
     if (item.column >= displayConfig_.columns.size()
         || item.row >= displayConfig_.columns[item.column].size()
-        || !loadedSignalMatchesConfig(displayConfig_, item)) {
+        || !loadedSignalMatchesConfig(displayConfig_, item)
+        || !loadedSignalSourceStillCurrent(activeFetchSnapshot_,
+                                           displayConfig_,
+                                           item)) {
         return;
     }
 
@@ -716,7 +753,10 @@ void MainWindow::applyLoadedSignals(const QVector<LoadedSignal>& loaded)
             continue;
         }
         if (item.column < plotWidgets_.size() && item.row < plotWidgets_[item.column].size()) {
-            if (!loadedSignalMatchesConfig(displayConfig_, item)) {
+            if (!loadedSignalMatchesConfig(displayConfig_, item)
+                || !loadedSignalSourceStillCurrent(activeFetchSnapshot_,
+                                                   displayConfig_,
+                                                   item)) {
                 continue;
             }
             plotWidgets_[item.column][item.row]->setSeries(item.signal, item.series);

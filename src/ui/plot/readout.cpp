@@ -16,9 +16,20 @@ double localXResolution(const SignalSeries& series, double x)
         return qQNaN();
     }
 
-    const auto it = std::lower_bound(pointSamples.cbegin(), pointSamples.cend(), x, [](const QPointF& point, double value) {
-        return point.x() < value;
-    });
+    const bool ascending = pointSamples.first().x() <= pointSamples.last().x();
+    const auto it = ascending
+                        ? std::lower_bound(pointSamples.cbegin(),
+                                           pointSamples.cend(),
+                                           x,
+                                           [](const QPointF& point, double value) {
+                                               return point.x() < value;
+                                           })
+                        : std::lower_bound(pointSamples.cbegin(),
+                                           pointSamples.cend(),
+                                           x,
+                                           [](const QPointF& point, double value) {
+                                               return point.x() > value;
+                                           });
     const int index = std::clamp(static_cast<int>(std::distance(pointSamples.cbegin(), it)),
                                  0,
                                  static_cast<int>(pointSamples.size()) - 1);
@@ -191,17 +202,23 @@ bool PlotWidget::nearestPointForSeries(int seriesIndex,
         found = acceptPointByX(s.pointAt(index));
     } else if (!s.points.isEmpty()) {
         const QVector<QPointF>& pointSamples = s.points;
-        int lo = 0;
-        int hi = pointSamples.size();
-        while (lo < hi) {
-            const int mid = lo + (hi - lo) / 2;
-            if (pointSamples[mid].x() < dataX) {
-                lo = mid + 1;
-            } else {
-                hi = mid;
-            }
-        }
-        int index = std::clamp(lo, 0, static_cast<int>(pointSamples.size()) - 1);
+        const bool ascending = pointSamples.first().x() <= pointSamples.last().x();
+        const auto it = ascending
+                            ? std::lower_bound(pointSamples.cbegin(),
+                                               pointSamples.cend(),
+                                               dataX,
+                                               [](const QPointF& sample, double value) {
+                                                   return sample.x() < value;
+                                               })
+                            : std::lower_bound(pointSamples.cbegin(),
+                                               pointSamples.cend(),
+                                               dataX,
+                                               [](const QPointF& sample, double value) {
+                                                   return sample.x() > value;
+                                               });
+        int index = std::clamp(static_cast<int>(std::distance(pointSamples.cbegin(), it)),
+                               0,
+                               static_cast<int>(pointSamples.size()) - 1);
         if (index > 0 && std::abs(pointSamples[index - 1].x() - dataX) <= std::abs(pointSamples[index].x() - dataX)) {
             --index;
         }
@@ -448,17 +465,23 @@ bool PlotWidget::stepActivePoint(int delta)
         nextX = s.uniformStart + static_cast<double>(index) * s.uniformStep;
     } else if (!s.points.isEmpty()) {
         const QVector<QPointF>& pointSamples = s.points;
-        int lo = 0;
-        int hi = pointSamples.size();
-        while (lo < hi) {
-            const int mid = lo + (hi - lo) / 2;
-            if (pointSamples[mid].x() < hoverData_.x()) {
-                lo = mid + 1;
-            } else {
-                hi = mid;
-            }
-        }
-        int index = std::clamp(lo, 0, static_cast<int>(pointSamples.size()) - 1);
+        const bool ascending = pointSamples.first().x() <= pointSamples.last().x();
+        const auto it = ascending
+                            ? std::lower_bound(pointSamples.cbegin(),
+                                               pointSamples.cend(),
+                                               hoverData_.x(),
+                                               [](const QPointF& sample, double value) {
+                                                   return sample.x() < value;
+                                               })
+                            : std::lower_bound(pointSamples.cbegin(),
+                                               pointSamples.cend(),
+                                               hoverData_.x(),
+                                               [](const QPointF& sample, double value) {
+                                                   return sample.x() > value;
+                                               });
+        int index = std::clamp(static_cast<int>(std::distance(pointSamples.cbegin(), it)),
+                               0,
+                               static_cast<int>(pointSamples.size()) - 1);
         if (index > 0 && std::abs(pointSamples[index - 1].x() - hoverData_.x()) <= std::abs(pointSamples[index].x() - hoverData_.x())) {
             --index;
         }

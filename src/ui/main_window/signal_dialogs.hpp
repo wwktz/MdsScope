@@ -63,10 +63,12 @@ public:
     explicit DataSourceDialog(const PlotSpec& base,
                               const QString& currentShot,
                               const QString& sourceIndexDir,
+                              DataReadMode inheritedReadMode,
                               QWidget* parent = nullptr)
         : QDialog(parent)
         , defaultShot_(currentShot.trimmed().isEmpty() ? base.shot.trimmed() : currentShot.trimmed())
         , sourceIndexDir_(sourceIndexDir)
+        , inheritedReadMode_(inheritedReadMode)
     {
         setWindowTitle("Data Source Setup");
         treeNames_ = readSourceIndexLines(QDir(sourceIndexDir_).filePath("trees.txt"));
@@ -100,6 +102,8 @@ public:
             sig.experiment = defaultTree;
             sig.serverIp = defaultServer;
             sig.colorName = colorForIndex(0);
+            sig.readMode = inheritedReadMode_;
+            sig.readModeExplicit = true;
             addRow(sig, 0);
         }
 
@@ -115,6 +119,8 @@ public:
 
         connect(addCurve, &QPushButton::clicked, this, [this] {
             SignalSpec sig;
+            sig.readMode = inheritedReadMode_;
+            sig.readModeExplicit = true;
             int activeCount = 0;
             bool copiedDefaults = false;
             if (!rows_.isEmpty()) {
@@ -156,7 +162,11 @@ public:
             sig.colorName = row->color.name();
             sig.manualColor = row->manualColor;
             sig.hidden = row->hidden->isChecked();
-            sig.readMode = static_cast<DataReadMode>(row->dataMode->currentData().toInt());
+            sig.readMode =
+                row->readModeTouched
+                    ? static_cast<DataReadMode>(row->dataMode->currentData().toInt())
+                    : row->originalReadMode;
+            sig.readModeExplicit = true;
             out.push_back(std::move(sig));
         }
         return out;
@@ -182,6 +192,8 @@ private:
         QStringList availableSignalNames;
         bool deleted = false;
         bool manualColor = false;
+        DataReadMode originalReadMode = DataReadMode::Thin;
+        bool readModeTouched = false;
     };
 
     void addRow(const SignalSpec& sig, int colorIndex)
@@ -228,7 +240,12 @@ private:
         row->dataMode->addItem("Thin", static_cast<int>(DataReadMode::Thin));
         row->dataMode->addItem("Medium", static_cast<int>(DataReadMode::Medium));
         row->dataMode->addItem("Full", static_cast<int>(DataReadMode::Full));
-        row->dataMode->setCurrentIndex(row->dataMode->findData(static_cast<int>(sig.readMode)));
+        // Existing sources display their exact current Rate. Newly added rows
+        // were initialized from the current global Rate before reaching here.
+        const DataReadMode displayedMode = sig.readMode;
+        row->originalReadMode = displayedMode;
+        row->dataMode->setCurrentIndex(
+            row->dataMode->findData(static_cast<int>(displayedMode)));
         row->shot->setMinimumWidth(72);
         row->signal->setMinimumWidth(150);
         row->server->setMinimumWidth(120);
@@ -257,6 +274,12 @@ private:
                 row->manualColor = true;
                 updateColorButton(row);
             }
+        });
+        connect(row->dataMode,
+                qOverload<int>(&QComboBox::activated),
+                this,
+                [row](int) {
+            row->readModeTouched = true;
         });
         connect(row->tree, &QLineEdit::textChanged, this, [this, row] {
             updateSignalCompleter(row);
@@ -674,6 +697,7 @@ private:
 
     QString defaultShot_;
     QString sourceIndexDir_;
+    DataReadMode inheritedReadMode_ = DataReadMode::Thin;
     QWidget* rowsHost_ = nullptr;
     QGridLayout* rowsLayout_ = nullptr;
     QStringList treeNames_;

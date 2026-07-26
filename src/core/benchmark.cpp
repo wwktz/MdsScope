@@ -33,6 +33,15 @@ int runMdsScopeBenchmark(const QString& configPath,
     qputenv("MDSSCOPE_MDS_TRACE", "1");
 
     LayoutConfig config = parseEnvironment(configPath);
+    // The benchmark mode has the same one-time startup-floor semantics as the
+    // GUI. Fetching itself then uses each signal's resolved current Rate.
+    for (QVector<PlotSpec>& column : config.columns) {
+        for (PlotSpec& plot : column) {
+            for (SignalSpec& sig : plot.signalSpecs) {
+                sig.readMode = higherDataReadMode(readMode, sig.readMode);
+            }
+        }
+    }
     if (!shotOverride.trimmed().isEmpty()) {
         for (auto& column : config.columns) {
             for (PlotSpec& plot : column) {

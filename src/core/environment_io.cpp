@@ -205,12 +205,16 @@ LayoutConfig parseTomlEnvironment(const QString& path)
             else if (key == "color") currentSignal->colorName = tomlUnescape(value);
             else if (key == "manual_color") currentSignal->manualColor = tomlBool(value, false);
             else if (key == "hidden") currentSignal->hidden = tomlBool(value, false);
-            else if (key == "full") currentSignal->readMode = tomlBool(value, false) ? DataReadMode::Full : DataReadMode::Thin;
+            else if (key == "full") {
+                currentSignal->readMode = tomlBool(value, false) ? DataReadMode::Full : DataReadMode::Thin;
+                currentSignal->readModeExplicit = true;
+            }
             else if (key == "read_mode") {
                 QString mode = tomlUnescape(value).toLower();
                 if (mode == "full") currentSignal->readMode = DataReadMode::Full;
                 else if (mode == "medium") currentSignal->readMode = DataReadMode::Medium;
                 else currentSignal->readMode = DataReadMode::Thin;
+                currentSignal->readModeExplicit = true;
             }
         }
     }
@@ -370,10 +374,11 @@ bool writeEnvironmentToml(const LayoutConfig& config, const QString& path, QStri
                 if (sig.hidden) {
                     writeTomlBool(out, "hidden", true);
                 }
-                if (sig.readMode == DataReadMode::Full) {
-                    writeTomlString(out, "read_mode", "full");
-                } else if (sig.readMode == DataReadMode::Medium) {
-                    writeTomlString(out, "read_mode", "medium");
+                if (sig.readModeExplicit) {
+                    const char* mode = sig.readMode == DataReadMode::Full ? "full"
+                                       : sig.readMode == DataReadMode::Medium ? "medium"
+                                                                            : "thin";
+                    writeTomlString(out, "read_mode", QString::fromLatin1(mode));
                 }
                 out << '\n';
             }
@@ -381,4 +386,3 @@ bool writeEnvironmentToml(const LayoutConfig& config, const QString& path, QStri
     }
     return true;
 }
-

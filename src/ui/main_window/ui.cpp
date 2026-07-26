@@ -386,8 +386,9 @@ void MainWindow::buildUi()
                     }
                 }
                 for (SignalSpec& sig : plot.signalSpecs) {
-                    if (sig.readMode != mode) {
+                    if (sig.readMode != mode || !sig.readModeExplicit) {
                         sig.readMode = mode;
+                        sig.readModeExplicit = true;
                         changed = true;
                     }
                 }
@@ -395,9 +396,6 @@ void MainWindow::buildUi()
         }
         queuedFullRateRefreshViews_ = rateRefreshViews;
         syncDisplayConfig();
-        if (changed) {
-            saveRateChangesToCurrentToml();
-        }
         for (auto it = rateRefreshViews.cbegin(); it != rateRefreshViews.cend(); ++it) {
             const QStringList parts = it.key().split(',');
             const int c = parts.value(0).toInt();
@@ -488,15 +486,18 @@ void MainWindow::showPanelContextMenu(PlotWidget* plot, int column, int row, con
     } else if (chosen == dataSourceAction) {
         dataSourceSetupForCurrentPanel();
     } else if (chosen == thinRateAction || chosen == mediumRateAction || chosen == fullRateAction) {
-        const DataReadMode mode = chosen == fullRateAction ? DataReadMode::Full
-                                  : chosen == mediumRateAction ? DataReadMode::Medium
-                                                               : DataReadMode::Thin;
+        const DataReadMode mode =
+            chosen == fullRateAction ? DataReadMode::Full
+            : chosen == mediumRateAction ? DataReadMode::Medium
+                                         : DataReadMode::Thin;
         const QRectF rateRefreshView = plot->currentView();
         PlotSpec& panel = config_.columns[column][row];
         QVector<int> changedSignals;
         for (int i = 0; i < panel.signalSpecs.size(); ++i) {
-            if (panel.signalSpecs[i].readMode != mode) {
+            if (panel.signalSpecs[i].readMode != mode
+                || !panel.signalSpecs[i].readModeExplicit) {
                 panel.signalSpecs[i].readMode = mode;
+                panel.signalSpecs[i].readModeExplicit = true;
                 changedSignals.push_back(i);
             }
         }
@@ -505,7 +506,6 @@ void MainWindow::showPanelContextMenu(PlotWidget* plot, int column, int row, con
             return;
         }
         syncDisplayConfig();
-        saveRateChangesToCurrentToml();
         if (rateRefreshView.isValid() && rateRefreshView.width() > 0.0 && rateRefreshView.height() > 0.0) {
             plot->applyView(rateRefreshView);
         }

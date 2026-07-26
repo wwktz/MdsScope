@@ -37,13 +37,17 @@ MdsScope offers three data sampling modes to balance speed and precision:
 
 The current mode can be set globally with the top toolbar dropdown, per panel
 from the panel context menu, or per signal in the source setup dialog. The
-effective mode is the higher of the global mode and a signal's saved TOML mode.
+startup default is applied once when a configuration opens: a higher saved
+panel/source mode is kept, while a lower or omitted mode is raised to the
+startup default in memory. After opening, global, panel, and source Rate
+controls may freely raise or lower their targets.
 
 The global dropdown starts with the saved startup default. To change that
 default, first select the desired Rate, then right-click the Rate control and
 choose **Set Default**. Applying the startup default while opening a
-configuration does not modify the file. Later user-initiated global, panel, or
-source Rate changes are written to the current TOML file. Legacy `.webscp`
+configuration does not modify the file. User-initiated global, panel, or source
+Rate changes remain in memory until the configuration is saved with **Save** or
+`Ctrl+S`; saving then writes the currently effective Rates. Legacy `.webscp`
 files do not store Rate settings.
 
 ## Requirements
@@ -246,10 +250,9 @@ expressions:
 ```
 
 Useful signal options include `shot`, `hidden = true`, and
-`read_mode = "medium"` or `read_mode = "full"` for per-signal data mode
-overrides. Omitting `read_mode` means Thin at the source level; a higher saved
-startup/global Rate can still raise the effective read mode without rewriting
-the TOML file.
+`read_mode = "thin"`, `read_mode = "medium"`, or `read_mode = "full"` for
+per-signal data mode overrides. Omitting `read_mode` makes the source inherit
+the saved startup/global Rate without rewriting the TOML file.
 
 Convert legacy `.webscp` files with `transfer`:
 

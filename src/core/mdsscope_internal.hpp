@@ -189,4 +189,5 @@ QString normalizedMdsSignal(QString expr);
 QStringList sourceIndexSignalNames(const QString& expression);
 QString scaledSiUnit(QString unit, double numericScale);
 QString effectiveSignalShot(const PlotSpec& plot, const SignalSpec& sig);
+DataReadMode higherDataReadMode(DataReadMode lhs, DataReadMode rhs);
 DataReadMode effectiveSignalReadMode(DataReadMode globalMode, const SignalSpec& sig);

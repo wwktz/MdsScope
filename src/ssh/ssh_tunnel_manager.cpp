@@ -300,11 +300,14 @@ bool SshTunnelManager::ensureTunnel(const QString& endpoint, QString* localEndpo
             tunnel.process = process;
             tunnels_.insert(endpoint, tunnel);
             connect(process, &QProcess::finished, this, [this, endpoint, process](int, QProcess::ExitStatus) {
-                tunnels_.remove(endpoint);
-                if (tunnels_.isEmpty()) {
-                    setState(State::Error, QStringLiteral("SSH tunnel disconnected"));
-                } else {
-                    setState(State::Connected, QStringLiteral("SSH tunnel connected"));
+                const auto current = tunnels_.find(endpoint);
+                if (current != tunnels_.end() && current->process == process) {
+                    tunnels_.erase(current);
+                    if (tunnels_.isEmpty()) {
+                        setState(State::Error, QStringLiteral("SSH tunnel disconnected"));
+                    } else {
+                        setState(State::Connected, QStringLiteral("SSH tunnel connected"));
+                    }
                 }
                 process->deleteLater();
             });

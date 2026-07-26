@@ -351,6 +351,8 @@ void MainWindow::addPlotBelow()
         QMessageBox::warning(this, "Add Plot", "Y expr is required.");
         return;
     }
+    sig.readMode = globalRateMode_;
+    sig.readModeExplicit = true;
     plot.title = sig.yExpr;
     plot.signalSpecs.push_back(sig);
     config_.columns[column].insert(row, plot);
@@ -391,6 +393,8 @@ void MainWindow::addSignalToCurrentPlot()
         QMessageBox::warning(this, "Add Signal", "Y expr is required.");
         return;
     }
+    sig.readMode = globalRateMode_;
+    sig.readModeExplicit = true;
     sig.colorName = colorForIndex(plot.signalSpecs.size());
     plot.shot = dialog.shot();
     plot.signalSpecs.push_back(sig);
@@ -462,7 +466,11 @@ void MainWindow::dataSourceSetupForCurrentPanel()
 
     PlotSpec& plot = config_.columns[selectedColumn_][selectedRow_];
     const QString currentShot = shotEdit_ ? shotEdit_->text().trimmed() : plot.shot;
-    DataSourceDialog dialog(plot, currentShot, appSourceIndexDir(rootPath_), this);
+    DataSourceDialog dialog(plot,
+                            currentShot,
+                            appSourceIndexDir(rootPath_),
+                            globalRateMode_,
+                            this);
     if (dialog.exec() != QDialog::Accepted) {
         return;
     }
@@ -474,14 +482,6 @@ void MainWindow::dataSourceSetupForCurrentPanel()
     }
 
     const QVector<SignalSpec> previousSpecs = plot.signalSpecs;
-    const bool rateChanged =
-        previousSpecs.size() == specs.size()
-        && !std::equal(previousSpecs.cbegin(),
-                       previousSpecs.cend(),
-                       specs.cbegin(),
-                       [](const SignalSpec& previous, const SignalSpec& current) {
-                           return previous.readMode == current.readMode;
-                       });
     const bool dataSourceChanged = !signalDataSourcesEqual(previousSpecs, specs);
     const bool rateOnlyDataChange = dataSourceChanged
                                     && signalDataSourcesEqualIgnoringRate(previousSpecs, specs);
@@ -506,9 +506,6 @@ void MainWindow::dataSourceSetupForCurrentPanel()
     const bool restoreView = (!dataSourceChanged || rateOnlyDataChange) && widget->hasView();
     const QRectF previousView = restoreView ? widget->currentView() : QRectF();
     syncDisplayConfig();
-    if (rateChanged) {
-        saveRateChangesToCurrentToml();
-    }
     if (restoreView) {
         widget->applyView(previousView);
     }

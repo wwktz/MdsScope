@@ -260,17 +260,26 @@ LayoutConfig expandedShotLayout(const LayoutConfig& config)
     return expanded;
 }
 
-DataReadMode effectiveSignalReadMode(DataReadMode globalMode, const SignalSpec& sig)
+DataReadMode higherDataReadMode(DataReadMode lhs, DataReadMode rhs)
 {
-    // The higher-precision of the global mode and the per-signal override wins.
-    // Precision order: Thin < Medium < Full.
-    auto rank = [](DataReadMode m) {
-        switch (m) {
-        case DataReadMode::Thin:   return 0;
-        case DataReadMode::Medium: return 1;
-        case DataReadMode::Full:   return 2;
+    const auto rank = [](DataReadMode mode) {
+        switch (mode) {
+        case DataReadMode::Thin:
+            return 0;
+        case DataReadMode::Medium:
+            return 1;
+        case DataReadMode::Full:
+            return 2;
         }
         return 0;
     };
-    return rank(sig.readMode) >= rank(globalMode) ? sig.readMode : globalMode;
+    return rank(lhs) >= rank(rhs) ? lhs : rhs;
+}
+
+DataReadMode effectiveSignalReadMode(DataReadMode, const SignalSpec& sig)
+{
+    // Opening a configuration has already applied the startup default once.
+    // From then on each signal stores its actual current Rate, so later global,
+    // panel, and source choices are free to raise or lower it.
+    return sig.readMode;
 }

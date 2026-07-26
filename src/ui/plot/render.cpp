@@ -134,7 +134,7 @@ void PlotWidget::updatePointReadoutPlacement(PointReadout& readout) const
     std::array<bool, 4> backgrounds{};
     const bool preferRight = readout.pixel.x() <= available.center().x();
     const bool preferBelow = readout.pixel.y() <= available.center().y();
-    for (int i = 0; i < candidates.size(); ++i) {
+    for (int i = 0; i < static_cast<int>(candidates.size()); ++i) {
         const QRectF& rect = candidates[i];
         const double overflow = std::max(0.0, available.left() - rect.left())
                                 + std::max(0.0, rect.right() - available.right())
@@ -181,19 +181,23 @@ void PlotWidget::updatePointReadoutPlacement(PointReadout& readout) const
     int chosen = -1;
     // Keep a clear placement stable. Switch only when the current placement
     // needs a background and another nearby placement does not.
-    if (current >= 0 && current < backgrounds.size() && !backgrounds[current]) {
+    if (current >= 0
+        && current < static_cast<int>(backgrounds.size())
+        && !backgrounds[current]) {
         chosen = current;
     }
     if (chosen < 0) {
         double bestCleanScore = std::numeric_limits<double>::infinity();
-        for (int i = 0; i < backgrounds.size(); ++i) {
+        for (int i = 0; i < static_cast<int>(backgrounds.size()); ++i) {
             if (!backgrounds[i] && scores[i] < bestCleanScore) {
                 chosen = i;
                 bestCleanScore = scores[i];
             }
         }
     }
-    if (chosen < 0 && current >= 0 && current < backgrounds.size()) {
+    if (chosen < 0
+        && current >= 0
+        && current < static_cast<int>(backgrounds.size())) {
         chosen = current;
     }
     if (chosen < 0) {

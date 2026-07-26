@@ -81,7 +81,11 @@ struct SignalSpec {
     QString colorName;
     bool manualColor = false;
     bool hidden = false;
-    DataReadMode readMode = DataReadMode::Thin;  // Per-signal sampling quality override
+    DataReadMode readMode = DataReadMode::Thin;
+    // False means no source Rate was present in the parsed configuration.
+    // The UI materializes the current default/global minimum in memory; true
+    // also allows an explicit Thin choice to be written when the user saves.
+    bool readModeExplicit = false;
 };
 
 struct PlotSpec {
@@ -431,8 +435,7 @@ private:
     void refreshPlotFonts();
     void saveCurrentEnvironment();
     void saveCurrentEnvironmentAs();
-    bool saveEnvironmentFile(const QString& path) const;
-    bool saveRateChangesToCurrentToml();
+    bool saveEnvironmentFile(const QString& path);
     bool saveWebscpEnvironmentFile(const QString& path) const;
     PlotSpec defaultPlotFromSelection() const;
     void updateTopInfoLabels();

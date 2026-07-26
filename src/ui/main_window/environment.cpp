@@ -4,6 +4,24 @@
 #include "mdsscope_internal.hpp"
 #include "shared.hpp"
 
+namespace {
+void alignLayoutRatesToMinimum(LayoutConfig* config, DataReadMode minimum)
+{
+    if (!config) {
+        return;
+    }
+    for (QVector<PlotSpec>& column : config->columns) {
+        for (PlotSpec& plot : column) {
+            for (SignalSpec& sig : plot.signalSpecs) {
+                sig.readMode = higherDataReadMode(minimum, sig.readMode);
+                // The aligned value is the current in-memory Rate. It is only
+                // persisted if the user later invokes Save/Ctrl+S.
+                sig.readModeExplicit = true;
+            }
+        }
+    }
+}
+}
 
 void MainWindow::loadDefaultEnvironment(bool useLatestWhenNoCurrentShot)
 {
@@ -241,10 +259,11 @@ bool MainWindow::loadEnvironmentFile(const QString& path,
     queuedLoadedSignals_.clear();
     queuedLoadedSignalApply_ = false;
     config_ = parseEnvironment(path);
-    // Loading a configuration applies the persisted startup Rate as a
-    // non-destructive global floor. Per-source TOML modes remain untouched and
-    // still win whenever they request a higher rate.
     globalRateMode_ = defaultRateMode_;
+    // Apply the startup default as a non-persistent minimum. Higher TOML
+    // panel/source rates remain unchanged; lower or omitted rates are raised
+    // only in memory until the user explicitly saves.
+    alignLayoutRatesToMinimum(&config_, globalRateMode_);
     if (!shouldFetchLatest) {
         updateShotControlsFromConfig(previousShot);
     }
@@ -316,8 +335,10 @@ void MainWindow::saveCurrentEnvironmentAs()
     }
 }
 
-bool MainWindow::saveEnvironmentFile(const QString& path) const
+bool MainWindow::saveEnvironmentFile(const QString& path)
 {
+    // Rates were resolved when the configuration opened and may since have
+    // been freely changed by the user. Save those exact current values.
     QFileInfo info(path);
     const QString suffix = info.suffix().toLower();
     QString primaryPath = path;
@@ -346,27 +367,6 @@ bool MainWindow::saveEnvironmentFile(const QString& path) const
         QMessageBox::warning(nullptr, "Save", "Saved TOML, but webscp export failed: " + webscpPath);
     }
     return tomlOk && webscpOk;
-}
-
-bool MainWindow::saveRateChangesToCurrentToml()
-{
-    const QFileInfo info(config_.filePath);
-    if (info.suffix().compare(QStringLiteral("toml"),
-                              Qt::CaseInsensitive)
-        != 0) {
-        // Legacy WebSCP has no Rate fields. Keep the explicit choice for the
-        // current session without extending or rewriting that format.
-        return true;
-    }
-
-    QString error;
-    if (writeEnvironmentToml(config_, info.absoluteFilePath(), &error)) {
-        return true;
-    }
-    QMessageBox::warning(this,
-                         "Save Rate",
-                         "Cannot update TOML Rate settings:\n" + error);
-    return false;
 }
 
 bool MainWindow::saveWebscpEnvironmentFile(const QString& path) const
