@@ -13,7 +13,9 @@ constexpr int kGroupFetchThreadLimit = 16;
 
 std::atomic_int& reconnectCostEstimateStorage()
 {
-    static std::atomic_int estimateMs {1'100};
+    // Reconnecting through an already-established SSH tunnel can still take
+    // several seconds because MDSIP must create and authenticate a new session.
+    static std::atomic_int estimateMs {3'500};
     return estimateMs;
 }
 
@@ -322,10 +324,19 @@ void MdsIpClient::observeReconnectCost(int elapsedMs)
         }
         std::atomic_int& estimateMs = reconnectCostEstimateStorage();
         int previous = estimateMs.load(std::memory_order_relaxed);
-        const int sample = std::clamp(elapsedMs, 100, 5'000);
-        while (!estimateMs.compare_exchange_weak(previous,
-                                                 (previous * 3 + sample) / 4,
+        const int sample = std::clamp(elapsedMs, 100, kConnectionSetupTimeoutMs);
+        // Learn slow reconnects quickly so Full cancellation does not repeatedly
+        // choose abort based on an unrealistically cheap reconnect estimate.
+        // Let the estimate fall more gradually after a fast sample.
+        while (true) {
+            const int next = sample > previous
+                                 ? (previous + sample * 3) / 4
+                                 : (previous * 7 + sample) / 8;
+            if (estimateMs.compare_exchange_weak(previous,
+                                                 next,
                                                  std::memory_order_relaxed)) {
+                break;
+            }
         }
     }
 
@@ -409,6 +420,20 @@ QSemaphore* MdsIpClient::fullLargeDownloadSemaphore(const SignalSpec& sig)
         QSemaphore* semaphore = semaphores.value(key, nullptr);
         if (!semaphore) {
             semaphore = new QSemaphore(fullLargeDownloadLimit());
+            semaphores.insert(key, semaphore);
+        }
+        return semaphore;
+    }
+
+QSemaphore* MdsIpClient::connectionSetupSemaphore(const SignalSpec& sig)
+{
+        static QMutex mutex;
+        static QHash<QString, QSemaphore*> semaphores;
+        const QString key = serverKey(sig);
+        QMutexLocker locker(&mutex);
+        QSemaphore* semaphore = semaphores.value(key, nullptr);
+        if (!semaphore) {
+            semaphore = new QSemaphore(kConnectionSetupLimit);
             semaphores.insert(key, semaphore);
         }
         return semaphore;

@@ -15,6 +15,10 @@ using UniformTimebase = MdsIpClient::UniformTimebase;
 QVector<SignalFetchResult> MdsIpClient::fetchGroupResults(const QVector<NativeRequest>& requests, bool openOnly) const
 {
         CurrentCancelGuard cancelGuard(cancel_, preserveConnectionsOnCancel_);
+        // Handshake and TreeOpen after a Full abort are connection setup, not a
+        // normal signal read. In particular, an SSH-forwarded MDSIP session can
+        // legitimately need 4-5 seconds here.
+        CurrentReadTimeoutGuard setupTimeoutGuard(kConnectionSetupTimeoutMs);
         if (requests.isEmpty()) {
             return {};
         }
@@ -46,6 +50,15 @@ QVector<SignalFetchResult> MdsIpClient::fetchGroupResults(const QVector<NativeRe
             const bool canReuseSocket = cached && cached->socket && cached->socket->state() == QAbstractSocket::ConnectedState;
             usedCachedConnection = canReuseSocket;
             if (!canReuseSocket) {
+                // A rapid Full switch can invalidate many worker sockets at
+                // once. Bound concurrent session setup so the persistent SSH
+                // tunnel and MDS server are not hit by a 16-connection storm.
+                SemaphoreGuard setupGuard(connectionSetupSemaphore(firstSig));
+                if (isCanceled()) {
+                    error = "operation canceled";
+                    resetConnection(cached);
+                    break;
+                }
                 resetConnection(cached);
                 cached->socket = std::make_unique<QTcpSocket>();
                 cached->socket->setProxy(QNetworkProxy::NoProxy);
@@ -70,7 +83,7 @@ QVector<SignalFetchResult> MdsIpClient::fetchGroupResults(const QVector<NativeRe
                             resetConnection(cached);
                             break;
                         }
-                        if (connectTimer.elapsed() >= kNetworkTimeoutMs) {
+                        if (connectTimer.elapsed() >= kConnectionSetupTimeoutMs) {
                             error = cached->socket->errorString();
                             resetConnection(cached);
                             break;
@@ -298,6 +311,14 @@ QVector<SignalFetchResult> MdsIpClient::fetchGroupResults(const QVector<NativeRe
                                                     &signalError);
             emitResult(request, result);
             results.push_back(std::move(result));
+        }
+        if (cached && cached->socket
+            && cached->socket->state() != QAbstractSocket::ConnectedState) {
+            // readFully() aborts a cancelled/timed-out Full stream. Remove that
+            // exact socket object now, before this worker can service the next
+            // shot, rather than leaving a half-dead cache entry to be noticed
+            // lazily on reuse.
+            resetConnection(cached);
         }
         return results;
     }

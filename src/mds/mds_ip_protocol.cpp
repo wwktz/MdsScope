@@ -108,7 +108,10 @@ bool MdsIpClient::readFully(QTcpSocket& socket,
                     const qsizetype remaining = size - out->size();
                     const qsizetype buffered =
                         std::min(remaining, static_cast<qsizetype>(socket.bytesAvailable()));
-                    const int reconnectMs = std::clamp(reconnectCostEstimateMs(), 250, 1'500);
+                    const int reconnectMs =
+                        std::clamp(reconnectCostEstimateMs(),
+                                   250,
+                                   kConnectionSetupTimeoutMs);
                     bool predictedFasterThanReconnect = buffered >= remaining;
                     qint64 predictedRemainingMs = 0;
                     if (!predictedFasterThanReconnect && out->size() == 0 && buffered > 0) {
@@ -195,6 +198,9 @@ Message MdsIpClient::readMessage(QTcpSocket& socket, QString* error)
         in >> msgLen >> msg.status >> msg.length >> nargs >> descrIdx >> messageId >> msg.dtype >> clientType >> ndims;
         if (msgLen < 48 || msgLen > 128 * 1024 * 1024) {
             *error = "invalid MDSIP message length";
+            // The stream boundary can no longer be trusted. Never let this
+            // connection return to the warm cache.
+            socket.abort();
             return msg;
         }
         if (!readFully(socket, &msg.body, msgLen - 48, true, error)) {

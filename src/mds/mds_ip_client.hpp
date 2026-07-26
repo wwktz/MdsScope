@@ -89,6 +89,8 @@ private:
     static constexpr bool kSetServerResampleMode = false;
     static constexpr bool kSetTreeDefault = false;
     static constexpr int kMaxConnectionsPerGroup = 8;
+    static constexpr int kConnectionSetupTimeoutMs = 8'000;
+    static constexpr int kConnectionSetupLimit = 8;
     static constexpr double kMediumTimeResolutionSeconds = 0.0001;
     static constexpr int kDefaultFullLargeSignalPoints = 8'000'000;
 
@@ -211,6 +213,8 @@ private:
     static int fullLargeSignalPointThreshold();
 
     static QSemaphore* fullLargeDownloadSemaphore(const SignalSpec& sig);
+
+    static QSemaphore* connectionSetupSemaphore(const SignalSpec& sig);
 
     static int fullPointCountBestEffort(QTcpSocket& socket, const QString& yExpr);
 
