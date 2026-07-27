@@ -102,8 +102,7 @@ bool signalDataSourceEqual(const SignalSpec& lhs, const SignalSpec& rhs)
            && lhs.experiment == rhs.experiment
            && lhs.serverIp == rhs.serverIp
            && lhs.hidden == rhs.hidden
-           && lhs.readMode == rhs.readMode
-           && lhs.readModeExplicit == rhs.readModeExplicit;
+           && lhs.readMode == rhs.readMode;
 }
 
 bool signalDataSourcesEqual(const QVector<SignalSpec>& lhs, const QVector<SignalSpec>& rhs)
@@ -124,6 +123,7 @@ bool signalSpecEqual(const SignalSpec& lhs, const SignalSpec& rhs)
     return signalDataSourceEqual(lhs, rhs)
            && lhs.colorName == rhs.colorName
            && lhs.manualColor == rhs.manualColor
+           && lhs.readModeExplicit == rhs.readModeExplicit
            && lhs.hidden == rhs.hidden;
 }
 

@@ -155,7 +155,58 @@ void MainWindow::syncDisplayConfig()
                                      || r >= previous.columns[c].size()
                                      || plotRefreshSignature(previous.columns[c][r]) != plotRefreshSignature(displayConfig_.columns[c][r]);
                 if (changed) {
-                    plotWidgets_[c][r]->setSpec(displayConfig_.columns[c][r]);
+                    bool rateOnly = false;
+                    bool shotOnly = false;
+                    if (c < previous.columns.size()
+                        && r < previous.columns[c].size()) {
+                        const PlotSpec& previousPlot =
+                            previous.columns[c][r];
+                        const PlotSpec& currentPlot =
+                            displayConfig_.columns[c][r];
+                        if (previousPlot.signalSpecs.size()
+                            == currentPlot.signalSpecs.size()) {
+                            PlotSpec normalized = currentPlot;
+                            bool rateChanged = false;
+                            for (int s = 0;
+                                 s < normalized.signalSpecs.size();
+                                 ++s) {
+                                rateChanged =
+                                    rateChanged
+                                    || normalized.signalSpecs[s].readMode
+                                           != previousPlot.signalSpecs[s].readMode
+                                    || normalized.signalSpecs[s].readModeExplicit
+                                           != previousPlot.signalSpecs[s].readModeExplicit;
+                                normalized.signalSpecs[s].readMode =
+                                    previousPlot.signalSpecs[s].readMode;
+                                normalized.signalSpecs[s].readModeExplicit =
+                                    previousPlot.signalSpecs[s].readModeExplicit;
+                            }
+                            rateOnly =
+                                rateChanged
+                                && plotRefreshSignature(previousPlot)
+                                    == plotRefreshSignature(normalized);
+                        }
+                        PlotSpec normalized =
+                            displayConfig_.columns[c][r];
+                        normalized.shot =
+                            previous.columns[c][r].shot;
+                        shotOnly =
+                            previous.columns[c][r].shot
+                                != displayConfig_.columns[c][r].shot
+                            && plotRefreshSignature(
+                                   previous.columns[c][r])
+                                == plotRefreshSignature(normalized);
+                    }
+                    if (rateOnly) {
+                        plotWidgets_[c][r]->setFetchSpec(
+                            displayConfig_.columns[c][r]);
+                    } else if (shotOnly) {
+                        plotWidgets_[c][r]->setShot(
+                            displayConfig_.columns[c][r].shot);
+                    } else {
+                        plotWidgets_[c][r]->setSpec(
+                            displayConfig_.columns[c][r]);
+                    }
                 }
             }
         }

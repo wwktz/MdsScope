@@ -73,22 +73,8 @@ bool loadedSignalSourceStillCurrent(const LayoutConfig& fetchSnapshot,
 
 }
 
-
 void MainWindow::refreshData()
 {
-    refresh_->fullShotDebounceTimer.stop();
-    refresh_->pendingPrewarmRefresh = false;
-    // A manual load must not block the UI or interrupt the global prewarm.
-    // Queue its refresh; the warm-watcher completion starts it on the same
-    // persistent worker connections.
-    if (refresh_->warmWatcher.isRunning()) {
-        clearDataPause();
-        syncDisplayConfig();
-        refresh_->pendingRefresh = true;
-        refresh_->queuedRefreshKey.clear();
-        setStatus("Configuration loaded; waiting for global MDS prewarm...");
-        return;
-    }
     // Any normal refresh invalidates a pending "Continue": the shot, config or
     // read mode may have changed, so resuming the old fetch no longer applies.
     clearDataPause();
@@ -98,124 +84,86 @@ void MainWindow::refreshData()
     // freely editable Rate.
     const DataReadMode readMode = globalRateMode_;
     const QString key = refreshKey(readMode);
-    if (refresh_->dataOrPanelRunning()) {
-        if (key == refresh_->activeRefreshKey || key == refresh_->queuedRefreshKey) {
-            setStatus("Data refresh already running for current shot");
-            return;
-        }
-        cancelDataFetch();
-        cancelPanelFetch();
-        refresh_->activeRefreshKey.clear();
-        refresh_->activeFullRateRefreshViews.clear();
-        refresh_->clearActivePanel();
-        refresh_->invalidateDataFetch();
-        refresh_->pendingRefresh = true;
-        refresh_->queuedRefreshKey = key;
-        refresh_->pendingPanelRefreshes.clear();
-        refresh_->clearQueuedLoadedSignals();
-        for (auto& col : plotWidgets_) {
-            for (PlotWidget* plot : col) {
-                plot->clearSeries();
-            }
-        }
-        for (auto it = refresh_->queuedFullRateRefreshViews.cbegin(); it != refresh_->queuedFullRateRefreshViews.cend(); ++it) {
-            const int column = it.key().column;
-            const int row = it.key().row;
-            if (column >= 0 && row >= 0
-                && column < plotWidgets_.size()
-                && row < plotWidgets_[column].size()) {
-                plotWidgets_[column][row]->applyView(it.value());
-            }
-        }
-        refresh_->attemptedSignals.clear();
-        refresh_->streamedOk = 0;
-        refresh_->streamedFailed = 0;
+    const bool sshPreparationRunning =
+        sshTunnelManager_ && sshTunnelManager_->preparationInProgress();
+    switch (refresh_->requestDataRefresh(key, sshPreparationRunning)) {
+    case RefreshCoordinator::DataRefreshAction::AlreadyScheduled:
+        setStatus("Data refresh already running for current shot");
+        return;
+    case RefreshCoordinator::DataRefreshAction::WaitForPrewarm:
+        setStatus("Configuration loaded; waiting for global MDS prewarm...");
+        return;
+    case RefreshCoordinator::DataRefreshAction::WaitForWorkers:
         setStatus("Data refresh queued until current work stops...");
         return;
-    }
-    if (sshTunnelManager_ && sshTunnelManager_->preparationInProgress()) {
-        // A Rate/shot/config change does not need another SSH tunnel. Keep only
-        // the newest data request and run it when the in-flight preparation has
-        // made the persistent forwarding process available.
-        refresh_->invalidateDataFetch();
-        refresh_->pendingRefresh = true;
-        refresh_->queuedRefreshKey = key;
-        refresh_->sshFullRefreshPending = true;
+    case RefreshCoordinator::DataRefreshAction::WaitForSsh:
         setStatus("Data refresh queued until SSH tunnel is ready...");
         return;
+    case RefreshCoordinator::DataRefreshAction::Start:
+        break;
     }
-    refresh_->pendingRefresh = false;
-    refresh_->clearQueuedLoadedSignals();
-    for (auto& col : plotWidgets_) {
-        for (PlotWidget* plot : col) {
-            plot->clearSeries();
+
+    // Release the previous curves before a Full fetch can allocate their
+    // replacements, but freeze the old axes until every signal in that panel
+    // settles. This avoids both the temporary 0..1.01 range and retaining two
+    // generations of large Full datasets at once.
+    for (const auto& column : plotWidgets_) {
+        for (PlotWidget* plot : column) {
+            if (plot) {
+                plot->clearSeriesPreservingView();
+            }
         }
     }
-    for (auto it = refresh_->queuedFullRateRefreshViews.cbegin(); it != refresh_->queuedFullRateRefreshViews.cend(); ++it) {
-        const int column = it.key().column;
-        const int row = it.key().row;
-        if (column >= 0 && row >= 0
-            && column < plotWidgets_.size()
-            && row < plotWidgets_[column].size()) {
-            plotWidgets_[column][row]->applyView(it.value());
-        }
-    }
-    refresh_->attemptedSignals.clear();
-    refresh_->streamedOk = 0;
-    refresh_->streamedFailed = 0;
-    refresh_->activeFullRateRefreshViews = std::move(refresh_->queuedFullRateRefreshViews);
-    refresh_->queuedFullRateRefreshViews.clear();
     launchDataFetch(displayConfig_, readMode, key);
 }
 
 void MainWindow::launchDataFetch(const LayoutConfig& snapshot, DataReadMode readMode, const QString& key)
 {
-    const int preparationGeneration = refresh_->activeDataFetchGeneration;
+    const int preparationGeneration = refresh_->dataGeneration();
     LayoutConfig fetchSnapshot;
     if (!prepareSshLayout(snapshot, &fetchSnapshot)) {
-        refresh_->activeRefreshKey.clear();
+        refresh_->takeActiveRateViews();
         return;
     }
-    if (preparationGeneration != refresh_->activeDataFetchGeneration) {
+    if (preparationGeneration != refresh_->dataGeneration()) {
         // A newer Rate/shot/config request arrived while the persistent tunnel
         // was being prepared. Do not start this obsolete data fetch.
-        refresh_->activeRefreshKey.clear();
         return;
     }
-    const int generation = refresh_->beginDataFetch(snapshot, readMode, key);
-    const auto cancel = refresh_->dataCancel;
+    const RefreshCoordinator::DataFetchHandle handle =
+        refresh_->beginDataFetch(snapshot, readMode, key);
     setStatus(QString("Fetching MDS data (%1)...")
                   .arg(layoutReadModeKey(snapshot, readMode)));
     auto* watcher = new QFutureWatcher<QVector<LoadedSignal>>(this);
-    connect(watcher, &QFutureWatcher<QVector<LoadedSignal>>::finished, this, [this, watcher, key, generation] {
+    connect(watcher, &QFutureWatcher<QVector<LoadedSignal>>::finished, this, [this, watcher, handle] {
         refresh_->finishDataFetch();
-        if (refresh_->acceptsDataResult(generation, key)) {
+        if (refresh_->completeDataFetch(handle)) {
             applyLoadedSignals(watcher->result());
         }
         watcher->deleteLater();
         startPendingFetchIfIdle();
     });
-    watcher->setFuture(QtConcurrent::run([this, fetchSnapshot, readMode, key, generation, cancel] {
-        auto loaded = fetchMdsSignals(fetchSnapshot, readMode, [this, key, generation, cancel](const LoadedSignal& item) {
-            if (cancel && cancel->load(std::memory_order_relaxed)) {
+    watcher->setFuture(QtConcurrent::run([this, fetchSnapshot, readMode, handle] {
+        auto loaded = fetchMdsSignals(fetchSnapshot, readMode, [this, handle](const LoadedSignal& item) {
+            if (handle.cancel
+                && handle.cancel->load(std::memory_order_relaxed)) {
                 return;
             }
             LoadedSignal prepared = item;
             rebuildMinMaxIndex(prepared.series);
-            QMetaObject::invokeMethod(this, [this, key, generation, item = std::move(prepared), cancel]() mutable {
-                if ((!cancel || !cancel->load(std::memory_order_relaxed))
-                    && refresh_->acceptsDataResult(generation, key)) {
+            QMetaObject::invokeMethod(this, [this, handle, item = std::move(prepared)]() mutable {
+                if (refresh_->acceptsDataResult(handle)) {
                     queueLoadedSignal(std::move(item));
                 }
             }, Qt::QueuedConnection);
-        }, cancel, true);
+        }, handle.cancel, true);
         return loaded;
     }));
 }
 
 void MainWindow::onStopOrContinue()
 {
-    if (refresh_->dataRefreshPaused) {
+    if (refresh_->dataPaused()) {
         resumeDataRefresh();
     } else {
         stopDataRefresh();
@@ -232,7 +180,7 @@ int MainWindow::countRemainingSignals(const LayoutConfig& snapshot) const
                 if (plot.signalSpecs[s].hidden) {
                     continue;
                 }
-                if (!refresh_->attemptedSignals.contains(signalKey(c, r, s))) {
+                if (!refresh_->signalAttempted(signalKey(c, r, s))) {
                     ++remaining;
                 }
             }
@@ -243,27 +191,26 @@ int MainWindow::countRemainingSignals(const LayoutConfig& snapshot) const
 
 void MainWindow::stopDataRefresh()
 {
-    const bool wasRunning = refresh_->runningDataFetches > 0;
+    const bool wasRunning = refresh_->dataWorkerRunning();
+    const QString activeKey = refresh_->activeDataKey();
+    const DataReadMode activeMode = refresh_->activeDataReadMode();
     cancelDataFetch();
     cancelPanelFetch();
+    refresh_->suppressDataResults();
+    refresh_->takePendingDataRefresh();
+    refresh_->suppressPanelResults();
+    refresh_->clearPendingPanels();
+    refresh_->clearQueuedLoadedSignals();
     // Configuration or panel Rate edits can occur while the original global
     // fetch is still winding down. Continue must resume the current sources,
     // not the obsolete snapshot that launched that fetch.
     const LayoutConfig resumeSnapshot = displayConfig_;
     const int remaining = countRemainingSignals(resumeSnapshot);
-    const QString activeKey = refresh_->activeRefreshKey;
-    const DataReadMode activeMode = refresh_->activeFetchReadMode;
-    refresh_->activeRefreshKey.clear();
-    refresh_->queuedRefreshKey.clear();
-    refresh_->pendingRefresh = false;
-    refresh_->pendingResume = false;
-    refresh_->clearActivePanel();
-    refresh_->pendingPanelRefreshes.clear();
-    refresh_->clearQueuedLoadedSignals();
     if (wasRunning && remaining > 0) {
-        refresh_->pausedSnapshot = resumeSnapshot;
-        refresh_->pausedReadMode = activeMode;
-        refresh_->pausedKey = activeKey.isEmpty() ? refreshKey(activeMode) : activeKey;
+        refresh_->pauseData(
+            {resumeSnapshot,
+             activeMode,
+             activeKey.isEmpty() ? refreshKey(activeMode) : activeKey});
         setStopButtonPaused(true);
         setStatus(QString("Data refresh paused: %1 signals remaining").arg(remaining));
     } else {
@@ -274,25 +221,27 @@ void MainWindow::stopDataRefresh()
 
 void MainWindow::resumeDataRefresh()
 {
-    if (!refresh_->dataRefreshPaused) {
+    const std::optional<RefreshCoordinator::PausedData> paused =
+        refresh_->pausedData();
+    if (!paused) {
         return;
     }
     // Fetch only signals that were never attempted; mark the already-attempted
     // ones hidden so fetchMdsSignals skips them while keeping signal indices
     // stable (item.signal is the raw slot index).
-    LayoutConfig remainingSnapshot = refresh_->pausedSnapshot;
+    LayoutConfig remainingSnapshot = paused->snapshot;
     for (int c = 0; c < remainingSnapshot.columns.size(); ++c) {
         for (int r = 0; r < remainingSnapshot.columns[c].size(); ++r) {
             PlotSpec& plot = remainingSnapshot.columns[c][r];
             for (int s = 0; s < plot.signalSpecs.size(); ++s) {
-                if (refresh_->attemptedSignals.contains(signalKey(c, r, s))) {
+                if (refresh_->signalAttempted(signalKey(c, r, s))) {
                     plot.signalSpecs[s].hidden = true;
                 }
             }
         }
     }
-    const DataReadMode readMode = refresh_->pausedReadMode;
-    const QString key = refresh_->pausedKey;
+    const DataReadMode readMode = paused->readMode;
+    const QString key = paused->key;
     clearDataPause();
     if (refresh_->anyWorkerRunning()) {
         // Old (cancelled) fetch is still winding down; queue the resume so we
@@ -300,13 +249,10 @@ void MainWindow::resumeDataRefresh()
         cancelDataFetch();
         cancelPanelFetch();
         cancelPrewarmConnections();
-        refresh_->clearActivePanel();
-        refresh_->pendingPanelRefreshes.clear();
-        refresh_->pendingResume = true;
-        refresh_->pendingResumeSnapshot = remainingSnapshot;
-        refresh_->pausedReadMode = readMode;
-        refresh_->pausedKey = key;
-        refresh_->activeRefreshKey.clear();
+        refresh_->suppressPanelResults();
+        refresh_->clearPendingPanels();
+        refresh_->queueResume({remainingSnapshot, readMode, key});
+        refresh_->suppressDataResults();
         refresh_->clearQueuedLoadedSignals();
         setStatus("Resuming after current fetch stops...");
         return;
@@ -317,15 +263,15 @@ void MainWindow::resumeDataRefresh()
 
 void MainWindow::clearDataPause()
 {
-    refresh_->pendingResume = false;
-    if (refresh_->dataRefreshPaused) {
+    const bool wasPaused = refresh_->dataPaused();
+    refresh_->clearPausedData();
+    if (wasPaused) {
         setStopButtonPaused(false);
     }
 }
 
 void MainWindow::setStopButtonPaused(bool paused)
 {
-    refresh_->dataRefreshPaused = paused;
     if (stopButton_) {
         stopButton_->setText(paused ? "Continue" : "Stop");
     }
@@ -351,14 +297,12 @@ void MainWindow::startPendingFetchIfIdle()
     if (refresh_->anyWorkerRunning()) {
         return;
     }
-    if (refresh_->pendingResume) {
-        refresh_->pendingResume = false;
-        launchDataFetch(refresh_->pendingResumeSnapshot, refresh_->pausedReadMode, refresh_->pausedKey);
+    if (const std::optional<RefreshCoordinator::PausedData> resume =
+            refresh_->takePendingResume()) {
+        launchDataFetch(resume->snapshot, resume->readMode, resume->key);
         return;
     }
-    if (refresh_->pendingRefresh) {
-        refresh_->pendingRefresh = false;
-        refresh_->queuedRefreshKey.clear();
+    if (refresh_->takePendingDataRefresh()) {
         refreshData();
         return;
     }
@@ -383,7 +327,7 @@ bool MainWindow::prewarmConnections()
         // A rapid config switch can arrive while the previous config is still
         // establishing its forwarding process. Coalesce it instead of starting
         // or rejecting a second tunnel preparation.
-        refresh_->sshPrewarmPending = true;
+        refresh_->deferForSsh(RefreshCoordinator::SshWork::Prewarm);
         setStatus("MDS prewarm queued until SSH tunnel is ready...");
         return true;
     }
@@ -391,22 +335,19 @@ bool MainWindow::prewarmConnections()
         return false;
     }
 
-    const int preparationGeneration = refresh_->activeDataFetchGeneration;
+    const int preparationGeneration = refresh_->dataGeneration();
     const LayoutConfig source = expandedShotLayout(config_);
     LayoutConfig snapshot;
     if (!prepareSshLayout(source, &snapshot)) {
         return false;
     }
-    if (preparationGeneration != refresh_->activeDataFetchGeneration
-        || refresh_->sshFullRefreshPending
-        || refresh_->sshPanelRefreshPending
-        || refresh_->sshPrewarmPending) {
+    if (preparationGeneration != refresh_->dataGeneration()
+        || refresh_->hasSshPendingWork()) {
         // The completion notification will start only the newest queued work.
         return true;
     }
-    refresh_->warmCancel = std::make_shared<std::atomic_bool>(false);
-    const auto cancel = refresh_->warmCancel;
-    refresh_->warmWatcher.setFuture(QtConcurrent::run([snapshot, cancel] {
+    const auto cancel = refresh_->beginPrewarm();
+    refresh_->warmWatcher().setFuture(QtConcurrent::run([snapshot, cancel] {
         warmMdsConnections(snapshot, cancel);
     }));
     return true;
@@ -419,8 +360,9 @@ bool MainWindow::canStartDeferredRefresh() const
 
 void MainWindow::maybeStartDeferredRefresh()
 {
-    if (refresh_->pendingPrewarmRefresh && canStartDeferredRefresh()) {
-        refresh_->pendingPrewarmRefresh = false;
+    if (refresh_->initialRefreshDeferred()
+        && canStartDeferredRefresh()
+        && refresh_->takeDeferredInitialRefresh()) {
         refreshData();
     }
 }
@@ -459,11 +401,6 @@ QString MainWindow::panelRefreshKey(int column, int row, const QVector<int>& sig
         .arg(panelSignature);
 }
 
-void MainWindow::queuePanelRefresh(PanelRefreshRequest request)
-{
-    refresh_->queuePanel(std::move(request));
-}
-
 void MainWindow::refreshSignals(int column,
                                 int row,
                                 QVector<int> signalIndices,
@@ -489,31 +426,34 @@ void MainWindow::refreshSignals(int column,
         for (int signal = 0;
              signal < displayConfig_.columns[column][row].signalSpecs.size();
              ++signal) {
-            refresh_->attemptedSignals.remove(signalKey(column, row, signal));
+            refresh_->unmarkSignalAttempted(signalKey(column, row, signal));
         }
     } else {
         for (int signal : std::as_const(signalIndices)) {
-            refresh_->attemptedSignals.remove(signalKey(column, row, signal));
+            refresh_->unmarkSignalAttempted(signalKey(column, row, signal));
         }
     }
 
-    if (refresh_->anyWorkerRunning()) {
-        const bool alreadyQueued = refresh_->panelRequestQueued(key);
-        if (key == refresh_->activePanelRefreshKey || alreadyQueued) {
-            setStatus(QString("Panel refresh already running: col %1 row %2").arg(column + 1).arg(row + 1));
-            return;
-        }
-        queuePanelRefresh({column, row, signalIndices, readMode, key, rateRefreshView});
+    const PanelRefreshRequest request{
+        column, row, signalIndices, readMode, key, rateRefreshView};
+    const bool sshPreparationRunning =
+        sshTunnelManager_ && sshTunnelManager_->preparationInProgress();
+    switch (refresh_->requestPanelRefresh(request, sshPreparationRunning)) {
+    case RefreshCoordinator::PanelRefreshAction::AlreadyScheduled:
+        setStatus(QString("Panel refresh already running: col %1 row %2")
+                      .arg(column + 1)
+                      .arg(row + 1));
+        return;
+    case RefreshCoordinator::PanelRefreshAction::Queued:
         setStatus(QString("Panel refresh queued: col %1 row %2").arg(column + 1).arg(row + 1));
         return;
-    }
-    if (sshTunnelManager_ && sshTunnelManager_->preparationInProgress()) {
-        queuePanelRefresh({column, row, signalIndices, readMode, key, rateRefreshView});
-        refresh_->sshPanelRefreshPending = true;
+    case RefreshCoordinator::PanelRefreshAction::WaitForSsh:
         setStatus(QString("Panel refresh queued until SSH tunnel is ready: col %1 row %2")
                       .arg(column + 1)
                       .arg(row + 1));
         return;
+    case RefreshCoordinator::PanelRefreshAction::Start:
+        break;
     }
 
     LayoutConfig snapshot = displayConfig_;
@@ -535,36 +475,33 @@ void MainWindow::refreshSignals(int column,
     }
     LayoutConfig fetchSnapshot;
     if (!prepareSshLayout(snapshot, &fetchSnapshot)) {
-        refresh_->clearActivePanel();
+        refresh_->suppressPanelResults();
         QTimer::singleShot(0, this, [this] { startPendingFetchIfIdle(); });
         return;
     }
-    if (refresh_->sshPanelRefreshPending || refresh_->sshFullRefreshPending) {
+    if (refresh_->hasSshPendingWork()) {
         // A newer request was queued during tunnel preparation. The completion
         // notification will start it without launching this obsolete panel read.
-        refresh_->clearActivePanel();
+        refresh_->suppressPanelResults();
         return;
     }
+    // A whole-panel refresh releases the old data but keeps its axes while the
+    // replacement is in flight. A partial signal refresh retains the untouched
+    // series exactly as before.
     if (!partialSignalRefresh) {
-        plotWidgets_[column][row]->clearSeries();
+        plotWidgets_[column][row]->clearSeriesPreservingView();
     }
     if (rateRefreshView.isValid() && rateRefreshView.width() > 0.0 && rateRefreshView.height() > 0.0) {
         plotWidgets_[column][row]->applyView(rateRefreshView);
     }
-    refresh_->activePanelRefreshKey = key;
-    refresh_->activePanelColumn = column;
-    refresh_->activePanelRow = row;
-    refresh_->activePanelSignals = signalIndices;
-    refresh_->activePanelRateRefreshView = rateRefreshView;
-    refresh_->panelCancel = std::make_shared<std::atomic_bool>(false);
-    const auto cancel = refresh_->panelCancel;
+    const auto cancel = refresh_->beginPanelRefresh(request);
     const QString rate = layoutReadModeKey(snapshot, readMode);
     setStatus(partialSignalRefresh
                   ? QString("Fetching signal data (%1): col %2 row %3, %4 source(s)")
                         .arg(rate).arg(column + 1).arg(row + 1).arg(signalIndices.size())
                   : QString("Fetching panel data (%1): col %2 row %3")
                         .arg(rate).arg(column + 1).arg(row + 1));
-    refresh_->panelWatcher.setFuture(QtConcurrent::run([fetchSnapshot, readMode, cancel] {
+    refresh_->panelWatcher().setFuture(QtConcurrent::run([fetchSnapshot, readMode, cancel] {
         QVector<LoadedSignal> loaded = fetchMdsSignals(fetchSnapshot, readMode, {}, cancel, true);
         for (LoadedSignal& item : loaded) {
             rebuildMinMaxIndex(item.series);
@@ -575,11 +512,9 @@ void MainWindow::refreshSignals(int column,
 
 void MainWindow::queueLoadedSignal(LoadedSignal item)
 {
-    refresh_->queuedLoadedSignals.push_back(std::move(item));
-    if (refresh_->queuedLoadedSignalApply) {
+    if (!refresh_->queueLoadedSignal(std::move(item))) {
         return;
     }
-    refresh_->queuedLoadedSignalApply = true;
     QTimer::singleShot(16, this, [this] {
         flushQueuedLoadedSignals();
     });
@@ -587,13 +522,10 @@ void MainWindow::queueLoadedSignal(LoadedSignal item)
 
 void MainWindow::flushQueuedLoadedSignals()
 {
-    if (refresh_->queuedLoadedSignals.isEmpty()) {
-        refresh_->queuedLoadedSignalApply = false;
+    QVector<LoadedSignal> batch = refresh_->takeQueuedLoadedSignals();
+    if (batch.isEmpty()) {
         return;
     }
-    QVector<LoadedSignal> batch;
-    batch.swap(refresh_->queuedLoadedSignals);
-    refresh_->queuedLoadedSignalApply = false;
     for (LoadedSignal& item : batch) {
         applyLoadedSignal(std::move(item));
     }
@@ -607,7 +539,7 @@ void MainWindow::applyLoadedSignal(LoadedSignal item)
     if (item.column >= displayConfig_.columns.size()
         || item.row >= displayConfig_.columns[item.column].size()
         || !loadedSignalMatchesConfig(displayConfig_, item)
-        || !loadedSignalSourceStillCurrent(refresh_->activeFetchSnapshot,
+        || !loadedSignalSourceStillCurrent(refresh_->activeDataSnapshot(),
                                            displayConfig_,
                                            item)) {
         return;
@@ -622,97 +554,95 @@ void MainWindow::applyLoadedSignal(LoadedSignal item)
     plotWidgets_[item.column][item.row]->setSeries(item.signal, std::move(item.series));
     // Record every delivered slot (loaded or failed) so a later Continue only
     // re-fetches signals that were never attempted.
-    refresh_->attemptedSignals.insert(signalKey(item.column, item.row, item.signal));
-    fitRateRefreshPanelIfComplete(item.column, item.row);
-    if (!hasData) {
-        ++refresh_->streamedFailed;
-    } else {
-        ++refresh_->streamedOk;
-    }
-    const int streamedTotal = refresh_->streamedOk + refresh_->streamedFailed;
-    if (streamedTotal == 1 || streamedTotal % 8 == 0) {
-        setStatus(QString("Data refresh: %1 signals loaded, %2 failed...").arg(refresh_->streamedOk).arg(refresh_->streamedFailed));
+    refresh_->markSignalAttempted(
+        signalKey(item.column, item.row, item.signal));
+    settleDataRefreshPanelIfComplete(item.column, item.row);
+    const RefreshCoordinator::DataProgress progress =
+        refresh_->recordStreamedSignal(hasData);
+    if (progress.total() == 1 || progress.total() % 8 == 0) {
+        setStatus(QString("Data refresh: %1 signals loaded, %2 failed...")
+                      .arg(progress.succeeded)
+                      .arg(progress.failed));
     }
 }
 
 void MainWindow::applyLoadedSignals(const QVector<LoadedSignal>& loaded)
 {
     flushQueuedLoadedSignals();
-    if (refresh_->activeRefreshKey.isEmpty()) {
-        return;
-    }
-    refresh_->activeRefreshKey.clear();
-    if (refresh_->streamedOk + refresh_->streamedFailed >= loaded.size()) {
+    RefreshCoordinator::DataProgress progress = refresh_->dataProgress();
+    if (progress.total() >= loaded.size()) {
         // Normally each panel settles as soon as its last signal streams in.
         // The final result is nevertheless authoritative: a final batch can
         // race the queued streaming callbacks, so settle any views that remain.
         fitRemainingRateRefreshPanels();
-        setStatus(QString("Data refresh done: %1 signals loaded, %2 failed").arg(refresh_->streamedOk).arg(refresh_->streamedFailed));
+        setStatus(QString("Data refresh done: %1 signals loaded, %2 failed")
+                      .arg(progress.succeeded)
+                      .arg(progress.failed));
         return;
     }
 
-    int ok = 0;
-    int failed = 0;
     for (const LoadedSignal& item : loaded) {
         const QString key = signalKey(item.column, item.row, item.signal);
-        if (refresh_->attemptedSignals.contains(key)) {
+        if (refresh_->signalAttempted(key)) {
             continue;
         }
         if (item.column < plotWidgets_.size() && item.row < plotWidgets_[item.column].size()) {
             if (!loadedSignalMatchesConfig(displayConfig_, item)
-                || !loadedSignalSourceStillCurrent(refresh_->activeFetchSnapshot,
+                || !loadedSignalSourceStillCurrent(refresh_->activeDataSnapshot(),
                                                    displayConfig_,
                                                    item)) {
                 continue;
             }
             plotWidgets_[item.column][item.row]->setSeries(item.signal, item.series);
-            refresh_->attemptedSignals.insert(key);
-            fitRateRefreshPanelIfComplete(item.column, item.row);
-            if (!item.series.hasData()) {
-                ++failed;
-            } else {
-                ++ok;
+            refresh_->markSignalAttempted(key);
+            settleDataRefreshPanelIfComplete(item.column, item.row);
+            const bool hasData = item.series.hasData();
+            progress = refresh_->recordStreamedSignal(hasData);
+            if (hasData) {
                 rememberLoadedSourceSignal(item);
             }
         }
     }
     setStatus(QString("Data refresh done: %1 signals loaded, %2 failed")
-                  .arg(refresh_->streamedOk + ok)
-                  .arg(refresh_->streamedFailed + failed));
+                  .arg(progress.succeeded)
+                  .arg(progress.failed));
     fitRemainingRateRefreshPanels();
 }
 
-void MainWindow::fitRateRefreshPanelIfComplete(int column, int row)
+void MainWindow::settleDataRefreshPanelIfComplete(int column, int row)
 {
-    auto viewIt = refresh_->activeFullRateRefreshViews.find({column, row});
-    if (viewIt == refresh_->activeFullRateRefreshViews.end()
-        || column < 0 || row < 0
-        || column >= refresh_->activeFetchSnapshot.columns.size()
-        || row >= refresh_->activeFetchSnapshot.columns[column].size()
+    const PanelId panelId{column, row};
+    const LayoutConfig& snapshot = refresh_->activeDataSnapshot();
+    if (column < 0 || row < 0
+        || column >= snapshot.columns.size()
+        || row >= snapshot.columns[column].size()
         || column >= plotWidgets_.size()
         || row >= plotWidgets_[column].size()) {
         return;
     }
 
-    const PlotSpec& panel = refresh_->activeFetchSnapshot.columns[column][row];
+    const PlotSpec& panel = snapshot.columns[column][row];
     for (int signal = 0; signal < panel.signalSpecs.size(); ++signal) {
         if (!panel.signalSpecs[signal].hidden
-            && !refresh_->attemptedSignals.contains(signalKey(column, row, signal))) {
+            && !refresh_->signalAttempted(signalKey(column, row, signal))) {
             return;
         }
     }
 
-    const QRectF view = viewIt.value();
-    refresh_->activeFullRateRefreshViews.erase(viewIt);
-    if (view.isValid() && view.width() > 0.0) {
-        plotWidgets_[column][row]->applyXRangeAutoY(view.left(), view.right());
+    const std::optional<QRectF> view =
+        refresh_->takeActiveRateView(panelId);
+    if (view && view->isValid() && view->width() > 0.0) {
+        plotWidgets_[column][row]->applyXRangeAutoY(view->left(),
+                                                   view->right());
+    } else {
+        plotWidgets_[column][row]->resetScale();
     }
 }
 
 void MainWindow::fitRemainingRateRefreshPanels()
 {
-    QHash<PanelId, QRectF> remainingViews;
-    remainingViews.swap(refresh_->activeFullRateRefreshViews);
+    const QHash<PanelId, QRectF> remainingViews =
+        refresh_->takeActiveRateViews();
     for (auto it = remainingViews.cbegin(); it != remainingViews.cend(); ++it) {
         const int column = it.key().column;
         const int row = it.key().row;
@@ -734,7 +664,9 @@ void MainWindow::fitRemainingRateRefreshPanels()
     }
 }
 
-void MainWindow::applyPanelLoadedSignals(const QVector<LoadedSignal>& loaded)
+void MainWindow::applyPanelLoadedSignals(
+    const QVector<LoadedSignal>& loaded,
+    const PanelRefreshRequest& request)
 {
     int ok = 0;
     int failed = 0;
@@ -753,15 +685,21 @@ void MainWindow::applyPanelLoadedSignals(const QVector<LoadedSignal>& loaded)
             ++failed;
         }
     }
-    if (refresh_->activePanelColumn >= 0 && refresh_->activePanelRow >= 0
-        && refresh_->activePanelColumn < plotWidgets_.size()
-        && refresh_->activePanelRow < plotWidgets_[refresh_->activePanelColumn].size()
-        && refresh_->activePanelRateRefreshView.isValid()
-        && refresh_->activePanelRateRefreshView.width() > 0.0) {
-        plotWidgets_[refresh_->activePanelColumn][refresh_->activePanelRow]->applyXRangeAutoY(
-            refresh_->activePanelRateRefreshView.left(), refresh_->activePanelRateRefreshView.right());
+    if (request.column >= 0 && request.row >= 0
+        && request.column < plotWidgets_.size()
+        && request.row < plotWidgets_[request.column].size()
+        && request.rateRefreshView.isValid()
+        && request.rateRefreshView.width() > 0.0) {
+        plotWidgets_[request.column][request.row]->applyXRangeAutoY(
+            request.rateRefreshView.left(),
+            request.rateRefreshView.right());
+    } else if (request.signalIndices.isEmpty()
+               && request.column >= 0
+               && request.row >= 0
+               && request.column < plotWidgets_.size()
+               && request.row < plotWidgets_[request.column].size()) {
+        plotWidgets_[request.column][request.row]->resetScale();
     }
-    refresh_->activePanelRateRefreshView = {};
     setStatus(QString("Panel refresh done: %1 signals loaded, %2 failed").arg(ok).arg(failed));
 }
 

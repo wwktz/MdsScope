@@ -376,7 +376,8 @@ void MainWindow::buildUi()
         }
         const DataReadMode mode = static_cast<DataReadMode>(value.toInt());
         globalRateMode_ = mode;
-        bool changed = false;
+        const LayoutConfig previousDisplay = displayConfig_;
+        bool configChanged = false;
         QHash<PanelId, QRectF> rateRefreshViews;
         // Preserve only an explicit user view. currentView() also returns the
         // current automatic data bounds; preserving those would turn a Thin
@@ -389,9 +390,13 @@ void MainWindow::buildUi()
                     || !plotWidgets_[c][r]) {
                     continue;
                 }
-                const QRectF view = RefreshCoordinator::preservedRateView(
-                    plotWidgets_[c][r]->hasView(),
-                    plotWidgets_[c][r]->currentView());
+                if (!plotWidgets_[c][r]->hasView()) {
+                    continue;
+                }
+                const QRectF view =
+                    RefreshCoordinator::preservedRateView(
+                        true,
+                        plotWidgets_[c][r]->currentView());
                 if (view.isValid()) {
                     rateRefreshViews.insert({c, r}, view);
                 }
@@ -404,12 +409,18 @@ void MainWindow::buildUi()
                     if (sig.readMode != mode || !sig.readModeExplicit) {
                         sig.readMode = mode;
                         sig.readModeExplicit = true;
-                        changed = true;
+                        configChanged = true;
                     }
                 }
             }
         }
-        refresh_->queuedFullRateRefreshViews = rateRefreshViews;
+        if (!configChanged) {
+            refresh_->clearPendingRateViews();
+            setStatus(QString("Global Rate unchanged: %1")
+                          .arg(dataModeCombo_->currentText()));
+            return;
+        }
+
         syncDisplayConfig();
         for (auto it = rateRefreshViews.cbegin(); it != rateRefreshViews.cend(); ++it) {
             const int c = it.key().column;
@@ -420,11 +431,95 @@ void MainWindow::buildUi()
                 plotWidgets_[c][r]->applyView(it.value());
             }
         }
-        if (changed) {
+
+        struct ChangedRatePanel {
+            int column = -1;
+            int row = -1;
+            QVector<int> signalIndices;
+        };
+        QVector<ChangedRatePanel> changedPanels;
+        int visibleSignals = 0;
+        int changedSignals = 0;
+        for (int c = 0; c < displayConfig_.columns.size(); ++c) {
+            for (int r = 0; r < displayConfig_.columns[c].size(); ++r) {
+                const PlotSpec& currentPlot =
+                    displayConfig_.columns[c][r];
+                const PlotSpec* previousPlot =
+                    c < previousDisplay.columns.size()
+                        && r < previousDisplay.columns[c].size()
+                    ? &previousDisplay.columns[c][r]
+                    : nullptr;
+                const bool stableSlots =
+                    previousPlot
+                    && previousPlot->signalSpecs.size()
+                           == currentPlot.signalSpecs.size()
+                    && c < plotWidgets_.size()
+                    && r < plotWidgets_[c].size()
+                    && plotWidgets_[c][r];
+                QVector<int> panelChanges;
+                for (int s = 0; s < currentPlot.signalSpecs.size(); ++s) {
+                    const SignalSpec& currentSignal =
+                        currentPlot.signalSpecs[s];
+                    if (currentSignal.hidden) {
+                        continue;
+                    }
+                    ++visibleSignals;
+                    bool sameRequest = false;
+                    if (stableSlots) {
+                        const SignalSpec& previousSignal =
+                            previousPlot->signalSpecs[s];
+                        sameRequest =
+                            plotWidgets_[c][r]->hasSeriesData(s)
+                            && !previousSignal.hidden
+                            && effectiveSignalShot(*previousPlot,
+                                                   previousSignal)
+                                == effectiveSignalShot(currentPlot,
+                                                       currentSignal)
+                            && previousSignal.yExpr
+                                   == currentSignal.yExpr
+                            && previousSignal.xExpr
+                                   == currentSignal.xExpr
+                            && previousSignal.experiment
+                                   == currentSignal.experiment
+                            && previousSignal.serverIp
+                                   == currentSignal.serverIp
+                            && previousSignal.readMode
+                                   == currentSignal.readMode;
+                    }
+                    if (!sameRequest) {
+                        panelChanges.push_back(s);
+                        ++changedSignals;
+                    }
+                }
+                if (!panelChanges.isEmpty()) {
+                    changedPanels.push_back(
+                        {c, r, std::move(panelChanges)});
+                }
+            }
+        }
+
+        if (changedSignals <= 0) {
+            refresh_->clearPendingRateViews();
+            setStatus(QString("Global Rate updated without data reload: %1")
+                          .arg(dataModeCombo_->currentText()));
+        } else if (changedSignals == visibleSignals) {
+            // When everything changed, retain the concurrent global path. It
+            // is faster than serial panel reads and has no unchanged data to
+            // preserve.
+            refresh_->setPendingRateViews(rateRefreshViews);
             refreshData();
         } else {
-            refresh_->queuedFullRateRefreshViews.clear();
-            setStatus(QString("Global Rate unchanged: %1").arg(dataModeCombo_->currentText()));
+            refresh_->clearPendingRateViews();
+            clearDataPause();
+            for (ChangedRatePanel& panel : changedPanels) {
+                refreshSignals(
+                    panel.column,
+                    panel.row,
+                    std::move(panel.signalIndices),
+                    globalRateMode_,
+                    rateRefreshViews.value(
+                        {panel.column, panel.row}));
+            }
         }
     });
     connect(aboutButton_, &QToolButton::clicked, this, &MainWindow::openAboutDialog);

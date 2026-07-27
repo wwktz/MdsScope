@@ -59,17 +59,16 @@ void MainWindow::scheduleShotRefresh()
     // Suppress any late old-shot result immediately, but let its transfer run
     // during the short debounce window. It may reach a clean socket boundary
     // before the final shot is known, avoiding an unnecessary abort/reconnect.
-    if (refresh_->runningDataFetches > 0) {
-        refresh_->activeRefreshKey.clear();
-        refresh_->invalidateDataFetch();
+    if (refresh_->dataWorkerRunning()) {
+        refresh_->suppressDataResults();
     }
-    if (refresh_->panelWatcher.isRunning()) {
-        refresh_->clearActivePanel();
+    if (refresh_->panelWatcher().isRunning()) {
+        refresh_->suppressPanelResults();
     }
 
     const int debounceMs = refresh_->fullShotDebounceDelay(
         refresh_->dataOrPanelRunning());
-    refresh_->fullShotDebounceTimer.start(debounceMs);
+    refresh_->startFullShotDebounce(debounceMs);
     setStatus(QString("Shot selected; refreshing after %1 ms pause").arg(debounceMs));
 }
 
@@ -207,7 +206,7 @@ void MainWindow::fetchLatestShotAsync(bool applyLatest)
                 cachedApiSourceUrl_.clear();
                 cachedPreparedApiUrl_.clear();
                 if (shouldApply) {
-                    refresh_->pendingPrewarmRefresh = false;
+                    refresh_->cancelDeferredInitialRefresh();
                     setStatus("Latest shot unavailable");
                 }
                 return;
@@ -219,14 +218,14 @@ void MainWindow::fetchLatestShotAsync(bool applyLatest)
             if (shotEdit_ && shotEdit_->text() != latestShot_) {
                 shotEdit_->setText(latestShot_);
             }
-            if (refresh_->pendingPrewarmRefresh) {
+            if (refresh_->initialRefreshDeferred()) {
                 rememberShotExpression(latestShot_);
                 setAllPlotShots(latestShot_);
                 setStatus(QString("Preparing MDS connections for shot %1...").arg(latestShot_));
                 if (prewarmConnections()) {
                     return;
                 }
-                refresh_->pendingPrewarmRefresh = false;
+                refresh_->cancelDeferredInitialRefresh();
             }
             applyShot();
         }, Qt::QueuedConnection);

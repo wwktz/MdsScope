@@ -34,6 +34,24 @@ void PlotWidget::setSpec(PlotSpec spec)
     update();
 }
 
+void PlotWidget::setFetchSpec(PlotSpec spec)
+{
+    // Fetch-only fields (shot/Rate/source) do not change how the already
+    // displayed series is rendered. Avoid invalidating Full plot caches while
+    // a replacement request is merely being scheduled.
+    spec_ = std::move(spec);
+}
+
+void PlotWidget::setShot(QString shot)
+{
+    spec_.shot = std::move(shot);
+}
+
+bool PlotWidget::hasSeriesData(int index) const
+{
+    return index >= 0 && index < series_.size() && series_[index].hasData();
+}
+
 QVector<SignalSeries> PlotWidget::seriesSnapshot() const
 {
     return series_;
@@ -76,6 +94,24 @@ void PlotWidget::clearSeries()
     ++pointHoverGeneration_;
     pointHoverQueued_ = false;
     scheduleUpdate();
+}
+
+void PlotWidget::clearSeriesPreservingView()
+{
+    // Preserve exactly what was last displayed without forcing dataBounds() to
+    // rescan a dirty Full dataset on the UI thread. If the plot has never been
+    // rendered, there is no visible axis that needs preserving.
+    const QRectF preservedView =
+        hasView_ && view_.isValid() ? view_ : cachedDataBounds_;
+    clearSeries();
+    if (!preservedView.isValid()
+        || preservedView.width() <= 0.0
+        || preservedView.height() <= 0.0) {
+        return;
+    }
+    view_ = preservedView;
+    hasView_ = true;
+    invalidatePlotCache();
 }
 
 void PlotWidget::scheduleUpdate()

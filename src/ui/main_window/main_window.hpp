@@ -112,13 +112,13 @@ private:
                         QVector<int> signalIndices,
                         DataReadMode readMode,
                         const QRectF& rateRefreshView = {});
-    void queuePanelRefresh(PanelRefreshRequest request);
     void queueLoadedSignal(LoadedSignal item);
     void flushQueuedLoadedSignals();
     void applyLoadedSignal(LoadedSignal item);
     void applyLoadedSignals(const QVector<LoadedSignal>& loaded);
-    void applyPanelLoadedSignals(const QVector<LoadedSignal>& loaded);
-    void fitRateRefreshPanelIfComplete(int column, int row);
+    void applyPanelLoadedSignals(const QVector<LoadedSignal>& loaded,
+                                 const PanelRefreshRequest& request);
+    void settleDataRefreshPanelIfComplete(int column, int row);
     void fitRemainingRateRefreshPanels();
     void rememberLoadedSourceSignal(const LoadedSignal& item);
     void panelSetupForCurrentPanel();

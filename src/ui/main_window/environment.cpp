@@ -235,7 +235,7 @@ bool MainWindow::loadEnvironmentFile(const QString& path,
 {
     const QString previousShot = shotEdit_ ? shotEdit_->text().trimmed() : QString();
     const bool shouldFetchLatest = useLatestWhenNoCurrentShot && previousShot.isEmpty();
-    refresh_->pendingPrewarmRefresh = false;
+    refresh_->cancelDeferredInitialRefresh();
     clearDataPause();
     cancelDataFetch();
     cancelPanelFetch();
@@ -271,16 +271,16 @@ bool MainWindow::loadEnvironmentFile(const QString& path,
         rememberRecentEnvironmentFile(path);
     }
     if (prewarmBeforeRefresh && !shouldFetchLatest) {
-        refresh_->pendingPrewarmRefresh = true;
+        refresh_->deferInitialRefresh();
         setStatus(QString("Preparing MDS connections for %1...").arg(QFileInfo(path).fileName()));
         if (!prewarmConnections()) {
-            refresh_->pendingPrewarmRefresh = false;
+            refresh_->cancelDeferredInitialRefresh();
             refreshData();
         }
     } else if (!shouldFetchLatest) {
         refreshData();
     } else if (prewarmBeforeRefresh) {
-        refresh_->pendingPrewarmRefresh = true;
+        refresh_->deferInitialRefresh();
     }
     if (shouldFetchLatest) {
         fetchLatestShotAsync();

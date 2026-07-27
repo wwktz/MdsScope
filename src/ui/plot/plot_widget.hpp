@@ -24,10 +24,14 @@ public:
     explicit PlotWidget(QWidget* parent = nullptr);
 
     void setSpec(PlotSpec spec);
+    void setFetchSpec(PlotSpec spec);
+    void setShot(QString shot);
     const PlotSpec& spec() const { return spec_; }
+    bool hasSeriesData(int index) const;
     QVector<SignalSeries> seriesSnapshot() const;
     void setSeries(int index, SignalSeries series);
     void clearSeries();
+    void clearSeriesPreservingView();
     void setSelected(bool selected);
     void setLargeDisplayMode(bool enabled);
     void refreshStyle();

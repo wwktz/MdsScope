@@ -54,24 +54,23 @@ MainWindow::MainWindow(QString rootPath, QWidget* parent)
         const bool resumePanelRefresh = work.panel;
         const bool resumePrewarm = work.prewarm;
 
-        if (resumePrewarm && refresh_->pendingPrewarmRefresh
-            && !refresh_->warmWatcher.isRunning()) {
+        if (resumePrewarm && refresh_->initialRefreshDeferred()
+            && !refresh_->warmWatcher().isRunning()) {
             if (prewarmConnections()) {
                 return;
             }
-            refresh_->pendingPrewarmRefresh = false;
+            refresh_->cancelDeferredInitialRefresh();
             resumeFullRefresh = true;
         }
         if (resumeFullRefresh) {
-            refresh_->pendingRefresh = false;
-            refresh_->queuedRefreshKey.clear();
+            refresh_->takePendingDataRefresh();
             refreshData();
             return;
         }
         if (resumePanelRefresh) {
-            if (refresh_->panelWatcher.isRunning()) {
+            if (refresh_->panelWatcher().isRunning()) {
                 cancelPanelFetch();
-                refresh_->clearActivePanel();
+                refresh_->suppressPanelResults();
             }
             startPendingFetchIfIdle();
         }
@@ -82,25 +81,28 @@ MainWindow::MainWindow(QString rootPath, QWidget* parent)
         fetchLatestShotAsync(false);
     });
     latestShotPollTimer_.start();
-    refresh_->fullShotDebounceTimer.setSingleShot(true);
-    connect(&refresh_->fullShotDebounceTimer, &QTimer::timeout, this, [this] {
+    refresh_->shotDebounceTimer().setSingleShot(true);
+    connect(&refresh_->shotDebounceTimer(), &QTimer::timeout, this, [this] {
         refreshData();
     });
-    connect(&refresh_->panelWatcher, &QFutureWatcher<QVector<LoadedSignal>>::finished, this, [this] {
-        if (!refresh_->activePanelRefreshKey.isEmpty()) {
-            applyPanelLoadedSignals(refresh_->panelWatcher.result());
+    connect(&refresh_->panelWatcher(), &QFutureWatcher<QVector<LoadedSignal>>::finished, this, [this] {
+        const std::optional<PanelRefreshRequest> completed =
+            refresh_->completePanelRefresh();
+        if (completed) {
+            applyPanelLoadedSignals(refresh_->panelWatcher().result(),
+                                    *completed);
         }
-        refresh_->clearActivePanel();
         startPendingFetchIfIdle();
     });
-    connect(&refresh_->warmWatcher, &QFutureWatcher<void>::finished, this, [this] {
-        if (refresh_->pendingRefresh || !refresh_->pendingPanelRefreshes.isEmpty()) {
+    connect(&refresh_->warmWatcher(), &QFutureWatcher<void>::finished, this, [this] {
+        if (refresh_->hasPendingDataRefresh()
+            || refresh_->hasPendingPanel()) {
             startPendingFetchIfIdle();
             return;
         }
         const bool idle = canStartDeferredRefresh();
-        if (refresh_->pendingPrewarmRefresh && idle) {
-            refresh_->pendingPrewarmRefresh = false;
+        if (refresh_->initialRefreshDeferred() && idle) {
+            refresh_->takeDeferredInitialRefresh();
             refreshData();
             return;
         }
