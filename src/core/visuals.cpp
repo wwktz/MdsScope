@@ -199,27 +199,24 @@ QIcon appIcon()
     return icon;
 }
 
-QIcon gearIcon()
+QIcon layoutIcon()
 {
-    QPixmap pixmap(22, 22);
+    QPixmap pixmap(24, 24);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
     painter.setRenderHint(QPainter::Antialiasing, true);
-    const QPointF center(11.0, 11.0);
-    QPainterPath teeth;
-    for (int i = 0; i < 8; ++i) {
-        const double angle = (M_PI * 2.0 * i / 8.0) + M_PI / 8.0;
-        const QPointF outer(center.x() + std::cos(angle) * 8.7,
-                            center.y() + std::sin(angle) * 8.7);
-        QRectF tooth(outer.x() - 1.8, outer.y() - 1.8, 3.6, 3.6);
-        teeth.addEllipse(tooth);
-    }
-    painter.setPen(QPen(QColor("#475569"), 1.7));
-    painter.setBrush(QColor("#64748b"));
-    painter.drawPath(teeth);
-    painter.setBrush(Qt::NoBrush);
-    painter.drawEllipse(center, 6.9, 6.9);
-    painter.drawEllipse(center, 2.5, 2.5);
+    const QColor color =
+        QApplication::palette().color(QPalette::ButtonText);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(color);
+    painter.drawRoundedRect(QRectF(3.5, 3.5, 6.8, 6.8), 0.8, 0.8);
+    painter.drawRoundedRect(QRectF(13.7, 3.5, 6.8, 6.8), 0.8, 0.8);
+    painter.drawRoundedRect(QRectF(3.5, 13.7, 6.8, 6.8), 0.8, 0.8);
+
+    painter.setPen(
+        QPen(color, 2.2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    painter.drawLine(QPointF(14.3, 17.1), QPointF(19.9, 17.1));
+    painter.drawLine(QPointF(17.1, 14.3), QPointF(17.1, 19.9));
     return QIcon(pixmap);
 }
 
@@ -352,7 +349,10 @@ QIcon modeIcon(InteractionMode mode, bool active)
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
     painter.setRenderHint(QPainter::Antialiasing, true);
-    const QColor color = active ? QColor("#38bdf8") : QColor("#9ca3af");
+    const QPalette palette = QApplication::palette();
+    const QColor color =
+        active ? palette.color(QPalette::Highlight)
+               : palette.color(QPalette::ButtonText);
     painter.setPen(QPen(color, 2.3));
     painter.setBrush(Qt::NoBrush);
     if (mode == InteractionMode::Zoom) {
@@ -361,10 +361,16 @@ QIcon modeIcon(InteractionMode mode, bool active)
         painter.drawLine(QPointF(7.2, 9.9), QPointF(12.6, 9.9));
         painter.drawLine(QPointF(9.9, 7.2), QPointF(9.9, 12.6));
     } else if (mode == InteractionMode::Point) {
-        painter.drawLine(QPointF(12.0, 3.8), QPointF(12.0, 20.2));
-        painter.drawLine(QPointF(3.8, 12.0), QPointF(20.2, 12.0));
+        painter.setPen(
+            QPen(color, 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.drawEllipse(QPointF(12.0, 12.0), 5.7, 5.7);
+        painter.drawLine(QPointF(12.0, 2.8), QPointF(12.0, 5.0));
+        painter.drawLine(QPointF(12.0, 19.0), QPointF(12.0, 21.2));
+        painter.drawLine(QPointF(2.8, 12.0), QPointF(5.0, 12.0));
+        painter.drawLine(QPointF(19.0, 12.0), QPointF(21.2, 12.0));
+        painter.setPen(Qt::NoPen);
         painter.setBrush(color);
-        painter.drawEllipse(QPointF(12.0, 12.0), 2.9, 2.9);
+        painter.drawEllipse(QPointF(12.0, 12.0), 1.7, 1.7);
     } else {
         painter.setPen(color);
         QFont iconFont = painter.font();

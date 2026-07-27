@@ -19,7 +19,6 @@ class QGridLayout;
 class QLabel;
 class QLineEdit;
 class QMenu;
-class QPushButton;
 class QScrollArea;
 class QToolButton;
 class PlotWidget;
@@ -189,6 +188,7 @@ private:
     DataReadMode globalRateMode_ = DataReadMode::Thin;
     QAction* loginAction_ = nullptr;
     QAction* sshAction_ = nullptr;
+    QAction* layoutAction_ = nullptr;
     SshTunnelManager* sshTunnelManager_ = nullptr;
     QString cachedApiSourceUrl_;
     QString cachedPreparedApiUrl_;
@@ -197,6 +197,11 @@ private:
     QToolButton* aboutButton_ = nullptr;
     QToolButton* zoomButton_ = nullptr;
     QToolButton* pointButton_ = nullptr;
+    QToolButton* applyShotButton_ = nullptr;
+    QToolButton* stopButton_ = nullptr;
+    QToolButton* previousShotButton_ = nullptr;
+    QToolButton* nextShotButton_ = nullptr;
+    QToolButton* latestShotButton_ = nullptr;
     QVector<QVector<PlotWidget*>> plotWidgets_;
     std::unique_ptr<RefreshCoordinator> refresh_;
     QTimer latestShotPollTimer_;
@@ -213,7 +218,6 @@ private:
     int maximizedColumn_ = -1;
     int maximizedRow_ = -1;
     InteractionMode currentInteractionMode_ = InteractionMode::Zoom;
-    QPushButton* stopButton_ = nullptr;
     QSet<QString> rememberedSourceSignals_;
     QString latestShot_;
     bool latestShotFetchRunning_ = false;

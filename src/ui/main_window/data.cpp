@@ -270,13 +270,6 @@ void MainWindow::clearDataPause()
     }
 }
 
-void MainWindow::setStopButtonPaused(bool paused)
-{
-    if (stopButton_) {
-        stopButton_->setText(paused ? "Continue" : "Stop");
-    }
-}
-
 void MainWindow::cancelDataFetch()
 {
     refresh_->cancelData();

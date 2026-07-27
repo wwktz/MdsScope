@@ -9,9 +9,127 @@
 #include "theme.hpp"
 #include "ssh_tunnel_manager.hpp"
 
+#include <QFontMetrics>
 #include <QProxyStyle>
+#include <QToolTip>
 
 namespace {
+
+class UpwardToolTipButton final : public QToolButton {
+public:
+    using QToolButton::QToolButton;
+
+protected:
+    bool event(QEvent* event) override
+    {
+        if (event->type() == QEvent::ToolTip && !toolTip().isEmpty()) {
+            const QFontMetrics metrics(QToolTip::font());
+            const QRect textBounds = metrics.boundingRect(toolTip());
+            const int tooltipWidth = textBounds.width() + 12;
+            const int tooltipHeight = textBounds.height() + 10;
+            const QPoint topCenter =
+                mapToGlobal(QPoint(width() / 2, 0));
+            QToolTip::showText(
+                QPoint(topCenter.x() - tooltipWidth / 2,
+                       topCenter.y() - tooltipHeight - 17),
+                toolTip(),
+                this);
+            return true;
+        }
+        return QToolButton::event(event);
+    }
+};
+
+enum class ShotControlGlyph {
+    Apply,
+    Stop,
+    Continue,
+    Previous,
+    Next,
+    Latest,
+};
+
+QPixmap shotControlPixmap(ShotControlGlyph glyph, const QColor& color)
+{
+    QPixmap pixmap(28, 28);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.scale(28.0 / 24.0, 28.0 / 24.0);
+    painter.setPen(
+        QPen(color, 2.2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    painter.setBrush(color);
+
+    switch (glyph) {
+    case ShotControlGlyph::Apply: {
+        QPainterPath check;
+        check.moveTo(4.8, 12.4);
+        check.lineTo(9.8, 17.2);
+        check.lineTo(19.3, 6.8);
+        painter.setBrush(Qt::NoBrush);
+        painter.drawPath(check);
+        break;
+    }
+    case ShotControlGlyph::Stop:
+        painter.setPen(Qt::NoPen);
+        painter.drawRoundedRect(QRectF(7.0, 7.0, 10.0, 10.0), 1.0, 1.0);
+        break;
+    case ShotControlGlyph::Continue:
+        painter.setPen(Qt::NoPen);
+        painter.drawPolygon(QPolygonF{
+            QPointF(7.5, 5.8),
+            QPointF(18.6, 12.0),
+            QPointF(7.5, 18.2),
+        });
+        break;
+    case ShotControlGlyph::Previous:
+        painter.drawLine(QPointF(6.3, 6.8), QPointF(6.3, 17.2));
+        painter.setPen(Qt::NoPen);
+        painter.drawPolygon(QPolygonF{
+            QPointF(17.9, 6.2),
+            QPointF(8.8, 12.0),
+            QPointF(17.9, 17.8),
+        });
+        break;
+    case ShotControlGlyph::Next:
+        painter.setPen(Qt::NoPen);
+        painter.drawPolygon(QPolygonF{
+            QPointF(6.1, 6.2),
+            QPointF(15.2, 12.0),
+            QPointF(6.1, 17.8),
+        });
+        painter.setPen(
+            QPen(color, 2.2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.drawLine(QPointF(17.7, 6.8), QPointF(17.7, 17.2));
+        break;
+    case ShotControlGlyph::Latest: {
+        QPainterPath chevron;
+        chevron.moveTo(7.0, 6.5);
+        chevron.lineTo(13.0, 12.0);
+        chevron.lineTo(7.0, 17.5);
+        painter.setBrush(Qt::NoBrush);
+        painter.drawPath(chevron);
+        painter.drawLine(QPointF(17.5, 6.8), QPointF(17.5, 17.2));
+        break;
+    }
+    }
+    return pixmap;
+}
+
+QIcon shotControlIcon(ShotControlGlyph glyph)
+{
+    const QPalette palette = QApplication::palette();
+    QIcon icon;
+    icon.addPixmap(
+        shotControlPixmap(glyph, palette.color(QPalette::ButtonText)),
+        QIcon::Normal);
+    icon.addPixmap(
+        shotControlPixmap(
+            glyph,
+            palette.color(QPalette::Disabled, QPalette::ButtonText)),
+        QIcon::Disabled);
+    return icon;
+}
 
 class DownwardComboStyle final : public QProxyStyle {
 public:
@@ -34,13 +152,54 @@ public:
 
 void MainWindow::changeEvent(QEvent* event)
 {
-    if (event->type() == QEvent::PaletteChange && aboutButton_) {
-        aboutButton_->setIcon(infoIcon());
-    }
-    if (event->type() == QEvent::PaletteChange && recentEnvironmentButton_) {
-        recentEnvironmentButton_->setIcon(recentArrowIcon());
+    if (event->type() == QEvent::PaletteChange) {
+        if (aboutButton_) {
+            aboutButton_->setIcon(infoIcon());
+        }
+        if (recentEnvironmentButton_) {
+            recentEnvironmentButton_->setIcon(recentArrowIcon());
+        }
+        if (layoutAction_) {
+            layoutAction_->setIcon(layoutIcon());
+        }
+        if (zoomButton_ && pointButton_) {
+            zoomButton_->setIcon(
+                modeIcon(InteractionMode::Zoom,
+                         currentInteractionMode_ == InteractionMode::Zoom));
+            pointButton_->setIcon(
+                modeIcon(InteractionMode::Point,
+                         currentInteractionMode_ == InteractionMode::Point));
+        }
+        setStopButtonPaused(refresh_ && refresh_->dataPaused());
     }
     QMainWindow::changeEvent(event);
+}
+
+void MainWindow::setStopButtonPaused(bool paused)
+{
+    if (applyShotButton_) {
+        applyShotButton_->setIcon(
+            shotControlIcon(ShotControlGlyph::Apply));
+    }
+    if (stopButton_) {
+        stopButton_->setIcon(
+            shotControlIcon(paused ? ShotControlGlyph::Continue
+                                   : ShotControlGlyph::Stop));
+        stopButton_->setToolTip(
+            paused ? "Continue data refresh" : "Stop data refresh");
+    }
+    if (previousShotButton_) {
+        previousShotButton_->setIcon(
+            shotControlIcon(ShotControlGlyph::Previous));
+    }
+    if (nextShotButton_) {
+        nextShotButton_->setIcon(
+            shotControlIcon(ShotControlGlyph::Next));
+    }
+    if (latestShotButton_) {
+        latestShotButton_->setIcon(
+            shotControlIcon(ShotControlGlyph::Latest));
+    }
 }
 
 void MainWindow::schedulePointSync(PlotWidget* source, double x)
@@ -176,7 +335,8 @@ void MainWindow::buildUi()
         internalWebButton->setPopupMode(QToolButton::InstantPopup);
         refreshInternalWebMenu();
     }
-    toolbar->addAction(gearIcon(), "Layout setup", this, &MainWindow::openLayoutSetupDialog);
+    layoutAction_ = toolbar->addAction(
+        layoutIcon(), "Layout setup", this, &MainWindow::openLayoutSetupDialog);
     toolbar->addAction(fontIcon(), "Customize fonts", this, &MainWindow::openCustomizeDialog);
 
     gridHost_ = new QWidget(this);
@@ -296,7 +456,13 @@ void MainWindow::buildUi()
         "  min-height: 18px;"
         "  padding: 0px 2px;"
         "}"
-        "QToolButton { margin: 0px; padding: 1px; min-width: 30px; min-height: 28px; }");
+        "QToolButton { margin: 0px; padding: 1px; min-width: 30px; min-height: 28px; }"
+        "QToolButton[shotControl=\"true\"] {"
+        "  min-width: 66px;"
+        "  max-width: 66px;"
+        "  min-height: 32px;"
+        "  max-height: 32px;"
+        "}");
     zoomButton_ = new QToolButton(bottom);
     pointButton_ = new QToolButton(bottom);
     for (QToolButton* button : {zoomButton_, pointButton_}) {
@@ -333,33 +499,44 @@ void MainWindow::buildUi()
     };
     resizeShotEdit();
     bottomLayout->addWidget(shotCombo_);
-    auto* apply = new QPushButton("Apply", bottom);
-    auto* prev = new QPushButton("Prev", bottom);
-    auto* next = new QPushButton("Next", bottom);
-    auto* stop = new QPushButton("Stop", bottom);
-    auto* latest = new QPushButton("Latest", bottom);
-    stopButton_ = stop;
-    // Fix the width to the wider "Continue" label (plus padding) so toggling
-    // the text never clips it or shifts the buttons to its right.
-    stop->setText("Continue");
-    stop->setFixedWidth(stop->sizeHint().width() + 16);
-    stop->setText("Stop");
-    bottomLayout->addWidget(apply);
-    bottomLayout->addWidget(prev);
-    bottomLayout->addWidget(next);
-    bottomLayout->addWidget(stop);
-    bottomLayout->addWidget(latest);
+    applyShotButton_ = new UpwardToolTipButton(bottom);
+    stopButton_ = new UpwardToolTipButton(bottom);
+    previousShotButton_ = new UpwardToolTipButton(bottom);
+    nextShotButton_ = new UpwardToolTipButton(bottom);
+    latestShotButton_ = new UpwardToolTipButton(bottom);
+    for (QToolButton* button :
+         {applyShotButton_,
+          stopButton_,
+          previousShotButton_,
+          nextShotButton_,
+          latestShotButton_}) {
+        button->setProperty("shotControl", true);
+        button->setIconSize(QSize(28, 28));
+        button->setToolButtonStyle(Qt::ToolButtonIconOnly);
+        button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        button->setFixedSize(66, 32);
+    }
+    applyShotButton_->setToolTip("Apply shot (Enter)");
+    previousShotButton_->setToolTip("Previous shot");
+    nextShotButton_->setToolTip("Next shot");
+    latestShotButton_->setToolTip("Latest shot");
+    setStopButtonPaused(false);
+    bottomLayout->addWidget(applyShotButton_);
+    bottomLayout->addWidget(stopButton_);
+    bottomLayout->addWidget(previousShotButton_);
+    bottomLayout->addWidget(nextShotButton_);
+    bottomLayout->addWidget(latestShotButton_);
     bottomLayout->addWidget(statusLabel_, 1);
     statusBar()->addWidget(bottom, 1);
     setInteractionMode(InteractionMode::Point);
 
     connect(zoomButton_, &QToolButton::clicked, this, [this] { setInteractionMode(InteractionMode::Zoom); });
     connect(pointButton_, &QToolButton::clicked, this, [this] { setInteractionMode(InteractionMode::Point); });
-    connect(apply, &QPushButton::clicked, this, &MainWindow::applyShot);
-    connect(prev, &QPushButton::clicked, this, [this] { stepShot(-1); });
-    connect(next, &QPushButton::clicked, this, [this] { stepShot(1); });
-    connect(latest, &QPushButton::clicked, this, &MainWindow::latestShot);
-    connect(stop, &QPushButton::clicked, this, &MainWindow::onStopOrContinue);
+    connect(applyShotButton_, &QToolButton::clicked, this, &MainWindow::applyShot);
+    connect(stopButton_, &QToolButton::clicked, this, &MainWindow::onStopOrContinue);
+    connect(previousShotButton_, &QToolButton::clicked, this, [this] { stepShot(-1); });
+    connect(nextShotButton_, &QToolButton::clicked, this, [this] { stepShot(1); });
+    connect(latestShotButton_, &QToolButton::clicked, this, &MainWindow::latestShot);
     connect(shotEdit_, &QLineEdit::returnPressed, this, &MainWindow::applyShot);
     connect(shotEdit_, &QLineEdit::textChanged, this, [resizeShotEdit] { resizeShotEdit(); });
     connect(shotCombo_, &QComboBox::activated, this, [this](int index) {

@@ -173,7 +173,7 @@ int colorIndexForName(const QString& colorName, int fallback);
 void normalizePresetColors(QVector<SignalSpec>& specs);
 QStringList uniformAxisValues(const QVector<double>& values);
 QIcon appIcon();
-QIcon gearIcon();
+QIcon layoutIcon();
 QIcon fontIcon();
 QIcon saveIcon();
 QIcon loginIcon(bool loggedIn);
