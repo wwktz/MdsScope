@@ -55,8 +55,8 @@ void MainWindow::exportCurrentPanelData()
     for (int signal : dialog.selectedSignals()) {
         selectedSignalIndexes.insert(signal);
     }
-    QHash<QString, QSet<int>> signalFilter;
-    signalFilter.insert(QStringLiteral("%1:%2").arg(selectedColumn_).arg(selectedRow_), selectedSignalIndexes);
+    QHash<PanelId, QSet<int>> signalFilter;
+    signalFilter.insert({selectedColumn_, selectedRow_}, selectedSignalIndexes);
     exportDataForPanels({{selectedColumn_, selectedRow_}},
                         dialog.outputBaseDir(),
                         static_cast<int>(dialog.exportFormat()),
@@ -72,7 +72,7 @@ void MainWindow::exportDataForPanels(const QVector<QPair<int, int>>& panels,
                                      int exportRange,
                                      double customXMin,
                                      double customXMax,
-                                     const QHash<QString, QSet<int>>& signalFilter)
+                                     const QHash<PanelId, QSet<int>>& signalFilter)
 {
     if (panels.isEmpty()) {
         QMessageBox::warning(this, "Export Data", "Select at least one panel.");
@@ -89,7 +89,7 @@ void MainWindow::exportDataForPanels(const QVector<QPair<int, int>>& panels,
 
     LayoutConfig snapshot = config_;
     QSet<QPair<int, int>> selected;
-    QHash<QString, QRectF> viewRanges;
+    QHash<PanelId, QRectF> viewRanges;
     const ExportRange rangeMode = static_cast<ExportRange>(exportRange);
     const bool useCurrentView = rangeMode == ExportRange::CurrentView;
     const bool useCustomRange = rangeMode == ExportRange::CustomXRange && std::isfinite(customXMin) && std::isfinite(customXMax);
@@ -102,7 +102,7 @@ void MainWindow::exportDataForPanels(const QVector<QPair<int, int>>& panels,
             && panel.first >= 0 && panel.first < plotWidgets_.size()
             && panel.second >= 0 && panel.second < plotWidgets_[panel.first].size()
             && plotWidgets_[panel.first][panel.second]) {
-            viewRanges.insert(QStringLiteral("%1:%2").arg(panel.first).arg(panel.second),
+            viewRanges.insert({panel.first, panel.second},
                               plotWidgets_[panel.first][panel.second]->currentView());
         }
     }
@@ -121,7 +121,7 @@ void MainWindow::exportDataForPanels(const QVector<QPair<int, int>>& panels,
     snapshot = expandedShotLayout(snapshot);
     for (int c = 0; c < snapshot.columns.size(); ++c) {
         for (int r = 0; r < snapshot.columns[c].size(); ++r) {
-            const QString filterKey = QStringLiteral("%1:%2").arg(c).arg(r);
+            const PanelId filterKey {c, r};
             if (!signalFilter.contains(filterKey)) {
                 continue;
             }
@@ -183,7 +183,7 @@ void MainWindow::exportDataForPanels(const QVector<QPair<int, int>>& panels,
                 const QString shot = exportFileToken(item.shot.isEmpty() ? effectiveSignalShot(plot, sig) : item.shot);
                 const QString tree = exportFileToken(sig.experiment);
                 const QString signal = exportFileToken(normalizedMdsSignal(sig.yExpr));
-                const QRectF viewRange = viewRanges.value(QStringLiteral("%1:%2").arg(item.column).arg(item.row));
+                const QRectF viewRange = viewRanges.value({item.column, item.row});
                 bool useXRange = false;
                 double xmin = qQNaN();
                 double xmax = qQNaN();

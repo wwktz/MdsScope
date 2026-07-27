@@ -119,10 +119,17 @@ int main(int argc, char** argv)
 
     refresh.pendingRefresh = true;
     refresh.activeRefreshKey = QStringLiteral("old");
-    refresh.queuedFullRateRefreshViews.insert(QStringLiteral("0,0"),
+    refresh.queuedFullRateRefreshViews.insert(PanelId {0, 0},
                                               QRectF(0.0, -1.0, 1.0, 2.0));
-    refresh.activeFullRateRefreshViews.insert(QStringLiteral("0,1"),
+    refresh.activeFullRateRefreshViews.insert(PanelId {0, 1},
                                               QRectF(0.0, -1.0, 1.0, 2.0));
+    if (const int error = require(
+            refresh.queuedFullRateRefreshViews.value(PanelId {0, 0})
+                    == QRectF(0.0, -1.0, 1.0, 2.0)
+                && !refresh.queuedFullRateRefreshViews.contains(PanelId {1, 0}),
+            13)) {
+        return error;
+    }
     refresh.attemptedSignals.insert(QStringLiteral("0,0,0"));
     refresh.streamedOk = 2;
     refresh.streamedFailed = 1;
@@ -142,9 +149,9 @@ int main(int argc, char** argv)
     PanelRefreshRequest pendingRateRefresh;
     pendingRateRefresh.rateRefreshView = QRectF(0.0, -1.0, 1.0, 2.0);
     refresh.pendingPanelRefreshes.push_back(pendingRateRefresh);
-    refresh.queuedFullRateRefreshViews.insert(QStringLiteral("0,0"),
+    refresh.queuedFullRateRefreshViews.insert(PanelId {0, 0},
                                               QRectF(0.0, -1.0, 1.0, 2.0));
-    refresh.activeFullRateRefreshViews.insert(QStringLiteral("0,1"),
+    refresh.activeFullRateRefreshViews.insert(PanelId {0, 1},
                                               QRectF(0.0, -1.0, 1.0, 2.0));
     refresh.activePanelRateRefreshView = QRectF(0.0, -1.0, 1.0, 2.0);
     refresh.discardPreservedRateViews();

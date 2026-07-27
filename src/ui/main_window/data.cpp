@@ -119,10 +119,11 @@ void MainWindow::refreshData()
             }
         }
         for (auto it = refresh_->queuedFullRateRefreshViews.cbegin(); it != refresh_->queuedFullRateRefreshViews.cend(); ++it) {
-            const QStringList parts = it.key().split(',');
-            const int column = parts.value(0).toInt();
-            const int row = parts.value(1).toInt();
-            if (column < plotWidgets_.size() && row < plotWidgets_[column].size()) {
+            const int column = it.key().column;
+            const int row = it.key().row;
+            if (column >= 0 && row >= 0
+                && column < plotWidgets_.size()
+                && row < plotWidgets_[column].size()) {
                 plotWidgets_[column][row]->applyView(it.value());
             }
         }
@@ -151,10 +152,11 @@ void MainWindow::refreshData()
         }
     }
     for (auto it = refresh_->queuedFullRateRefreshViews.cbegin(); it != refresh_->queuedFullRateRefreshViews.cend(); ++it) {
-        const QStringList parts = it.key().split(',');
-        const int column = parts.value(0).toInt();
-        const int row = parts.value(1).toInt();
-        if (column < plotWidgets_.size() && row < plotWidgets_[column].size()) {
+        const int column = it.key().column;
+        const int row = it.key().row;
+        if (column >= 0 && row >= 0
+            && column < plotWidgets_.size()
+            && row < plotWidgets_[column].size()) {
             plotWidgets_[column][row]->applyView(it.value());
         }
     }
@@ -682,8 +684,7 @@ void MainWindow::applyLoadedSignals(const QVector<LoadedSignal>& loaded)
 
 void MainWindow::fitRateRefreshPanelIfComplete(int column, int row)
 {
-    const QString panelKey = QString::number(column) + ',' + QString::number(row);
-    auto viewIt = refresh_->activeFullRateRefreshViews.find(panelKey);
+    auto viewIt = refresh_->activeFullRateRefreshViews.find({column, row});
     if (viewIt == refresh_->activeFullRateRefreshViews.end()
         || column < 0 || row < 0
         || column >= refresh_->activeFetchSnapshot.columns.size()
@@ -710,16 +711,12 @@ void MainWindow::fitRateRefreshPanelIfComplete(int column, int row)
 
 void MainWindow::fitRemainingRateRefreshPanels()
 {
-    QHash<QString, QRectF> remainingViews;
+    QHash<PanelId, QRectF> remainingViews;
     remainingViews.swap(refresh_->activeFullRateRefreshViews);
     for (auto it = remainingViews.cbegin(); it != remainingViews.cend(); ++it) {
-        const QStringList parts = it.key().split(',');
-        bool columnOk = false;
-        bool rowOk = false;
-        const int column = parts.value(0).toInt(&columnOk);
-        const int row = parts.value(1).toInt(&rowOk);
-        if (!columnOk || !rowOk
-            || column < 0 || row < 0
+        const int column = it.key().column;
+        const int row = it.key().row;
+        if (column < 0 || row < 0
             || column >= plotWidgets_.size()
             || row >= plotWidgets_[column].size()
             || !it.value().isValid()

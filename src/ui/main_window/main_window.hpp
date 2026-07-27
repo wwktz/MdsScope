@@ -132,7 +132,7 @@ private:
         int exportRange,
         double customXMin = qQNaN(),
         double customXMax = qQNaN(),
-        const QHash<QString, QSet<int>>& signalFilter = {});
+        const QHash<PanelId, QSet<int>>& signalFilter = {});
     void applyScaleToAll();
     void applyYScaleToAll();
     void resetCurrentScale();

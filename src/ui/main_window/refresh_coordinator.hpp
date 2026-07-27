@@ -85,8 +85,8 @@ public:
     int activePanelRow = -1;
     QVector<int> activePanelSignals;
     QRectF activePanelRateRefreshView;
-    QHash<QString, QRectF> queuedFullRateRefreshViews;
-    QHash<QString, QRectF> activeFullRateRefreshViews;
+    QHash<PanelId, QRectF> queuedFullRateRefreshViews;
+    QHash<PanelId, QRectF> activeFullRateRefreshViews;
     int streamedOk = 0;
     int streamedFailed = 0;
     QVector<LoadedSignal> queuedLoadedSignals;

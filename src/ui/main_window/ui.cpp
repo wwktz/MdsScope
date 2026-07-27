@@ -377,7 +377,7 @@ void MainWindow::buildUi()
         const DataReadMode mode = static_cast<DataReadMode>(value.toInt());
         globalRateMode_ = mode;
         bool changed = false;
-        QHash<QString, QRectF> rateRefreshViews;
+        QHash<PanelId, QRectF> rateRefreshViews;
         // Preserve only an explicit user view. currentView() also returns the
         // current automatic data bounds; preserving those would turn a Thin
         // 0..1 auto-range into a fixed range for later Medium/Full reads.
@@ -393,7 +393,7 @@ void MainWindow::buildUi()
                     plotWidgets_[c][r]->hasView(),
                     plotWidgets_[c][r]->currentView());
                 if (view.isValid()) {
-                    rateRefreshViews.insert(QString::number(c) + ',' + QString::number(r), view);
+                    rateRefreshViews.insert({c, r}, view);
                 }
             }
         }
@@ -412,10 +412,11 @@ void MainWindow::buildUi()
         refresh_->queuedFullRateRefreshViews = rateRefreshViews;
         syncDisplayConfig();
         for (auto it = rateRefreshViews.cbegin(); it != rateRefreshViews.cend(); ++it) {
-            const QStringList parts = it.key().split(',');
-            const int c = parts.value(0).toInt();
-            const int r = parts.value(1).toInt();
-            if (c < plotWidgets_.size() && r < plotWidgets_[c].size()) {
+            const int c = it.key().column;
+            const int r = it.key().row;
+            if (c >= 0 && r >= 0
+                && c < plotWidgets_.size()
+                && r < plotWidgets_[c].size()) {
                 plotWidgets_[c][r]->applyView(it.value());
             }
         }

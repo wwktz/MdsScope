@@ -4,6 +4,7 @@
 #pragma once
 
 #include <QColor>
+#include <QHashFunctions>
 #include <QPointF>
 #include <QRectF>
 #include <QString>
@@ -69,6 +70,18 @@ struct LayoutConfig {
     QString filePath;
     QVector<QVector<PlotSpec>> columns;
 };
+
+struct PanelId {
+    int column = -1;
+    int row = -1;
+
+    bool operator==(const PanelId&) const = default;
+};
+
+inline size_t qHash(const PanelId& panel, size_t seed = 0) noexcept
+{
+    return qHashMulti(seed, panel.column, panel.row);
+}
 
 QStringList expandedShotList(const QString& expression);
 LayoutConfig expandedShotLayout(const LayoutConfig& config);
