@@ -4,6 +4,57 @@
 #include "mdsscope_internal.hpp"
 #include "login_dialog.hpp"
 
+namespace {
+class ThemeCheckBox final : public QCheckBox {
+public:
+    using QCheckBox::QCheckBox;
+
+protected:
+    void paintEvent(QPaintEvent* event) override
+    {
+        QCheckBox::paintEvent(event);
+
+        QStyleOptionButton option;
+        initStyleOption(&option);
+        const QRect indicator = style()->subElementRect(
+            QStyle::SE_CheckBoxIndicator, &option, this);
+        if (!indicator.isValid()) {
+            return;
+        }
+
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        const QColor boxColor = palette().color(QPalette::Text);
+        const QRectF boxRect = QRectF(indicator).adjusted(0.5, 0.5, -0.5, -0.5);
+        if (!isChecked()) {
+            painter.setPen(QPen(boxColor, 1.0));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawRoundedRect(boxRect, 2.0, 2.0);
+            return;
+        }
+
+        const QColor checkColor = palette().color(QPalette::Base);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(boxColor);
+        painter.drawRoundedRect(boxRect, 2.0, 2.0);
+
+        const qreal x = indicator.x();
+        const qreal y = indicator.y();
+        const qreal width = indicator.width();
+        const qreal height = indicator.height();
+        QPen checkPen(checkColor, std::max<qreal>(1.5, width * 0.13));
+        checkPen.setCapStyle(Qt::RoundCap);
+        checkPen.setJoinStyle(Qt::RoundJoin);
+        painter.setPen(checkPen);
+        QPainterPath check;
+        check.moveTo(x + width * 0.22, y + height * 0.52);
+        check.lineTo(x + width * 0.43, y + height * 0.72);
+        check.lineTo(x + width * 0.79, y + height * 0.28);
+        painter.drawPath(check);
+    }
+};
+}
+
 LoginDialog::LoginDialog(QString rootPath, QWidget* parent, QString apiOverride, bool allowSkip)
     : QDialog(parent), rootPath_(std::move(rootPath)), apiOverride_(std::move(apiOverride))
 {
@@ -15,6 +66,7 @@ LoginDialog::LoginDialog(QString rootPath, QWidget* parent, QString apiOverride,
         "QLabel#title { font-size: 24px; font-weight: 600; color: palette(text); }"
         "QLabel#subtitle { color: palette(mid); }"
         "QLabel#status { color: #b91c1c; }"
+        "QCheckBox { color: palette(text); }"
         "QLineEdit { min-height: 32px; padding: 4px 8px; border: 1px solid palette(mid); border-radius: 4px; }"
         "QLineEdit:focus { border: 1px solid palette(highlight); }"
         "QPushButton { min-height: 32px; padding: 4px 14px; border-radius: 4px; }"
@@ -22,6 +74,7 @@ LoginDialog::LoginDialog(QString rootPath, QWidget* parent, QString apiOverride,
     if (QApplication::palette().color(QPalette::Window).lightness() >= 128) {
         styleSheet +=
             "QLabel { background: transparent; }"
+            "QLabel#subtitle { color: #64748b; }"
             "QLineEdit { background: #ffffff; color: #111827; border-color: #cbd5e1; selection-background-color: #2563eb; selection-color: #ffffff; }"
             "QLineEdit:focus { border-color: #2563eb; }";
     }
@@ -57,8 +110,10 @@ LoginDialog::LoginDialog(QString rootPath, QWidget* parent, QString apiOverride,
     passwordEdit_ = new QLineEdit(this);
     passwordEdit_->setPlaceholderText("Password");
     passwordEdit_->setEchoMode(QLineEdit::Password);
+    rememberPassword_ = new ThemeCheckBox("Remember password", this);
     form->addRow("Username", userEdit_);
     form->addRow("Password", passwordEdit_);
+    form->addRow(QString(), rememberPassword_);
     layout->addLayout(form);
 
     auto* buttons = new QHBoxLayout;
@@ -66,6 +121,11 @@ LoginDialog::LoginDialog(QString rootPath, QWidget* parent, QString apiOverride,
     auto* cancel = new QPushButton("Cancel", this);
     loginButton_ = new QPushButton("Login", this);
     loginButton_->setObjectName("primary");
+    if (!allowSkip) {
+        logoutButton_ = new QPushButton("Logout", this);
+        buttons->addWidget(logoutButton_);
+        connect(logoutButton_, &QPushButton::clicked, this, &LoginDialog::logout);
+    }
     buttons->addWidget(cancel);
     if (allowSkip) {
         auto* skip = new QPushButton("Skip for now", this);
@@ -89,16 +149,24 @@ void LoginDialog::loadProperties()
     if (!apiOverride_.trimmed().isEmpty()) {
         properties_.insert(QStringLiteral("ApiUrl"), apiOverride_.trimmed());
     }
+    CachedAuth auth;
+    if (loadCachedAuth(&auth)) {
+        userEdit_->setText(auth.userName);
+        passwordEdit_->setText(auth.password);
+        rememberPassword_->setChecked(!auth.password.isEmpty());
+        if (logoutButton_) {
+            logoutButton_->setEnabled(!auth.userName.isEmpty()
+                                      || !auth.password.isEmpty()
+                                      || !auth.token.isEmpty());
+        }
+    } else if (logoutButton_) {
+        logoutButton_->setEnabled(false);
+    }
     if (properties_.value("ApiUrl").trimmed().isEmpty()) {
         statusLabel_->setText("Missing API configuration.");
         statusLabel_->show();
         loginButton_->setEnabled(false);
         return;
-    }
-    CachedAuth auth;
-    if (loadCachedAuth(&auth)) {
-        userEdit_->setText(auth.userName);
-        passwordEdit_->setText(auth.password);
     }
     statusLabel_->clear();
     statusLabel_->hide();
@@ -124,12 +192,14 @@ void LoginDialog::tryLogin()
 
     const QString userName = userEdit_->text().trimmed();
     const QString password = passwordEdit_->text();
+    const bool rememberPassword = rememberPassword_->isChecked();
     loginInProgress_ = true;
     loginButton_->setEnabled(false);
     statusLabel_->setText(QStringLiteral("Signing in..."));
     statusLabel_->show();
     auto* watcher = new QFutureWatcher<ApiLoginResult>(this);
-    connect(watcher, &QFutureWatcher<ApiLoginResult>::finished, this, [this, watcher, userName, password] {
+    connect(watcher, &QFutureWatcher<ApiLoginResult>::finished, this,
+            [this, watcher, userName, password, rememberPassword] {
         const ApiLoginResult result = watcher->result();
         watcher->deleteLater();
         loginInProgress_ = false;
@@ -138,7 +208,7 @@ void LoginDialog::tryLogin()
             CachedAuth auth;
             loadCachedAuth(&auth);
             auth.userName = userName;
-            auth.password = password;
+            auth.password = rememberPassword ? password : QString();
             auth.token = result.token;
             saveCachedAuth(auth);
             accept();
@@ -153,4 +223,14 @@ void LoginDialog::tryLogin()
     watcher->setFuture(QtConcurrent::run([api, charset, userName, password] {
         return requestApiToken(api, charset, userName, password);
     }));
+}
+
+void LoginDialog::logout()
+{
+    if (!clearCachedApiAuth()) {
+        statusLabel_->setText(QStringLiteral("Failed to clear saved login information."));
+        statusLabel_->show();
+        return;
+    }
+    done(LoggedOut);
 }

@@ -116,7 +116,12 @@ void MainWindow::openLoginDialog()
         return;
     }
     LoginDialog dialog(rootPath_, this, apiUrl);
-    if (dialog.exec() != QDialog::Accepted) {
+    const int result = dialog.exec();
+    if (result == LoginDialog::LoggedOut) {
+        applyLogoutStatus();
+        return;
+    }
+    if (result != QDialog::Accepted) {
         return;
     }
 
@@ -155,6 +160,22 @@ void MainWindow::applyLoginSuccessStatus(const QString& statusText)
         scheduleTopInfoUpdate(currentShot);
         refreshData();
     }
+}
+
+void MainWindow::applyLogoutStatus()
+{
+    updateLoginActionIcon();
+    latestShot_.clear();
+    pendingTopSummaryShot_.clear();
+    topSummaryShot_.clear();
+    topSummaryIp_.clear();
+    topSummaryPulse_.clear();
+    topSummaryIt_.clear();
+    topSummaryTime_.clear();
+    ++latestShotGeneration_;
+    ++topSummaryGeneration_;
+    updateTopInfoLabels();
+    setStatus("Logged out");
 }
 
 void MainWindow::updateLoginActionIcon()

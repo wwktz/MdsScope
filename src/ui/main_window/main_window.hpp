@@ -77,6 +77,7 @@ private:
     void updateSshActionIcon();
     void openAboutDialog();
     void applyLoginSuccessStatus(const QString& statusText);
+    void applyLogoutStatus();
     void updateLoginActionIcon();
     void fetchLatestShotAsync(bool applyLatest = true);
     void updateShotControlsFromConfig(const QString& preferredShot = {});

@@ -161,6 +161,7 @@ bool tokenExpiresSoon(const QString& token);
 QString authCachePath();
 bool loadCachedAuth(CachedAuth* auth);
 bool saveCachedAuth(const CachedAuth& auth);
+bool clearCachedApiAuth();
 ApiLoginResult requestApiToken(const QString& api,
                                const QString& charset,
                                const QString& userName,

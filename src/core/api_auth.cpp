@@ -200,6 +200,22 @@ bool saveCachedAuth(const CachedAuth& auth)
     return true;
 }
 
+bool clearCachedApiAuth()
+{
+    if (!QFileInfo::exists(authCachePath())) {
+        return true;
+    }
+
+    CachedAuth auth;
+    if (!loadCachedAuth(&auth)) {
+        return false;
+    }
+    auth.userName.clear();
+    auth.password.clear();
+    auth.token.clear();
+    return saveCachedAuth(auth);
+}
+
 ApiLoginResult requestApiToken(const QString& api,
                                const QString& charset,
                                const QString& userName,

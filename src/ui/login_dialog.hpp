@@ -10,6 +10,7 @@
 class QLabel;
 class QLineEdit;
 class QPushButton;
+class QCheckBox;
 
 class LoginDialog final : public QDialog {
     Q_OBJECT
@@ -17,6 +18,7 @@ class LoginDialog final : public QDialog {
 public:
     enum ResultCode {
         Skipped = QDialog::Accepted + 1,
+        LoggedOut,
     };
 
     explicit LoginDialog(QString rootPath,
@@ -27,13 +29,16 @@ public:
 private:
     void loadProperties();
     void tryLogin();
+    void logout();
 
     QString rootPath_;
     QString apiOverride_;
     QHash<QString, QString> properties_;
     QLineEdit* userEdit_ = nullptr;
     QLineEdit* passwordEdit_ = nullptr;
+    QCheckBox* rememberPassword_ = nullptr;
     QLabel* statusLabel_ = nullptr;
+    QPushButton* logoutButton_ = nullptr;
     QPushButton* loginButton_ = nullptr;
     bool loginInProgress_ = false;
 };
