@@ -103,6 +103,12 @@ public:
         int originalRow = -1;
         bool isNew = false;
         bool selected = false;
+        quint64 id = 0;
+    };
+
+    struct LayoutAnimationSnapshot {
+        QHash<quint64, QRectF> items;
+        QHash<quint64, QRectF> columns;
     };
 
     explicit LayoutCanvas(const LayoutConfig& config, QWidget* parent = nullptr, bool editable = true)
@@ -111,17 +117,34 @@ public:
     {
         setMinimumSize(620, 420);
         setFocusPolicy(Qt::StrongFocus);
+        layoutAnimation_ = new QVariantAnimation(this);
+        layoutAnimation_->setDuration(180);
+        layoutAnimation_->setEasingCurve(QEasingCurve::OutCubic);
+        connect(layoutAnimation_, &QVariantAnimation::valueChanged, this,
+                [this](const QVariant& value) {
+                    animationProgress_ = value.toReal();
+                    update();
+                });
+        connect(layoutAnimation_, &QVariantAnimation::finished, this, [this] {
+            animationProgress_ = 1.0;
+            itemAnimationStarts_.clear();
+            columnAnimationStarts_.clear();
+            update();
+        });
         for (int c = 0; c < config.columns.size(); ++c) {
             QVector<Item> col;
             for (int r = 0; r < config.columns[c].size(); ++r) {
-                col.push_back(Item{c, r, false, false});
+                col.push_back(Item{c, r, false, false, nextItemId_++});
             }
             columns_.push_back(std::move(col));
+            columnIds_.push_back(nextColumnId_++);
         }
         if (columns_.isEmpty()) {
             columns_.push_back({});
+            columnIds_.push_back(nextColumnId_++);
         }
         initialColumns_ = columns_;
+        initialColumnIds_ = columnIds_;
     }
 
     void createPendingPanelAtRight()
@@ -129,12 +152,16 @@ public:
         if (!editable_) {
             return;
         }
+        const LayoutAnimationSnapshot before = captureVisualLayout();
         clearSelection();
         QVector<Item> col;
-        col.push_back(Item{-1, -1, true, true});
+        col.push_back(Item{-1, -1, true, true, nextItemId_++});
         columns_.push_back(std::move(col));
-        draggingNew_ = false;
+        columnIds_.push_back(nextColumnId_++);
+        draggingItem_ = false;
+        draggedItemId_ = 0;
         lastDragTarget_ = {-1, -1};
+        startLayoutAnimation(before);
         update();
     }
 
@@ -143,6 +170,7 @@ public:
         if (!editable_) {
             return;
         }
+        const LayoutAnimationSnapshot before = captureVisualLayout();
         for (int c = columns_.size() - 1; c >= 0; --c) {
             for (int r = columns_[c].size() - 1; r >= 0; --r) {
                 if (columns_[c][r].selected) {
@@ -151,22 +179,35 @@ public:
             }
             if (columns_[c].isEmpty() && columns_.size() > 1) {
                 columns_.removeAt(c);
+                columnIds_.removeAt(c);
             }
         }
         if (columns_.isEmpty()) {
             columns_.push_back({});
+            columnIds_.push_back(nextColumnId_++);
         }
-        draggingNew_ = false;
+        draggingItem_ = false;
+        draggingColumn_ = false;
+        draggedItemId_ = 0;
+        draggedColumn_ = -1;
         lastDragTarget_ = {-1, -1};
+        startLayoutAnimation(before);
         update();
     }
 
     void reset()
     {
+        const LayoutAnimationSnapshot before = captureVisualLayout();
         columns_ = initialColumns_;
-        draggingNew_ = false;
+        columnIds_ = initialColumnIds_;
+        draggingItem_ = false;
+        draggingColumn_ = false;
+        draggedItemId_ = 0;
+        draggedColumn_ = -1;
         dragMoved_ = false;
         lastDragTarget_ = {-1, -1};
+        unsetCursor();
+        startLayoutAnimation(before);
         update();
     }
 
@@ -221,78 +262,295 @@ protected:
         const double gap = 8.0;
         const double cellW = std::max(28.0, (area.width() - gap * (displayCols - 1)) / displayCols);
         const double cellH = std::max(22.0, (area.height() - gap * (displayRows - 1)) / displayRows);
+        QFont headerFont = painter.font();
+        headerFont.setBold(true);
+
+        auto drawHeader = [&](const QRectF& rect,
+                              const QString& label,
+                              qreal opacity,
+                              bool lifted) {
+            if (lifted) {
+                painter.setPen(Qt::NoPen);
+                painter.setBrush(QColor(0, 0, 0, 75));
+                painter.drawRoundedRect(rect.translated(0, 4), 5, 5);
+            }
+            painter.save();
+            painter.setOpacity(opacity);
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(pal.color(QPalette::Button));
+            painter.drawRoundedRect(rect, 5, 5);
+            painter.setPen(pal.color(QPalette::ButtonText));
+            painter.setFont(headerFont);
+            painter.drawText(rect.adjusted(5, 0, -5, 0),
+                             Qt::AlignCenter,
+                             painter.fontMetrics().elidedText(
+                                 label,
+                                 Qt::ElideRight,
+                                 std::max(
+                                     1,
+                                     static_cast<int>(rect.width() - 10))));
+            painter.restore();
+        };
+
+        auto drawPanel = [&](const QRectF& rect,
+                             const QColor& fill,
+                             const QColor& text,
+                             const QString& label,
+                             qreal opacity,
+                             bool lifted) {
+            if (lifted) {
+                painter.setPen(Qt::NoPen);
+                painter.setBrush(QColor(0, 0, 0, 75));
+                painter.drawRoundedRect(rect.translated(0, 4), 7, 7);
+            }
+            painter.save();
+            painter.setOpacity(opacity);
+            drawCell(painter, rect, fill);
+            painter.setPen(text);
+            painter.setFont(headerFont);
+            painter.drawText(rect.adjusted(5, 0, -5, 0),
+                             Qt::AlignCenter,
+                             painter.fontMetrics().elidedText(
+                                 label,
+                                 Qt::ElideRight,
+                                 std::max(
+                                     1,
+                                     static_cast<int>(rect.width() - 10))));
+            painter.restore();
+        };
+
+        struct FloatingPanel {
+            QRectF rect;
+            QColor fill;
+            QColor text;
+            QString label;
+        };
+        QVector<FloatingPanel> floatingPanels;
+        QRectF floatingHeader;
+        QString floatingHeaderLabel;
+        bool hasFloatingHeader = false;
+        qreal floatingColumnDelta = 0.0;
+        const int floatingColumn =
+            draggingColumn_ && dragMoved_ ? draggedColumn_ : -1;
+
+        for (int c = 0; c < columns_.size(); ++c) {
+            const QRectF targetHeader =
+                columnHeaderRect(area, c, cellW, gap);
+            const QRectF header = animatedRect(
+                columnIds_.value(c), targetHeader, columnAnimationStarts_);
+            const QString label = QString("Column %1").arg(c + 1);
+            if (c == floatingColumn) {
+                drawHeader(header, label, 0.18, false);
+                floatingColumnDelta =
+                    dragCurrentPos_.x() - dragGrabOffset_.x() - header.x();
+                floatingHeader = header.translated(
+                    floatingColumnDelta, 0);
+                floatingHeaderLabel = label;
+                hasFloatingHeader = true;
+            } else {
+                drawHeader(header, label, 1.0, false);
+            }
+        }
+
         for (int c = 0; c < columns_.size(); ++c) {
             for (int r = 0; r < columns_[c].size(); ++r) {
                 const Item& item = columns_[c][r];
                 const QColor fill = item.selected ? pal.color(QPalette::Highlight) : pal.color(QPalette::Midlight);
-                const QRectF rect = cellRect(area, c, r, cellW, cellH, gap);
-                drawCell(painter, rect, fill);
-                if (item.isNew) {
-                    painter.setPen(pal.color(QPalette::HighlightedText));
-                    QFont f = painter.font();
-                    f.setBold(true);
-                    painter.setFont(f);
-                    painter.drawText(rect, Qt::AlignCenter, "New panel");
+                const QRectF targetRect =
+                    cellRect(area, c, r, cellW, cellH, gap);
+                const QRectF rect = animatedRect(
+                    item.id, targetRect, itemAnimationStarts_);
+                const QColor text = item.selected
+                    ? pal.color(QPalette::HighlightedText)
+                    : pal.color(QPalette::Text);
+                const QString label = item.isNew
+                    ? QString("Panel %1 (new)").arg(item.id)
+                    : QString("Panel %1").arg(item.id);
+                const bool floatingItem =
+                    draggingItem_ && dragMoved_
+                    && item.id == draggedItemId_;
+                const bool floatingColumnItem = c == floatingColumn;
+                if (floatingItem || floatingColumnItem) {
+                    drawPanel(rect, fill, text, label, 0.16, false);
+                    QRectF lifted = rect;
+                    if (floatingItem) {
+                        lifted.moveTopLeft(
+                            dragCurrentPos_ - dragGrabOffset_);
+                        const qreal growX = lifted.width() * 0.015;
+                        const qreal growY = lifted.height() * 0.015;
+                        lifted.adjust(-growX, -growY, growX, growY);
+                    } else {
+                        lifted.translate(floatingColumnDelta, 0);
+                    }
+                    floatingPanels.push_back(
+                        FloatingPanel{lifted, fill, text, label});
+                } else {
+                    drawPanel(rect, fill, text, label, 1.0, false);
                 }
             }
+        }
+
+        if (hasFloatingHeader) {
+            drawHeader(
+                floatingHeader, floatingHeaderLabel, 1.0, true);
+        }
+        for (const FloatingPanel& panel : std::as_const(floatingPanels)) {
+            drawPanel(
+                panel.rect,
+                panel.fill,
+                panel.text,
+                panel.label,
+                1.0,
+                true);
         }
     }
 
     void mousePressEvent(QMouseEvent* event) override
     {
         setFocus(Qt::MouseFocusReason);
+        const int header = editable_
+            ? hitColumnHeader(event->position())
+            : -1;
+        if (header >= 0) {
+            draggingColumn_ = true;
+            draggingItem_ = false;
+            draggedColumn_ = header;
+            draggedItemId_ = 0;
+            dragMoved_ = false;
+            dragStart_ = event->position();
+            dragCurrentPos_ = event->position();
+            const auto targets = targetColumnRects();
+            const quint64 columnId = columnIds_.value(header);
+            const QRectF visualRect = animatedRect(
+                columnId,
+                targets.value(columnId),
+                columnAnimationStarts_);
+            dragGrabOffset_ =
+                event->position() - visualRect.topLeft();
+            lastDragTarget_ = {-1, -1};
+            setCursor(Qt::ClosedHandCursor);
+            return;
+        }
+
         const auto hit = hitItem(event->position());
         if (hit.first < 0) {
             clearSelection();
+            draggingItem_ = false;
+            draggingColumn_ = false;
+            draggedItemId_ = 0;
+            draggedColumn_ = -1;
             update();
             return;
         }
         Item& item = columns_[hit.first][hit.second];
-        if (item.isNew) {
-            pressWasSelected_ = item.selected;
-            if (!item.selected) {
-                clearSelection();
-                item.selected = true;
-            }
-            draggingNew_ = item.selected;
-            dragMoved_ = false;
-            dragStart_ = event->position();
-            lastDragTarget_ = {-1, -1};
-        } else {
+        if (!editable_) {
             item.selected = !item.selected;
-            draggingNew_ = false;
-            dragMoved_ = false;
-            lastDragTarget_ = {-1, -1};
+            update();
+            return;
         }
+        pressWasSelected_ = item.selected;
+        if (!item.selected) {
+            item.selected = true;
+        }
+        draggingItem_ = true;
+        draggingColumn_ = false;
+        draggedItemId_ = item.id;
+        draggedColumn_ = -1;
+        dragMoved_ = false;
+        dragStart_ = event->position();
+        dragCurrentPos_ = event->position();
+        const auto targets = targetItemRects();
+        const QRectF visualRect = animatedRect(
+            item.id,
+            targets.value(item.id),
+            itemAnimationStarts_);
+        dragGrabOffset_ = event->position() - visualRect.topLeft();
+        lastDragTarget_ = {-1, -1};
+        setCursor(Qt::ClosedHandCursor);
         update();
     }
 
     void mouseMoveEvent(QMouseEvent* event) override
     {
-        if (!draggingNew_ || !(event->buttons() & Qt::LeftButton)) {
+        if (!(event->buttons() & Qt::LeftButton)) {
             return;
         }
         if (!dragMoved_ && (event->position() - dragStart_).manhattanLength() < 3.0) {
             return;
         }
         dragMoved_ = true;
+        dragCurrentPos_ = event->position();
+        update();
+        if (draggingColumn_) {
+            moveDraggedColumnTo(event->position().x());
+            return;
+        }
+        if (!draggingItem_) {
+            return;
+        }
         const QPair<int, int> target = targetForPosition(event->position());
         if (target == lastDragTarget_) {
             return;
         }
         lastDragTarget_ = target;
-        moveSelectedNewTo(event->position());
+        moveDraggedItemTo(target);
     }
 
     void mouseReleaseEvent(QMouseEvent*) override
     {
-        if (draggingNew_ && !dragMoved_ && pressWasSelected_) {
-            clearSelection();
-            update();
+        const bool settleItem =
+            draggingItem_ && dragMoved_ && draggedItemId_ != 0;
+        const bool settleColumn =
+            draggingColumn_ && dragMoved_
+            && draggedColumn_ >= 0
+            && draggedColumn_ < columns_.size();
+        LayoutAnimationSnapshot settleFrom;
+        if (settleItem || settleColumn) {
+            settleFrom = captureVisualLayout();
         }
-        draggingNew_ = false;
+        if (settleItem) {
+            const auto targetIt = settleFrom.items.find(draggedItemId_);
+            if (targetIt != settleFrom.items.end()) {
+                QRectF lifted = targetIt.value();
+                lifted.moveTopLeft(dragCurrentPos_ - dragGrabOffset_);
+                const qreal growX = lifted.width() * 0.015;
+                const qreal growY = lifted.height() * 0.015;
+                lifted.adjust(-growX, -growY, growX, growY);
+                targetIt.value() = lifted;
+            }
+        } else if (settleColumn) {
+            const quint64 columnId = columnIds_[draggedColumn_];
+            const auto headerIt = settleFrom.columns.find(columnId);
+            if (headerIt != settleFrom.columns.end()) {
+                const qreal delta =
+                    dragCurrentPos_.x() - dragGrabOffset_.x()
+                    - headerIt.value().x();
+                headerIt.value().translate(delta, 0);
+                for (const Item& item : columns_[draggedColumn_]) {
+                    const auto itemIt = settleFrom.items.find(item.id);
+                    if (itemIt != settleFrom.items.end()) {
+                        itemIt.value().translate(delta, 0);
+                    }
+                }
+            }
+        }
+
+        if (draggingItem_ && !dragMoved_ && pressWasSelected_) {
+            if (Item* item = findItem(draggedItemId_)) {
+                item->selected = false;
+            }
+        }
+        draggingItem_ = false;
+        draggingColumn_ = false;
+        draggedItemId_ = 0;
+        draggedColumn_ = -1;
         dragMoved_ = false;
         lastDragTarget_ = {-1, -1};
+        unsetCursor();
+        if (settleItem || settleColumn) {
+            startLayoutAnimation(settleFrom);
+        }
+        update();
     }
 
     void keyPressEvent(QKeyEvent* event) override
@@ -305,9 +563,131 @@ protected:
     }
 
 private:
+    QHash<quint64, QRectF> targetItemRects() const
+    {
+        QHash<quint64, QRectF> targets;
+        const QRectF area = drawingArea();
+        const int displayCols =
+            std::max(1, static_cast<int>(columns_.size()));
+        const int displayRows = std::max(1, maxRows());
+        const double gap = 8.0;
+        const double cellW = std::max(
+            28.0,
+            (area.width() - gap * (displayCols - 1)) / displayCols);
+        const double cellH = std::max(
+            22.0,
+            (area.height() - gap * (displayRows - 1)) / displayRows);
+        for (int c = 0; c < columns_.size(); ++c) {
+            for (int r = 0; r < columns_[c].size(); ++r) {
+                targets.insert(
+                    columns_[c][r].id,
+                    cellRect(area, c, r, cellW, cellH, gap));
+            }
+        }
+        return targets;
+    }
+
+    QHash<quint64, QRectF> targetColumnRects() const
+    {
+        QHash<quint64, QRectF> targets;
+        const QRectF area = drawingArea();
+        const int displayCols =
+            std::max(1, static_cast<int>(columns_.size()));
+        const double gap = 8.0;
+        const double cellW = std::max(
+            28.0,
+            (area.width() - gap * (displayCols - 1)) / displayCols);
+        for (int c = 0;
+             c < columns_.size() && c < columnIds_.size();
+             ++c) {
+            targets.insert(
+                columnIds_[c],
+                columnHeaderRect(area, c, cellW, gap));
+        }
+        return targets;
+    }
+
+    QRectF animatedRect(
+        quint64 id,
+        const QRectF& target,
+        const QHash<quint64, QRectF>& starts) const
+    {
+        const auto it = starts.constFind(id);
+        if (it == starts.cend() || animationProgress_ >= 1.0) {
+            return target;
+        }
+        const QRectF& start = it.value();
+        const qreal t = animationProgress_;
+        return QRectF(
+            start.x() + (target.x() - start.x()) * t,
+            start.y() + (target.y() - start.y()) * t,
+            start.width() + (target.width() - start.width()) * t,
+            start.height() + (target.height() - start.height()) * t);
+    }
+
+    LayoutAnimationSnapshot captureVisualLayout() const
+    {
+        LayoutAnimationSnapshot snapshot;
+        const auto itemTargets = targetItemRects();
+        for (auto it = itemTargets.cbegin(); it != itemTargets.cend(); ++it) {
+            snapshot.items.insert(
+                it.key(),
+                animatedRect(it.key(), it.value(), itemAnimationStarts_));
+        }
+        const auto columnTargets = targetColumnRects();
+        for (auto it = columnTargets.cbegin();
+             it != columnTargets.cend();
+             ++it) {
+            snapshot.columns.insert(
+                it.key(),
+                animatedRect(
+                    it.key(), it.value(), columnAnimationStarts_));
+        }
+        return snapshot;
+    }
+
+    void startLayoutAnimation(const LayoutAnimationSnapshot& before)
+    {
+        layoutAnimation_->stop();
+        itemAnimationStarts_.clear();
+        columnAnimationStarts_.clear();
+
+        const auto itemTargets = targetItemRects();
+        for (auto it = itemTargets.cbegin(); it != itemTargets.cend(); ++it) {
+            const QRectF start = before.items.value(
+                it.key(),
+                QRectF(it.value().center(), QSizeF()));
+            if (start != it.value()) {
+                itemAnimationStarts_.insert(it.key(), start);
+            }
+        }
+
+        const auto columnTargets = targetColumnRects();
+        for (auto it = columnTargets.cbegin();
+             it != columnTargets.cend();
+             ++it) {
+            const QRectF start = before.columns.value(
+                it.key(),
+                QRectF(it.value().center(), QSizeF()));
+            if (start != it.value()) {
+                columnAnimationStarts_.insert(it.key(), start);
+            }
+        }
+
+        if (itemAnimationStarts_.isEmpty()
+            && columnAnimationStarts_.isEmpty()) {
+            animationProgress_ = 1.0;
+            return;
+        }
+        animationProgress_ = 0.0;
+        layoutAnimation_->setStartValue(0.0);
+        layoutAnimation_->setEndValue(1.0);
+        layoutAnimation_->start();
+    }
+
     QRectF drawingArea() const
     {
-        return rect().adjusted(18, 18, -18, -18);
+        return rect().adjusted(18, 52, -18, -18);
     }
 
     int maxRows() const
@@ -344,6 +724,22 @@ private:
             }
         }
         return {-1, -1};
+    }
+
+    int hitColumnHeader(const QPointF& pos) const
+    {
+        const QRectF area = drawingArea();
+        const int displayCols = std::max(1, static_cast<int>(columns_.size()));
+        const double gap = 8.0;
+        const double cellW = std::max(
+            28.0,
+            (area.width() - gap * (displayCols - 1)) / displayCols);
+        for (int c = 0; c < columns_.size(); ++c) {
+            if (columnHeaderRect(area, c, cellW, gap).contains(pos)) {
+                return c;
+            }
+        }
+        return -1;
     }
 
     QPair<int, int> targetForPosition(const QPointF& pos) const
@@ -389,45 +785,121 @@ private:
         return {std::clamp(newColumn, 0, static_cast<int>(columns_.size())), -1};
     }
 
-    void moveSelectedNewTo(const QPointF& pos)
+    Item* findItem(quint64 id)
     {
-        int sourceCol = -1;
-        int sourceRow = -1;
         for (int c = 0; c < columns_.size(); ++c) {
             for (int r = 0; r < columns_[c].size(); ++r) {
-                if (columns_[c][r].isNew && columns_[c][r].selected) {
-                    sourceCol = c;
-                    sourceRow = r;
-                    break;
+                if (columns_[c][r].id == id) {
+                    return &columns_[c][r];
                 }
             }
-            if (sourceCol >= 0) {
-                break;
+        }
+        return nullptr;
+    }
+
+    QPair<int, int> findItemPosition(quint64 id) const
+    {
+        for (int c = 0; c < columns_.size(); ++c) {
+            for (int r = 0; r < columns_[c].size(); ++r) {
+                if (columns_[c][r].id == id) {
+                    return {c, r};
+                }
             }
         }
-        if (sourceCol < 0) {
+        return {-1, -1};
+    }
+
+    void moveDraggedItemTo(QPair<int, int> target)
+    {
+        const QPair<int, int> source = findItemPosition(draggedItemId_);
+        const int sourceCol = source.first;
+        const int sourceRow = source.second;
+        if (sourceCol < 0 || sourceRow < 0) {
             return;
         }
-        Item item = columns_[sourceCol].takeAt(sourceRow);
-        if (columns_[sourceCol].isEmpty() && columns_.size() > 1) {
-            columns_.removeAt(sourceCol);
+        if (target.second >= 0
+            && target.first == sourceCol
+            && (target.second == sourceRow || target.second == sourceRow + 1)) {
+            return;
         }
 
-        QPair<int, int> target = targetForPosition(pos);
+        const LayoutAnimationSnapshot before = captureVisualLayout();
+        Item item = columns_[sourceCol].takeAt(sourceRow);
+        const bool removedSourceColumn =
+            columns_[sourceCol].isEmpty() && columns_.size() > 1;
+        quint64 removedColumnId = 0;
+        if (removedSourceColumn) {
+            removedColumnId = columnIds_[sourceCol];
+            columns_.removeAt(sourceCol);
+            columnIds_.removeAt(sourceCol);
+            if (target.first > sourceCol) {
+                --target.first;
+            }
+        } else if (target.second >= 0
+                   && target.first == sourceCol
+                   && target.second > sourceRow) {
+            --target.second;
+        }
+
         if (target.second < 0) {
             target.first = std::clamp(target.first, 0, static_cast<int>(columns_.size()));
             columns_.insert(target.first, QVector<Item>{item});
+            columnIds_.insert(
+                target.first,
+                removedColumnId != 0 ? removedColumnId : nextColumnId_++);
         } else {
             target.first = std::clamp(target.first, 0, std::max(0, static_cast<int>(columns_.size()) - 1));
             target.second = std::clamp(target.second, 0, static_cast<int>(columns_[target.first].size()));
             columns_[target.first].insert(target.second, item);
         }
+        startLayoutAnimation(before);
+        update();
+    }
+
+    void moveDraggedColumnTo(qreal x)
+    {
+        if (draggedColumn_ < 0
+            || draggedColumn_ >= columns_.size()
+            || columns_.size() < 2) {
+            return;
+        }
+        const QRectF area = drawingArea();
+        const double gap = 8.0;
+        const double cellW = std::max(
+            28.0,
+            (area.width() - gap * (columns_.size() - 1))
+                / columns_.size());
+        const double stride = cellW + gap;
+        const int target = std::clamp(
+            qRound((x - area.left() - cellW * 0.5) / stride),
+            0,
+            static_cast<int>(columns_.size()) - 1);
+        if (target == draggedColumn_) {
+            return;
+        }
+        const LayoutAnimationSnapshot before = captureVisualLayout();
+        QVector<Item> column = columns_.takeAt(draggedColumn_);
+        const quint64 columnId = columnIds_.takeAt(draggedColumn_);
+        columns_.insert(target, std::move(column));
+        columnIds_.insert(target, columnId);
+        draggedColumn_ = target;
+        startLayoutAnimation(before);
         update();
     }
 
     static QRectF cellRect(const QRectF& area, int column, int row, double cellW, double cellH, double gap)
     {
         return QRectF(area.left() + column * (cellW + gap), area.top() + row * (cellH + gap), cellW, cellH);
+    }
+
+    static QRectF columnHeaderRect(
+        const QRectF& area, int column, double cellW, double gap)
+    {
+        return QRectF(
+            area.left() + column * (cellW + gap),
+            area.top() - 34.0,
+            cellW,
+            26.0);
     }
 
     static void drawCell(QPainter& painter, const QRectF& rect, const QColor& color)
@@ -439,11 +911,24 @@ private:
 
     QVector<QVector<Item>> columns_;
     QVector<QVector<Item>> initialColumns_;
+    QVector<quint64> columnIds_;
+    QVector<quint64> initialColumnIds_;
+    QHash<quint64, QRectF> itemAnimationStarts_;
+    QHash<quint64, QRectF> columnAnimationStarts_;
+    QVariantAnimation* layoutAnimation_ = nullptr;
+    quint64 nextItemId_ = 1;
+    quint64 nextColumnId_ = 1;
+    qreal animationProgress_ = 1.0;
     bool editable_ = true;
-    bool draggingNew_ = false;
+    bool draggingItem_ = false;
+    bool draggingColumn_ = false;
     bool dragMoved_ = false;
     bool pressWasSelected_ = false;
+    quint64 draggedItemId_ = 0;
+    int draggedColumn_ = -1;
     QPointF dragStart_;
+    QPointF dragCurrentPos_;
+    QPointF dragGrabOffset_;
     QPair<int, int> lastDragTarget_ = {-1, -1};
 };
 
@@ -505,4 +990,3 @@ inline bool layoutItemsMatchConfig(const QVector<QVector<LayoutCanvas::Item>>& l
     }
     return true;
 }
-

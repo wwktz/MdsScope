@@ -271,6 +271,7 @@ void MainWindow::openLayoutSetupDialog()
     int selectRow = -1;
     int newPanels = 0;
     int keptPanels = 0;
+    bool selectedNewPanel = false;
     QVector<PreservedPanelData> preservedPanels;
 
     for (const auto& column : layout) {
@@ -278,9 +279,10 @@ void MainWindow::openLayoutSetupDialog()
         for (const LayoutCanvas::Item& item : column) {
             if (item.isNew) {
                 nextColumn.push_back(makePanel());
-                if (selectColumn < 0) {
+                if (!selectedNewPanel) {
                     selectColumn = next.columns.size();
                     selectRow = nextColumn.size() - 1;
+                    selectedNewPanel = true;
                 }
                 ++newPanels;
                 continue;
@@ -289,6 +291,12 @@ void MainWindow::openLayoutSetupDialog()
                 && item.originalColumn < config_.columns.size()
                 && item.originalRow >= 0
                 && item.originalRow < config_.columns[item.originalColumn].size()) {
+                if (!selectedNewPanel
+                    && item.originalColumn == selectedColumn_
+                    && item.originalRow == selectedRow_) {
+                    selectColumn = next.columns.size();
+                    selectRow = nextColumn.size();
+                }
                 if (item.originalColumn < plotWidgets_.size()
                     && item.originalRow < plotWidgets_[item.originalColumn].size()
                     && plotWidgets_[item.originalColumn][item.originalRow]) {
