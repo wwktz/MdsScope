@@ -109,7 +109,7 @@ QString pointReadoutText(const SignalSeries& series, const QPointF& point, bool 
 {
     if (!detailed) {
         return QStringLiteral("%1, %2")
-            .arg(QString::number(point.x(), 'g', 6), QString::number(point.y(), 'g', 6));
+            .arg(formatPointX(point.x(), series), QString::number(point.y(), 'g', 6));
     }
     // Point-mode values are for inspection, not lossless export. Uniform Y
     // data is stored as float, so showing more than seven digits exposes its
