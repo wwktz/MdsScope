@@ -35,13 +35,11 @@ public static class MdsScopeIconNative
     [DllImport("kernel32.dll")]
     public static extern bool FreeLibrary(IntPtr module);
 
-    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
-    public static extern uint ExtractIconEx(
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+    public static extern IntPtr ExtractIconW(
+        IntPtr instance,
         string fileName,
-        int iconIndex,
-        IntPtr[] largeIcons,
-        IntPtr[] smallIcons,
-        uint iconCount);
+        uint iconIndex);
 
     [DllImport("user32.dll")]
     public static extern bool DestroyIcon(IntPtr icon);
@@ -75,35 +73,18 @@ finally {
     [void][MdsScopeIconNative]::FreeLibrary($module)
 }
 
-$iconCount = [MdsScopeIconNative]::ExtractIconEx(
+$icon = [MdsScopeIconNative]::ExtractIconW(
+    [IntPtr]::Zero,
     $resolvedExecutable,
-    -1,
-    $null,
-    $null,
     0)
-if ($iconCount -lt 1) {
-    throw "Windows could not enumerate an icon from $resolvedExecutable"
-}
-
-$largeIcons = [IntPtr[]]::new(1)
-$smallIcons = [IntPtr[]]::new(1)
 try {
-    $extracted = [MdsScopeIconNative]::ExtractIconEx(
-        $resolvedExecutable,
-        0,
-        $largeIcons,
-        $smallIcons,
-        1)
-    $missingIconHandles = ($largeIcons[0] -eq [IntPtr]::Zero) -and ($smallIcons[0] -eq [IntPtr]::Zero)
-    if ($extracted -ne 1 -or $missingIconHandles) {
+    if ($icon -eq [IntPtr]::Zero -or $icon -eq [IntPtr]1) {
         throw "Windows could not extract an icon from $resolvedExecutable"
     }
 }
 finally {
-    foreach ($icon in $largeIcons + $smallIcons) {
-        if ($icon -ne [IntPtr]::Zero) {
-            [void][MdsScopeIconNative]::DestroyIcon($icon)
-        }
+    if ($icon -ne [IntPtr]::Zero -and $icon -ne [IntPtr]1) {
+        [void][MdsScopeIconNative]::DestroyIcon($icon)
     }
 }
 
