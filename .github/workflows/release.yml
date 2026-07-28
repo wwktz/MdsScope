@@ -274,7 +274,13 @@ jobs:
       - name: Install and deploy app
         run: |
           cmake --install build --prefix "$PWD/build/macos-stage" --component app
-          file build/macos-stage/MdsScope.app/Contents/MacOS/MdsScope
+          app="build/macos-stage/MdsScope.app"
+          executable="$app/Contents/MacOS/MdsScope"
+          file "$executable"
+          otool -L "$executable"
+          otool -l "$executable" | grep -A2 LC_RPATH
+          otool -l "$executable" | grep -Fq "@executable_path/../Frameworks"
+          test -f "$app/Contents/Frameworks/QtWidgets.framework/Versions/A/QtWidgets"
           codesign --force --deep --sign - build/macos-stage/MdsScope.app
           codesign --verify --deep --strict --verbose=2 build/macos-stage/MdsScope.app
 

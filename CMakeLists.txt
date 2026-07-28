@@ -3,7 +3,7 @@
 
 cmake_minimum_required(VERSION 3.16)
 
-project(MdsScope VERSION 5.13 LANGUAGES CXX)
+project(MdsScope VERSION 5.13.1 LANGUAGES CXX)
 
 execute_process(
     COMMAND git rev-parse --short=9 HEAD
@@ -224,6 +224,7 @@ if(APPLE)
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
         MACOSX_BUNDLE_BUNDLE_VERSION "${MDS_SCOPE_GIT_VERSION}"
         MACOSX_BUNDLE_COPYRIGHT "Copyright 2026 Weikang Wang"
+        INSTALL_RPATH "@executable_path/../Frameworks"
     )
 endif()
 

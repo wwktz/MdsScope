@@ -71,6 +71,7 @@
 #include <QSpinBox>
 #include <QStatusBar>
 #include <QStyle>
+#include <QStyleHints>
 #include <QStandardPaths>
 #include <QStringListModel>
 #include <QSysInfo>
@@ -177,7 +178,9 @@ QStringList uniformAxisValues(const QVector<double>& values);
 QIcon appIcon();
 QIcon layoutIcon();
 QIcon appearanceIcon();
+QIcon openFileIcon();
 QIcon saveIcon();
+QIcon exportDataIcon();
 QIcon loginIcon(bool loggedIn);
 QIcon sshIcon(int state);
 QIcon browserIcon();

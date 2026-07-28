@@ -259,6 +259,20 @@ public:
         currentMode_ = readStoredThemeMode();
         currentScheme_ = resolveColorScheme(readCurrentColorScheme());
         applyCurrentTheme();
+#if (defined(Q_OS_MACOS) || defined(Q_OS_MAC)) \
+    && QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+        if (auto* hints = QGuiApplication::styleHints()) {
+            connect(hints,
+                    &QStyleHints::colorSchemeChanged,
+                    this,
+                    [this](Qt::ColorScheme colorScheme) {
+                const uint scheme = schemeFromMacQtColorScheme(colorScheme);
+                if (scheme != 0) {
+                    setSystemScheme(scheme);
+                }
+            });
+        }
+#endif
 #ifdef Q_OS_LINUX
         QDBusConnection::sessionBus().connect(QStringLiteral("org.freedesktop.portal.Desktop"),
                                               QStringLiteral("/org/freedesktop/portal/desktop"),
@@ -341,6 +355,20 @@ private:
             return {};
         }
         return QString::fromUtf8(process.readAllStandardOutput()).trimmed().toLower();
+    }
+#endif
+
+#if (defined(Q_OS_MACOS) || defined(Q_OS_MAC)) \
+    && QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+    static uint schemeFromMacQtColorScheme(Qt::ColorScheme colorScheme)
+    {
+        if (colorScheme == Qt::ColorScheme::Dark) {
+            return 1;
+        }
+        if (colorScheme == Qt::ColorScheme::Light) {
+            return 2;
+        }
+        return 0;
     }
 #endif
 
@@ -478,9 +506,23 @@ private:
 #endif
 
 #if defined(Q_OS_MACOS) || defined(Q_OS_MAC)
+    static uint readMacQtColorScheme()
+    {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+        if (auto* hints = QGuiApplication::styleHints()) {
+            return schemeFromMacQtColorScheme(hints->colorScheme());
+        }
+#endif
+        return 0;
+    }
+
     static uint readMacColorScheme()
     {
-        const QString output = processOutput(QStringLiteral("defaults"),
+        const uint qtScheme = readMacQtColorScheme();
+        if (qtScheme != 0) {
+            return qtScheme;
+        }
+        const QString output = processOutput(QStringLiteral("/usr/bin/defaults"),
                                              {QStringLiteral("read"),
                                               QStringLiteral("-g"),
                                               QStringLiteral("AppleInterfaceStyle")});

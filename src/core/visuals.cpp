@@ -243,6 +243,45 @@ QIcon appearanceIcon()
     return QIcon(pixmap);
 }
 
+QIcon openFileIcon()
+{
+    QPixmap pixmap(32, 32);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+
+    QPainterPath back;
+    back.moveTo(2.0, 14.5);
+    back.lineTo(2.0, 7.0);
+    back.cubicTo(2.0, 5.2, 3.3, 4.0, 5.2, 4.0);
+    back.lineTo(11.7, 4.0);
+    back.cubicTo(12.8, 4.0, 13.4, 4.4, 14.2, 5.2);
+    back.lineTo(15.5, 6.5);
+    back.lineTo(26.8, 6.5);
+    back.cubicTo(28.8, 6.5, 30.0, 7.8, 30.0, 9.7);
+    back.lineTo(30.0, 15.0);
+    back.closeSubpath();
+    painter.setPen(QPen(QColor("#8f2305"), 0.8));
+    painter.setBrush(QColor("#a22805"));
+    painter.drawPath(back);
+
+    QPainterPath front;
+    front.moveTo(3.9, 12.8);
+    front.lineTo(28.3, 12.8);
+    front.cubicTo(30.0, 12.8, 31.0, 14.1, 30.7, 15.8);
+    front.lineTo(28.8, 25.8);
+    front.cubicTo(28.5, 27.3, 27.4, 28.0, 25.8, 28.0);
+    front.lineTo(4.3, 28.0);
+    front.cubicTo(2.5, 28.0, 1.5, 26.9, 1.5, 25.2);
+    front.lineTo(1.5, 15.3);
+    front.cubicTo(1.5, 13.8, 2.4, 12.8, 3.9, 12.8);
+    front.closeSubpath();
+    painter.setPen(QPen(QColor("#b0441f"), 0.8));
+    painter.setBrush(QColor("#da5b2a"));
+    painter.drawPath(front);
+    return QIcon(pixmap);
+}
+
 QIcon saveIcon()
 {
     QPixmap pixmap(32, 32);
@@ -260,6 +299,37 @@ QIcon saveIcon()
     painter.setPen(QPen(QColor("#94a3b8"), 1.0));
     painter.drawLine(QPointF(7.8, 15.3), QPointF(14.2, 15.3));
     painter.drawLine(QPointF(7.8, 17.0), QPointF(14.2, 17.0));
+    return QIcon(pixmap);
+}
+
+QIcon exportDataIcon()
+{
+    QPixmap pixmap(32, 32);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+
+    QLinearGradient arrowGradient(0.0, 4.0, 0.0, 26.0);
+    arrowGradient.setColorAt(0.0, QColor("#d4ee72"));
+    arrowGradient.setColorAt(1.0, QColor("#9ccd38"));
+    QPainterPath arrow;
+    arrow.moveTo(12.2, 4.5);
+    arrow.lineTo(19.8, 4.5);
+    arrow.lineTo(19.8, 16.0);
+    arrow.lineTo(25.8, 16.0);
+    arrow.lineTo(16.0, 26.0);
+    arrow.lineTo(6.2, 16.0);
+    arrow.lineTo(12.2, 16.0);
+    arrow.closeSubpath();
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(arrowGradient);
+    painter.drawPath(arrow);
+
+    QRadialGradient landingGradient(QPointF(16.0, 28.2), 10.5);
+    landingGradient.setColorAt(0.0, QColor("#b7df52"));
+    landingGradient.setColorAt(1.0, QColor("#83c61f"));
+    painter.setBrush(landingGradient);
+    painter.drawEllipse(QRectF(6.0, 26.3, 20.0, 4.1));
     return QIcon(pixmap);
 }
 

@@ -500,7 +500,11 @@ void MainWindow::buildUi()
         "  background: palette(dark);"
         "  border-color: palette(highlight);"
         "}");
-    QAction* openAction = toolbar->addAction(style()->standardIcon(QStyle::SP_DirOpenIcon), "Open configure file", this, &MainWindow::openEnvironmentFile);
+    QAction* openAction = toolbar->addAction(
+        openFileIcon(),
+        "Open configure file",
+        this,
+        &MainWindow::openEnvironmentFile);
     openButton_ = qobject_cast<QToolButton*>(toolbar->widgetForAction(openAction));
     if (openButton_) {
         openButton_->setToolButtonStyle(Qt::ToolButtonIconOnly);
@@ -539,7 +543,11 @@ void MainWindow::buildUi()
         "Save",
         this,
         &MainWindow::saveCurrentEnvironment);
-    toolbar->addAction(style()->standardIcon(QStyle::SP_DialogSaveButton), "Export data", this, &MainWindow::openExportDataDialog);
+    toolbar->addAction(
+        exportDataIcon(),
+        "Export data",
+        this,
+        &MainWindow::openExportDataDialog);
     loginAction_ = toolbar->addAction(loginIcon(false), "Login", this, &MainWindow::openLoginDialog);
     updateLoginActionIcon();
     sshAction_ = toolbar->addAction(sshIcon(0), "SSH remote access", this, &MainWindow::openSshDialog);
