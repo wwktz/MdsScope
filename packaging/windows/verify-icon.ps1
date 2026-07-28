@@ -24,7 +24,7 @@ public static class MdsScopeIconNative
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     public static extern IntPtr FindResource(
         IntPtr module,
-        string name,
+        IntPtr name,
         IntPtr type);
 
     [DllImport("kernel32.dll", SetLastError = true)]
@@ -49,6 +49,7 @@ public static class MdsScopeIconNative
 '@
 
 $loadLibraryAsDataFile = 0x00000002
+$iconResource = [IntPtr]1
 $groupIconResource = [IntPtr]14
 $module = [MdsScopeIconNative]::LoadLibraryEx(
     $resolvedExecutable,
@@ -61,13 +62,13 @@ if ($module -eq [IntPtr]::Zero) {
 try {
     $resource = [MdsScopeIconNative]::FindResource(
         $module,
-        "IDI_MDSSCOPE_ICON",
+        $iconResource,
         $groupIconResource)
     if ($resource -eq [IntPtr]::Zero) {
-        throw "IDI_MDSSCOPE_ICON is missing from $resolvedExecutable"
+        throw "Icon resource 1 is missing from $resolvedExecutable"
     }
     if ([MdsScopeIconNative]::SizeofResource($module, $resource) -eq 0) {
-        throw "IDI_MDSSCOPE_ICON is empty in $resolvedExecutable"
+        throw "Icon resource 1 is empty in $resolvedExecutable"
     }
 }
 finally {

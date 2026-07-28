@@ -697,6 +697,9 @@ HRESULT createWindowsStartMenuShortcut()
     if (SUCCEEDED(result)) {
         result = link->SetDescription(L"MdsScope");
     }
+    if (SUCCEEDED(result)) {
+        result = link->SetIconLocation(executablePath.c_str(), 0);
+    }
 
     IPropertyStore* properties = nullptr;
     if (SUCCEEDED(result)) {
@@ -761,7 +764,8 @@ void configureWindowsWindowIcon(HWND window)
     auto loadIcon = [module](int width, int height) {
         return static_cast<HICON>(
             LoadImageW(module,
-                       L"IDI_MDSSCOPE_ICON",
+                       MAKEINTRESOURCEW(
+                           MDS_SCOPE_WINDOWS_ICON_RESOURCE_ID),
                        IMAGE_ICON,
                        width,
                        height,
