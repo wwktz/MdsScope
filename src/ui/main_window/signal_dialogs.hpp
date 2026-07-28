@@ -139,6 +139,7 @@ private:
         bool deleted = false;
         bool manualColor = false;
         bool reverseTreeCompletionActive = false;
+        bool deferReverseTreeCompletion = false;
         DataReadMode originalReadMode = DataReadMode::Thin;
         bool readModeTouched = false;
     };
@@ -149,11 +150,28 @@ private:
             auto* mouseEvent = static_cast<QMouseEvent*>(event);
             if (mouseEvent->button() == Qt::LeftButton) {
                 for (Row* row : std::as_const(rows_)) {
-                    if (!row || !row->reverseTreeCompletionActive
-                        || !row->treeCompleter || !row->tree) {
+                    if (!row) {
                         continue;
                     }
-                    QAbstractItemView* popup = row->treeCompleter->popup();
+
+                    QCompleter* completer = nullptr;
+                    QLineEdit* lineEdit = nullptr;
+                    bool reverseTreeSelection = false;
+                    if (row->treeCompleter
+                        && watched == row->treeCompleter->popup()->viewport()) {
+                        completer = row->treeCompleter;
+                        lineEdit = row->tree;
+                        reverseTreeSelection = row->reverseTreeCompletionActive;
+                    } else if (row->signalCompleter
+                               && watched == row->signalCompleter->popup()->viewport()) {
+                        completer = row->signalCompleter;
+                        lineEdit = row->signal;
+                    }
+                    if (!completer || !lineEdit) {
+                        continue;
+                    }
+
+                    QAbstractItemView* popup = completer->popup();
                     if (!popup || watched != popup->viewport()) {
                         continue;
                     }
@@ -163,13 +181,23 @@ private:
                         break;
                     }
                     const QString completion =
-                        row->treeCompleter->pathFromIndex(index);
+                        index.data(completer->completionRole()).toString();
+                    const bool signalSelection = lineEdit == row->signal;
                     row->reverseTreeCompletionActive = false;
-                    row->tree->setText(completion);
-                    row->tree->setCursorPosition(completion.size());
+                    row->deferReverseTreeCompletion = signalSelection;
+                    lineEdit->setText(completion);
+                    lineEdit->setCursorPosition(completion.size());
+                    row->deferReverseTreeCompletion = false;
                     popup->hide();
-                    if (row->signal) {
+                    if (reverseTreeSelection && row->signal) {
                         row->signal->setFocus(Qt::OtherFocusReason);
+                    } else {
+                        lineEdit->setFocus(Qt::OtherFocusReason);
+                    }
+                    if (signalSelection) {
+                        QTimer::singleShot(0, this, [this, row] {
+                            showReverseTreePopupAfterMouseRelease(row);
+                        });
                     }
                     event->accept();
                     return true;
@@ -177,6 +205,20 @@ private:
             }
         }
         return QDialog::eventFilter(watched, event);
+    }
+
+    void showReverseTreePopupAfterMouseRelease(Row* row)
+    {
+        if (!row || row->deleted) {
+            return;
+        }
+        if (QApplication::mouseButtons() != Qt::NoButton) {
+            QTimer::singleShot(10, this, [this, row] {
+                showReverseTreePopupAfterMouseRelease(row);
+            });
+            return;
+        }
+        updateTreeCompleter(row, true);
     }
 
     void addRow(const SignalSpec& sig, int colorIndex)
@@ -214,6 +256,7 @@ private:
         row->tree->setCompleter(row->treeCompleter);
         row->signal->setCompleter(row->signalCompleter);
         row->treeCompleter->popup()->viewport()->installEventFilter(this);
+        row->signalCompleter->popup()->viewport()->installEventFilter(this);
         updateTreeCompleter(row, false);
         updateSignalCompleter(row);
         updateColorButton(row);
@@ -314,7 +357,7 @@ private:
         completer->setCompletionMode(QCompleter::PopupCompletion);
         completer->setMaxVisibleItems(16);
         QAbstractItemView* popup = completer->popup();
-        popup->setWindowFlags(Qt::ToolTip
+        popup->setWindowFlags(Qt::Popup
                               | Qt::FramelessWindowHint
                               | Qt::WindowDoesNotAcceptFocus);
         popup->setAttribute(Qt::WA_ShowWithoutActivating, true);
@@ -332,12 +375,7 @@ private:
             " background: palette(highlight); color: palette(highlighted-text);"
             "}");
 #ifdef Q_OS_WIN
-        constexpr bool needsMouseSelectionFallback = true;
-#else
-        constexpr bool needsMouseSelectionFallback = false;
-#endif
-        auto* lineEdit = qobject_cast<QLineEdit*>(parent);
-        if (needsMouseSelectionFallback && lineEdit) {
+        {
             QObject::connect(
                 popup,
                 &QAbstractItemView::entered,
@@ -347,20 +385,8 @@ private:
                         popup->setCurrentIndex(index);
                     }
                 });
-            QObject::connect(
-                popup,
-                &QAbstractItemView::pressed,
-                lineEdit,
-                [completer, lineEdit](const QModelIndex& index) {
-                    if (!index.isValid()) {
-                        return;
-                    }
-                    const QString completion = completer->pathFromIndex(index);
-                    lineEdit->setText(completion);
-                    lineEdit->setCursorPosition(completion.size());
-                    completer->popup()->hide();
-                });
         }
+#endif
         return completer;
     }
 
@@ -529,6 +555,11 @@ private:
         const QStringList treeChoices = exactTrees.isEmpty() ? treeNames_ : exactTrees;
         if (row->treeModel->stringList() != treeChoices) {
             row->treeModel->setStringList(treeChoices);
+        }
+        if (row->deferReverseTreeCompletion) {
+            row->reverseTreeCompletionActive = false;
+            row->treeCompleter->popup()->hide();
+            return;
         }
         if (!showReverseMatches || !row->tree->text().trimmed().isEmpty()
             || exactTrees.isEmpty()) {
