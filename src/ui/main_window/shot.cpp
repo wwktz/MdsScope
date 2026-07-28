@@ -37,6 +37,10 @@ void MainWindow::applyShot()
     if (shotEdit_->text() != shot) {
         shotEdit_->setText(shot);
     }
+    shotEditSessionText_ = shot;
+    shotEditSessionActive_ = false;
+    pendingShotEditExitKeys_.clear();
+    shotEditExitTimer_.stop();
     rememberShotExpression(shot);
     ++latestShotGeneration_;
     setAllPlotShots(shot);

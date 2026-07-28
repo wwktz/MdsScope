@@ -136,6 +136,51 @@ QIcon shotControlIcon(ShotControlGlyph glyph)
     return icon;
 }
 
+QPixmap keyboardShortcutPixmap(const QColor& color)
+{
+    QPixmap pixmap(32, 32);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.scale(32.0 / 24.0, 32.0 / 24.0);
+    painter.setPen(
+        QPen(color, 1.7, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    painter.setBrush(Qt::NoBrush);
+    painter.drawRoundedRect(
+        QRectF(2.8, 5.0, 18.4, 14.0), 2.2, 2.2);
+
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(color);
+    for (const qreal y : {8.2, 11.6}) {
+        for (const qreal x : {6.0, 9.4, 12.8, 16.2, 19.0}) {
+            painter.drawRoundedRect(
+                QRectF(x - 0.85, y - 0.75, 1.7, 1.5),
+                0.35,
+                0.35);
+        }
+    }
+    painter.drawRoundedRect(
+        QRectF(7.0, 15.0, 10.0, 1.6), 0.55, 0.55);
+    return pixmap;
+}
+
+QIcon keyboardShortcutIcon()
+{
+    const QPalette palette = QApplication::palette();
+    QIcon icon;
+    icon.addPixmap(
+        keyboardShortcutPixmap(
+            palette.color(QPalette::ButtonText)),
+        QIcon::Normal);
+    icon.addPixmap(
+        keyboardShortcutPixmap(
+            palette.color(
+                QPalette::Disabled,
+                QPalette::ButtonText)),
+        QIcon::Disabled);
+    return icon;
+}
+
 enum class PanelMenuGlyph {
     Maximize,
     ShowAll,
@@ -357,6 +402,10 @@ void MainWindow::changeEvent(QEvent* event)
         if (appearanceAction_) {
             appearanceAction_->setIcon(appearanceIcon());
         }
+        if (keyboardShortcutsAction_) {
+            keyboardShortcutsAction_->setIcon(
+                keyboardShortcutIcon());
+        }
         if (zoomButton_ && pointButton_) {
             zoomButton_->setIcon(
                 modeIcon(InteractionMode::Zoom,
@@ -401,6 +450,7 @@ void MainWindow::setStopButtonPaused(bool paused)
         latestShotButton_->setIcon(
             shotControlIcon(ShotControlGlyph::Latest));
     }
+    updateShortcutToolTips();
 }
 
 void MainWindow::schedulePointSync(PlotWidget* source, double x)
@@ -452,8 +502,6 @@ void MainWindow::buildUi()
     QAction* pointModeAction = new QAction("Point", this);
     connect(zoomModeAction, &QAction::triggered, this, [this] { setInteractionMode(InteractionMode::Zoom); });
     connect(pointModeAction, &QAction::triggered, this, [this] { setInteractionMode(InteractionMode::Point); });
-    zoomModeAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Z")));
-    pointModeAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+P")));
     addAction(zoomModeAction);
     addAction(pointModeAction);
 
@@ -516,10 +564,11 @@ void MainWindow::buildUi()
     recentEnvironmentMenu_ = new QMenu(recentMenuParent);
     connect(recentEnvironmentMenu_, &QMenu::aboutToShow, this, &MainWindow::refreshRecentEnvironmentMenu);
     refreshRecentEnvironmentMenu();
-    QAction* saveAction = toolbar->addAction(saveIcon(), "Save", this, &MainWindow::saveCurrentEnvironment);
-    saveAction->setShortcut(QKeySequence::Save);
-    saveAction->setShortcutContext(Qt::ApplicationShortcut);
-    addAction(saveAction);
+    saveAction_ = toolbar->addAction(
+        saveIcon(),
+        "Save",
+        this,
+        &MainWindow::saveCurrentEnvironment);
     toolbar->addAction(style()->standardIcon(QStyle::SP_DialogSaveButton), "Export data", this, &MainWindow::openExportDataDialog);
     loginAction_ = toolbar->addAction(loginIcon(false), "Login", this, &MainWindow::openLoginDialog);
     updateLoginActionIcon();
@@ -548,6 +597,11 @@ void MainWindow::buildUi()
         "Customize appearance",
         this,
         &MainWindow::openCustomizeDialog);
+    keyboardShortcutsAction_ = toolbar->addAction(
+        keyboardShortcutIcon(),
+        "Keyboard shortcuts",
+        this,
+        &MainWindow::openShortcutDialog);
 
     gridHost_ = new QWidget(this);
     gridHost_->setFocusPolicy(Qt::StrongFocus);
@@ -773,6 +827,10 @@ void MainWindow::buildUi()
     connect(nextShotButton_, &QToolButton::clicked, this, [this] { stepShot(1); });
     connect(latestShotButton_, &QToolButton::clicked, this, &MainWindow::latestShot);
     connect(shotEdit_, &QLineEdit::returnPressed, this, &MainWindow::applyShot);
+    connect(shotEdit_,
+            &QLineEdit::returnPressed,
+            this,
+            &MainWindow::focusSelectedPlot);
     connect(shotEdit_, &QLineEdit::textChanged, this, [resizeShotEdit] { resizeShotEdit(); });
     connect(shotCombo_, &QComboBox::activated, this, [this](int index) {
         const QString shot = shotCombo_->itemData(index).toString();
@@ -936,6 +994,7 @@ void MainWindow::buildUi()
     });
     connect(aboutButton_, &QToolButton::clicked, this, &MainWindow::openAboutDialog);
     applyUiMetrics();
+    updateShortcutToolTips();
 }
 
 void MainWindow::updateGlobalRateControl()
@@ -994,27 +1053,40 @@ void MainWindow::showPanelContextMenu(PlotWidget* plot, int column, int row, con
                      .color(QPalette::Disabled, QPalette::Text)
                      .name()));
 
+    auto actionText = [this](const QString& label,
+                             ShortcutCommand command) {
+        const QString keys = shortcutText(command);
+        return keys.isEmpty()
+                   ? label
+                   : label + QStringLiteral("\t") + keys;
+    };
     QAction* maxAction = menu.addAction(
         panelMenuIcon(PanelMenuGlyph::Maximize),
-        "Maximize Panel");
+        actionText(QStringLiteral("Maximize Panel"),
+                   ShortcutCommand::MaximizePanel));
     QAction* showAllAction = menu.addAction(
         panelMenuIcon(PanelMenuGlyph::ShowAll),
-        "Show All Panels");
+        actionText(QStringLiteral("Show All Panels"),
+                   ShortcutCommand::ShowAllPanels));
     showAllAction->setEnabled(singlePanelMaximized_);
     QAction* resetCurrentAction = menu.addAction(
         panelMenuIcon(PanelMenuGlyph::ResetCurrent),
-        "Reset Current Scale");
+        actionText(QStringLiteral("Reset Current Scale"),
+                   ShortcutCommand::ResetCurrentScale));
     QAction* resetAllAction = menu.addAction(
         panelMenuIcon(PanelMenuGlyph::ResetAll),
-        "Reset All Scales");
+        actionText(QStringLiteral("Reset All Scales"),
+                   ShortcutCommand::ResetAllScales));
 
     menu.addSeparator();
     QAction* sameXAction = menu.addAction(
         panelMenuIcon(PanelMenuGlyph::SameX),
-        "All Same X Scale");
+        actionText(QStringLiteral("All Same X Scale"),
+                   ShortcutCommand::SameXScale));
     QAction* sameYAction = menu.addAction(
         panelMenuIcon(PanelMenuGlyph::SameY),
-        "All Same Y Scale");
+        actionText(QStringLiteral("All Same Y Scale"),
+                   ShortcutCommand::SameYScale));
 
     menu.addSeparator();
     QMenu* rateMenu = menu.addMenu(
@@ -1565,6 +1637,13 @@ void MainWindow::refreshPlotFonts()
 
 void MainWindow::setInteractionMode(InteractionMode mode)
 {
+    if (mode != InteractionMode::Point) {
+        activePointPlot_ = nullptr;
+        pointSyncSource_ = nullptr;
+        pointSyncQueued_ = false;
+        pendingPointX_ = qQNaN();
+        ++pointSyncGeneration_;
+    }
     if (currentInteractionMode_ == mode
         && zoomButton_ && zoomButton_->isChecked() == (mode == InteractionMode::Zoom)
         && pointButton_ && pointButton_->isChecked() == (mode == InteractionMode::Point)) {

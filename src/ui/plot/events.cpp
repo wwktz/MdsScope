@@ -54,36 +54,6 @@ void PlotWidget::mousePressEvent(QMouseEvent* event)
     event->accept();
 }
 
-void PlotWidget::keyPressEvent(QKeyEvent* event)
-{
-    if (interactionMode_ == InteractionMode::Point && event->modifiers() == Qt::NoModifier) {
-        if (event->key() == Qt::Key_Escape) {
-            if (pointTrackingActive_) {
-                pointTrackingActive_ = false;
-                ++pointHoverGeneration_;
-                pointHoverQueued_ = false;
-                hoverText_.clear();
-                hoverSeriesIndex_ = -1;
-                hoverSeriesLocked_ = false;
-                emit pointTrackingStopped();
-                event->accept();
-                return;
-            }
-        } else if (event->key() == Qt::Key_Left) {
-            if (stepActivePoint(-1)) {
-                event->accept();
-                return;
-            }
-        } else if (event->key() == Qt::Key_Right) {
-            if (stepActivePoint(1)) {
-                event->accept();
-                return;
-            }
-        }
-    }
-    QWidget::keyPressEvent(event);
-}
-
 void PlotWidget::changeEvent(QEvent* event)
 {
     QWidget::changeEvent(event);

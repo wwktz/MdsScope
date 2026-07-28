@@ -162,6 +162,19 @@ void PlotWidget::deactivatePointTracking()
     hoverSeriesLocked_ = false;
 }
 
+bool PlotWidget::stopPointTracking()
+{
+    if (!pointTrackingActive_
+        && hoverText_.isEmpty()
+        && hoverSeriesIndex_ < 0) {
+        return false;
+    }
+    deactivatePointTracking();
+    update();
+    emit pointTrackingStopped();
+    return true;
+}
+
 void PlotWidget::setSelected(bool selected)
 {
     if (selected_ == selected) {

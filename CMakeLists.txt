@@ -3,7 +3,7 @@
 
 cmake_minimum_required(VERSION 3.16)
 
-project(MdsScope VERSION 5.12.2 LANGUAGES CXX)
+project(MdsScope VERSION 5.13 LANGUAGES CXX)
 
 execute_process(
     COMMAND git rev-parse --short=9 HEAD
@@ -120,6 +120,9 @@ add_executable(MdsScope
     src/ui/main_window/layout.cpp
     src/ui/main_window/refresh_coordinator.cpp
     src/ui/main_window/scale.cpp
+    src/ui/main_window/shortcut_dialog.cpp
+    src/ui/main_window/shortcut_settings.cpp
+    src/ui/main_window/shortcuts.cpp
     src/ui/main_window/shared.cpp
     src/ui/main_window/shot.cpp
     src/ui/main_window/ssh.cpp
@@ -142,6 +145,8 @@ add_executable(MdsScope
     src/ui/main_window/about_dialog.hpp
     src/ui/main_window/export_dialog.hpp
     src/ui/main_window/layout_dialog.hpp
+    src/ui/main_window/shortcut_dialog.hpp
+    src/ui/main_window/shortcut_settings.hpp
     src/ui/main_window/signal_dialogs.hpp
     src/ui/main_window/shared.hpp
     src/ui/main_window/theme.hpp
@@ -296,6 +301,26 @@ if(MDS_SCOPE_BUILD_TESTS)
         Qt6::Network
     )
     add_test(NAME plot_helpers COMMAND plot_helpers_test)
+
+    add_executable(shortcut_settings_test
+        tests/shortcut_settings_test.cpp
+        src/ui/main_window/shortcut_settings.cpp
+    )
+    set_target_properties(shortcut_settings_test PROPERTIES AUTOMOC OFF)
+    target_include_directories(shortcut_settings_test PRIVATE
+        src
+        src/core
+        src/mds
+        src/ssh
+        src/ui
+    )
+    target_link_libraries(shortcut_settings_test PRIVATE
+        Qt6::Core
+        Qt6::Widgets
+        Qt6::Concurrent
+        Qt6::Network
+    )
+    add_test(NAME shortcut_settings COMMAND shortcut_settings_test)
 endif()
 
 if(UNIX AND NOT APPLE)

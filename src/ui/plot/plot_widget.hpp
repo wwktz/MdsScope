@@ -10,7 +10,6 @@
 #include <QWidget>
 
 class QFontMetrics;
-class QKeyEvent;
 class QMouseEvent;
 class QPainter;
 class QPaintEvent;
@@ -45,6 +44,9 @@ public:
     void setSyncedPointX(double x, int seriesIndex, bool interpolate = false);
     void clearSyncedPoint();
     void deactivatePointTracking();
+    bool stopPointTracking();
+    bool pointTrackingActive() const { return pointTrackingActive_; }
+    bool stepActivePoint(int delta);
     int activePointSeriesIndex() const { return hoverSeriesIndex_; }
 
 signals:
@@ -57,7 +59,6 @@ protected:
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
-    void keyPressEvent(QKeyEvent* event) override;
     void changeEvent(QEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
@@ -85,7 +86,6 @@ private:
     bool updateHoverForSeriesX(int seriesIndex,
                                double dataX,
                                bool lockSeries);
-    bool stepActivePoint(int delta);
     bool nearestPointForSeries(int seriesIndex,
                                double dataX,
                                QPointF* point,

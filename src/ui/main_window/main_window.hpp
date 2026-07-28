@@ -4,6 +4,7 @@
 #pragma once
 
 #include "core/app_types.hpp"
+#include "shortcut_settings.hpp"
 
 #include <QHash>
 #include <QMainWindow>
@@ -17,6 +18,7 @@ class QComboBox;
 class QEvent;
 class QGridLayout;
 class QHBoxLayout;
+class QKeyEvent;
 class QLabel;
 class QLineEdit;
 class QMenu;
@@ -40,6 +42,7 @@ public:
 protected:
     void changeEvent(QEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
     void buildUi();
@@ -151,6 +154,7 @@ private:
     void updateGlobalRateControl();
     void openLayoutSetupDialog();
     void openCustomizeDialog();
+    void openShortcutDialog();
     void applyUiFont();
     void applyUiMetrics();
     void positionRecentEnvironmentButton();
@@ -173,6 +177,17 @@ private:
     void schedulePointSync(PlotWidget* source, double x);
     void scheduleTopInfoUpdate(const QString& shot);
     void syncDisplayConfig();
+    bool handleShortcutKey(QKeyEvent* event, QWidget* target);
+    bool triggerShortcutCommand(ShortcutCommand command);
+    bool shortcutCommandEnabled(ShortcutCommand command) const;
+    void movePanelSelection(int columnDelta, int rowDelta);
+    void stopActivePointTracking();
+    void focusSelectedPlot();
+    void beginShotEditSession();
+    void cancelShotEditSession();
+    bool handleShotEditExitKey(QKeyEvent* event);
+    void updateShortcutToolTips();
+    QString shortcutText(ShortcutCommand command) const;
 
     QString rootPath_;
     QString environmentPath_;
@@ -198,8 +213,10 @@ private:
     DataReadMode globalRateMode_ = DataReadMode::Thin;
     QAction* loginAction_ = nullptr;
     QAction* sshAction_ = nullptr;
+    QAction* saveAction_ = nullptr;
     QAction* layoutAction_ = nullptr;
     QAction* appearanceAction_ = nullptr;
+    QAction* keyboardShortcutsAction_ = nullptr;
     SshTunnelManager* sshTunnelManager_ = nullptr;
     QString cachedApiSourceUrl_;
     QString cachedPreparedApiUrl_;
@@ -221,6 +238,13 @@ private:
     QToolButton* nextShotButton_ = nullptr;
     QToolButton* latestShotButton_ = nullptr;
     QVector<QVector<PlotWidget*>> plotWidgets_;
+    QVector<ShortcutBinding> shortcutBindings_;
+    QList<QKeyCombination> pendingShortcutKeys_;
+    QTimer shortcutSequenceTimer_;
+    QTimer shotEditExitTimer_;
+    QList<QKeyCombination> pendingShotEditExitKeys_;
+    QString shotEditSessionText_;
+    bool shotEditSessionActive_ = false;
     std::unique_ptr<RefreshCoordinator> refresh_;
     QTimer latestShotPollTimer_;
     QString topSummaryShot_;

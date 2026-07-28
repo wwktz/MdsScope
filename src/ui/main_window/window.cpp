@@ -39,7 +39,21 @@ MainWindow::MainWindow(QString rootPath, QWidget* parent)
     }
     globalRateMode_ = defaultRateMode_;
     loadFontSettings(rootPath_);
+    shortcutBindings_ = loadShortcutBindings(rootPath_);
+    shortcutSequenceTimer_.setSingleShot(true);
+    shortcutSequenceTimer_.setInterval(500);
+    connect(&shortcutSequenceTimer_,
+            &QTimer::timeout,
+            this,
+            [this] { pendingShortcutKeys_.clear(); });
+    shotEditExitTimer_.setSingleShot(true);
+    shotEditExitTimer_.setInterval(500);
+    connect(&shotEditExitTimer_,
+            &QTimer::timeout,
+            this,
+            [this] { pendingShotEditExitKeys_.clear(); });
     buildUi();
+    qApp->installEventFilter(this);
     applyUiFont();
     connect(sshTunnelManager_,
             &SshTunnelManager::preparationFinished,
@@ -120,6 +134,9 @@ MainWindow::MainWindow(QString rootPath, QWidget* parent)
 
 MainWindow::~MainWindow()
 {
+    if (qApp) {
+        qApp->removeEventFilter(this);
+    }
     cancelDataFetch();
     cancelPanelFetch();
     cancelPrewarmConnections();
