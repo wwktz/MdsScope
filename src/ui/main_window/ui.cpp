@@ -11,6 +11,7 @@
 
 #include <QFontMetrics>
 #include <QProxyStyle>
+#include <QCursor>
 #include <QToolTip>
 
 namespace {
@@ -1019,6 +1020,16 @@ void MainWindow::showPanelContextMenu(PlotWidget* plot, int column, int row, con
     QMenu* rateMenu = menu.addMenu(
         panelMenuIcon(PanelMenuGlyph::Rate),
         "Rate");
+    connect(&menu, &QMenu::hovered, &menu, [rateMenu](QAction* action) {
+        if (!rateMenu->isVisible()
+            || action == rateMenu->menuAction()
+            || rateMenu->actions().contains(action)
+            || rateMenu->rect().contains(
+                rateMenu->mapFromGlobal(QCursor::pos()))) {
+            return;
+        }
+        rateMenu->close();
+    });
     QAction* thinRateAction = rateMenu->addAction("Thin");
     QAction* mediumRateAction = rateMenu->addAction("Medium");
     QAction* fullRateAction = rateMenu->addAction("Full");
