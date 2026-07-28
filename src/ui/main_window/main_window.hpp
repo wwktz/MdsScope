@@ -16,15 +16,19 @@ class QAction;
 class QComboBox;
 class QEvent;
 class QGridLayout;
+class QHBoxLayout;
 class QLabel;
 class QLineEdit;
 class QMenu;
+class QResizeEvent;
 class QScrollArea;
+class QToolBar;
 class QToolButton;
 class PlotWidget;
 class RefreshCoordinator;
 struct PanelRefreshRequest;
 class SshTunnelManager;
+class ThemeModeButton;
 
 class MainWindow final : public QMainWindow {
     Q_OBJECT
@@ -35,6 +39,7 @@ public:
 
 protected:
     void changeEvent(QEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
 
 private:
     void buildUi();
@@ -147,6 +152,9 @@ private:
     void openLayoutSetupDialog();
     void openCustomizeDialog();
     void applyUiFont();
+    void applyUiMetrics();
+    void positionRecentEnvironmentButton();
+    void updateTopControlVisibility();
     void refreshPlotFonts();
     void saveCurrentEnvironment();
     void saveCurrentEnvironmentAs();
@@ -177,6 +185,7 @@ private:
     QGridLayout* gridLayout_ = nullptr;
     QScrollArea* scrollArea_ = nullptr;
     QLabel* statusLabel_ = nullptr;
+    QLabel* rateLabel_ = nullptr;
     QLabel* topInfoLabel_ = nullptr;
     QLabel* ipInfoLabel_ = nullptr;
     QLabel* pulseInfoLabel_ = nullptr;
@@ -190,9 +199,17 @@ private:
     QAction* loginAction_ = nullptr;
     QAction* sshAction_ = nullptr;
     QAction* layoutAction_ = nullptr;
+    QAction* appearanceAction_ = nullptr;
     SshTunnelManager* sshTunnelManager_ = nullptr;
     QString cachedApiSourceUrl_;
     QString cachedPreparedApiUrl_;
+    QToolBar* toolbar_ = nullptr;
+    QWidget* recentEnvironmentSpace_ = nullptr;
+    QWidget* topControls_ = nullptr;
+    QHBoxLayout* topControlsLayout_ = nullptr;
+    ThemeModeButton* themeModeButton_ = nullptr;
+    QWidget* bottomControls_ = nullptr;
+    QHBoxLayout* bottomControlsLayout_ = nullptr;
     QToolButton* openButton_ = nullptr;
     QToolButton* recentEnvironmentButton_ = nullptr;
     QToolButton* aboutButton_ = nullptr;

@@ -328,6 +328,10 @@ void loadFontSettings(const QString& rootPath)
     fonts.axisSize = settings.value("font/axis_size", fonts.axisSize).toInt();
     fonts.unitSize = settings.value("font/unit_size", fonts.unitSize).toInt();
     fonts.uiSize = settings.value("font/ui_size", fonts.uiSize).toInt();
+    const int iconSize =
+        settings.value("appearance/icon_size", fonts.iconSize).toInt();
+    fonts.iconSize =
+        QList<int>{20, 24, 28, 32}.contains(iconSize) ? iconSize : 24;
 }
 
 void saveFontSettings(const QString& rootPath)
@@ -339,4 +343,5 @@ void saveFontSettings(const QString& rootPath)
     settings.setValue("font/axis_size", fonts.axisSize);
     settings.setValue("font/unit_size", fonts.unitSize);
     settings.setValue("font/ui_size", fonts.uiSize);
+    settings.setValue("appearance/icon_size", fonts.iconSize);
 }

@@ -201,10 +201,11 @@ QIcon appIcon()
 
 QIcon layoutIcon()
 {
-    QPixmap pixmap(24, 24);
+    QPixmap pixmap(32, 32);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
     painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.scale(32.0 / 24.0, 32.0 / 24.0);
     const QColor color =
         QApplication::palette().color(QPalette::ButtonText);
     painter.setPen(Qt::NoPen);
@@ -220,28 +221,35 @@ QIcon layoutIcon()
     return QIcon(pixmap);
 }
 
-QIcon fontIcon()
+QIcon appearanceIcon()
 {
-    QPixmap pixmap(28, 28);
+    QPixmap pixmap(32, 32);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
     painter.setRenderHint(QPainter::Antialiasing, true);
-    painter.setPen(QPen(QColor("#475569"), 1.9));
-    painter.setBrush(Qt::NoBrush);
-    painter.drawRoundedRect(QRectF(2.3, 2.3, 23.4, 23.4), 2.2, 2.2);
-    QFont iconFont(QStringLiteral("Times New Roman"), 22, QFont::Bold);
-    painter.setFont(iconFont);
-    painter.setPen(QColor("#2563eb"));
-    painter.drawText(pixmap.rect().adjusted(0, -2, 0, 2), Qt::AlignCenter, "A");
+    const QPalette palette = QApplication::palette();
+    const QColor line = palette.color(QPalette::ButtonText);
+    const QColor knob = palette.color(QPalette::Highlight);
+    painter.setPen(
+        QPen(line, 2.2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    painter.drawLine(QPointF(4.0, 8.0), QPointF(28.0, 8.0));
+    painter.drawLine(QPointF(4.0, 16.0), QPointF(28.0, 16.0));
+    painter.drawLine(QPointF(4.0, 24.0), QPointF(28.0, 24.0));
+    painter.setPen(QPen(line, 1.4));
+    painter.setBrush(knob);
+    painter.drawEllipse(QPointF(10.0, 8.0), 3.2, 3.2);
+    painter.drawEllipse(QPointF(21.0, 16.0), 3.2, 3.2);
+    painter.drawEllipse(QPointF(14.0, 24.0), 3.2, 3.2);
     return QIcon(pixmap);
 }
 
 QIcon saveIcon()
 {
-    QPixmap pixmap(22, 22);
+    QPixmap pixmap(32, 32);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
     painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.scale(32.0 / 22.0, 32.0 / 22.0);
     painter.setPen(QPen(QColor("#334155"), 1.6));
     painter.setBrush(QColor("#e2e8f0"));
     painter.drawRoundedRect(QRectF(2.5, 2.0, 17.0, 18.5), 1.8, 1.8);
@@ -257,10 +265,11 @@ QIcon saveIcon()
 
 QIcon loginIcon(bool loggedIn)
 {
-    QPixmap pixmap(22, 22);
+    QPixmap pixmap(32, 32);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
     painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.scale(32.0 / 22.0, 32.0 / 22.0);
 
     const QColor frame = loggedIn ? QColor("#15803d") : QColor("#64748b");
     const QColor fill = loggedIn ? QColor("#dcfce7") : QColor("#e2e8f0");
@@ -294,10 +303,11 @@ QIcon loginIcon(bool loggedIn)
 
 QIcon sshIcon(int state)
 {
-    QPixmap pixmap(22, 22);
+    QPixmap pixmap(32, 32);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
     painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.scale(32.0 / 22.0, 32.0 / 22.0);
     static const QColor colors[] = {
         QColor("#64748b"), QColor("#2563eb"), QColor("#d97706"),
         QColor("#16a34a"), QColor("#dc2626")
@@ -317,38 +327,40 @@ QIcon sshIcon(int state)
 
 QIcon browserIcon()
 {
-    QPixmap pixmap(22, 22);
+    QPixmap pixmap(32, 32);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
     painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.scale(32.0 / 22.0, 32.0 / 22.0);
 
     const QColor frame("#2563eb");
-    painter.setPen(QPen(frame, 1.7, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    painter.setPen(QPen(frame, 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     painter.setBrush(Qt::NoBrush);
-    painter.drawRoundedRect(QRectF(1.5, 3.0, 19.0, 16.0), 2.0, 2.0);
-    painter.drawLine(QPointF(2.0, 7.5), QPointF(20.0, 7.5));
+    painter.drawRoundedRect(QRectF(1.2, 2.0, 19.6, 18.0), 2.0, 2.0);
+    painter.drawLine(QPointF(1.7, 7.0), QPointF(20.3, 7.0));
 
     painter.setPen(Qt::NoPen);
     painter.setBrush(frame);
-    painter.drawEllipse(QPointF(5.0, 5.3), 0.8, 0.8);
-    painter.drawEllipse(QPointF(8.0, 5.3), 0.8, 0.8);
-    painter.drawEllipse(QPointF(11.0, 5.3), 0.8, 0.8);
+    painter.drawEllipse(QPointF(5.0, 4.7), 0.85, 0.85);
+    painter.drawEllipse(QPointF(8.0, 4.7), 0.85, 0.85);
+    painter.drawEllipse(QPointF(11.0, 4.7), 0.85, 0.85);
 
-    painter.setPen(QPen(frame, 1.25, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    painter.setPen(QPen(frame, 1.35, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     painter.setBrush(Qt::NoBrush);
-    painter.drawEllipse(QPointF(11.0, 13.2), 4.0, 3.6);
-    painter.drawLine(QPointF(7.2, 13.2), QPointF(14.8, 13.2));
-    painter.drawArc(QRectF(9.2, 9.6, 3.6, 7.2), 90 * 16, 180 * 16);
-    painter.drawArc(QRectF(9.2, 9.6, 3.6, 7.2), 270 * 16, 180 * 16);
+    painter.drawEllipse(QPointF(11.0, 13.7), 4.4, 4.0);
+    painter.drawLine(QPointF(6.8, 13.7), QPointF(15.2, 13.7));
+    painter.drawArc(QRectF(9.0, 9.7, 4.0, 8.0), 90 * 16, 180 * 16);
+    painter.drawArc(QRectF(9.0, 9.7, 4.0, 8.0), 270 * 16, 180 * 16);
     return QIcon(pixmap);
 }
 
 QIcon modeIcon(InteractionMode mode, bool active)
 {
-    QPixmap pixmap(24, 24);
+    QPixmap pixmap(32, 32);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
     painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.scale(32.0 / 24.0, 32.0 / 24.0);
     const QPalette palette = QApplication::palette();
     const QColor color =
         active ? palette.color(QPalette::Highlight)

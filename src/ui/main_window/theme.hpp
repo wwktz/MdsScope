@@ -38,6 +38,14 @@ public:
         setMode(mdsScopeThemeMode(), false);
     }
 
+    void setUiScale(qreal scale)
+    {
+        uiScale_ = std::clamp(scale, 0.5, 2.0);
+        setFixedSize(qRound(92.0 * uiScale_),
+                     qRound(34.0 * uiScale_));
+        update();
+    }
+
     void setMode(ThemeMode mode, bool animated = true)
     {
         if (mode_ == mode && animated) {
@@ -62,6 +70,7 @@ protected:
     {
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing);
+        painter.scale(uiScale_, uiScale_);
 
         const QPalette pal = palette();
         const QColor track = pal.color(QPalette::AlternateBase);
@@ -72,7 +81,12 @@ protected:
         const QColor moonActive("#60a5fa");
         const QColor thumb = pal.color(QPalette::Button);
 
-        const QRectF outer = rect().adjusted(1, 2, -1, -2);
+        const QRectF logicalRect(
+            0.0,
+            0.0,
+            width() / uiScale_,
+            height() / uiScale_);
+        const QRectF outer = logicalRect.adjusted(1, 2, -1, -2);
         const qreal radius = outer.height() / 2.0;
         painter.setPen(QPen(border, 1));
         painter.setBrush(track);
@@ -228,6 +242,7 @@ private:
 
     QVariantAnimation animation_;
     ThemeMode mode_ = ThemeMode::Auto;
+    qreal uiScale_ = 1.0;
     qreal thumbPosition_ = 0.5;
     bool dragging_ = false;
 };

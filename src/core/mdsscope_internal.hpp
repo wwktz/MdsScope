@@ -115,6 +115,7 @@ constexpr int kNetworkTimeoutMs = 2500;
 
 struct FontSettings {
     QString family = QStringLiteral("Times New Roman");
+    int iconSize = 24;
 #ifdef Q_OS_WIN
     int legendSize = 10;
     int axisSize = 10;
@@ -175,7 +176,7 @@ void normalizePresetColors(QVector<SignalSpec>& specs);
 QStringList uniformAxisValues(const QVector<double>& values);
 QIcon appIcon();
 QIcon layoutIcon();
-QIcon fontIcon();
+QIcon appearanceIcon();
 QIcon saveIcon();
 QIcon loginIcon(bool loggedIn);
 QIcon sshIcon(int state);

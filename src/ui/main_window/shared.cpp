@@ -348,10 +348,11 @@ bool writeSeriesDataFile(const QString& path,
 
 QIcon infoIcon()
 {
-    QPixmap pixmap(28, 28);
+    QPixmap pixmap(32, 32);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
     painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.scale(32.0 / 28.0, 32.0 / 28.0);
 
     const bool dark = QApplication::palette().color(QPalette::Window).lightness() < 128;
     const QColor fill = Qt::transparent;
@@ -374,10 +375,11 @@ QIcon infoIcon()
 
 QIcon recentArrowIcon()
 {
-    QPixmap pixmap(12, 30);
+    QPixmap pixmap(16, 40);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
     painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.scale(4.0 / 3.0, 4.0 / 3.0);
     painter.setPen(Qt::NoPen);
     painter.setBrush(QApplication::palette().color(QPalette::ButtonText));
     painter.drawPolygon(QPolygonF{

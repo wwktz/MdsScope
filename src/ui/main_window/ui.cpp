@@ -29,9 +29,13 @@ protected:
             const int tooltipHeight = textBounds.height() + 10;
             const QPoint topCenter =
                 mapToGlobal(QPoint(width() / 2, 0));
+            const int configuredOffset =
+                property("toolTipOffset").toInt();
+            const int tooltipOffset =
+                configuredOffset > 0 ? configuredOffset : 22;
             QToolTip::showText(
                 QPoint(topCenter.x() - tooltipWidth / 2,
-                       topCenter.y() - tooltipHeight - 22),
+                       topCenter.y() - tooltipHeight - tooltipOffset),
                 toolTip(),
                 this);
             return true;
@@ -51,11 +55,11 @@ enum class ShotControlGlyph {
 
 QPixmap shotControlPixmap(ShotControlGlyph glyph, const QColor& color)
 {
-    QPixmap pixmap(28, 28);
+    QPixmap pixmap(32, 32);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
     painter.setRenderHint(QPainter::Antialiasing, true);
-    painter.scale(28.0 / 24.0, 28.0 / 24.0);
+    painter.scale(32.0 / 24.0, 32.0 / 24.0);
     painter.setPen(
         QPen(color, 2.2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     painter.setBrush(color);
@@ -131,6 +135,193 @@ QIcon shotControlIcon(ShotControlGlyph glyph)
     return icon;
 }
 
+enum class PanelMenuGlyph {
+    Maximize,
+    ShowAll,
+    ResetCurrent,
+    ResetAll,
+    SameX,
+    SameY,
+    Rate,
+    Export,
+    DataSource,
+    PanelSetup,
+};
+
+QPixmap panelMenuPixmap(PanelMenuGlyph glyph, const QColor& color)
+{
+    QPixmap pixmap(32, 32);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.scale(32.0 / 24.0, 32.0 / 24.0);
+    painter.setPen(
+        QPen(color, 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    painter.setBrush(Qt::NoBrush);
+
+    auto drawDoubleArrow = [&painter](
+                               const QPointF& start,
+                               const QPointF& end,
+                               bool horizontal) {
+        painter.drawLine(start, end);
+        if (horizontal) {
+            painter.drawLine(start, start + QPointF(2.6, -2.2));
+            painter.drawLine(start, start + QPointF(2.6, 2.2));
+            painter.drawLine(end, end + QPointF(-2.6, -2.2));
+            painter.drawLine(end, end + QPointF(-2.6, 2.2));
+        } else {
+            painter.drawLine(start, start + QPointF(-2.2, 2.6));
+            painter.drawLine(start, start + QPointF(2.2, 2.6));
+            painter.drawLine(end, end + QPointF(-2.2, -2.6));
+            painter.drawLine(end, end + QPointF(2.2, -2.6));
+        }
+    };
+
+    switch (glyph) {
+    case PanelMenuGlyph::Maximize:
+        painter.drawLine(QPointF(4.0, 9.0), QPointF(4.0, 4.0));
+        painter.drawLine(QPointF(4.0, 4.0), QPointF(9.0, 4.0));
+        painter.drawLine(QPointF(15.0, 4.0), QPointF(20.0, 4.0));
+        painter.drawLine(QPointF(20.0, 4.0), QPointF(20.0, 9.0));
+        painter.drawLine(QPointF(4.0, 15.0), QPointF(4.0, 20.0));
+        painter.drawLine(QPointF(4.0, 20.0), QPointF(9.0, 20.0));
+        painter.drawLine(QPointF(15.0, 20.0), QPointF(20.0, 20.0));
+        painter.drawLine(QPointF(20.0, 20.0), QPointF(20.0, 15.0));
+        break;
+    case PanelMenuGlyph::ShowAll:
+        for (int y : {4, 13}) {
+            for (int x : {4, 13}) {
+                painter.drawRoundedRect(
+                    QRectF(x, y, 7.0, 7.0), 1.2, 1.2);
+            }
+        }
+        break;
+    case PanelMenuGlyph::ResetCurrent: {
+        painter.setPen(
+            QPen(color, 2.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.drawArc(QRectF(3.5, 3.5, 17.0, 17.0),
+                        35 * 16,
+                        285 * 16);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(color);
+        painter.drawPolygon(QPolygonF{
+            QPointF(17.7, 3.0),
+            QPointF(21.5, 5.3),
+            QPointF(18.0, 7.7),
+        });
+        break;
+    }
+    case PanelMenuGlyph::ResetAll: {
+        painter.setPen(
+            QPen(color, 2.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.drawArc(QRectF(3.5, 3.5, 17.0, 17.0),
+                        35 * 16,
+                        285 * 16);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(color);
+        for (const QPointF& center :
+             {QPointF(10.0, 10.0),
+              QPointF(14.0, 10.0),
+              QPointF(10.0, 14.0),
+              QPointF(14.0, 14.0)}) {
+            painter.drawEllipse(center, 1.1, 1.1);
+        }
+        painter.drawPolygon(QPolygonF{
+            QPointF(17.7, 3.0),
+            QPointF(21.5, 5.3),
+            QPointF(18.0, 7.7),
+        });
+        break;
+    }
+    case PanelMenuGlyph::SameX:
+        drawDoubleArrow(
+            QPointF(4.5, 12.0), QPointF(19.5, 12.0), true);
+        break;
+    case PanelMenuGlyph::SameY:
+        drawDoubleArrow(
+            QPointF(12.0, 4.5), QPointF(12.0, 19.5), false);
+        break;
+    case PanelMenuGlyph::Rate:
+        painter.setPen(
+            QPen(color, 3.0, Qt::SolidLine, Qt::RoundCap));
+        painter.drawLine(QPointF(6.0, 18.0), QPointF(6.0, 14.0));
+        painter.drawLine(QPointF(12.0, 18.0), QPointF(12.0, 9.0));
+        painter.drawLine(QPointF(18.0, 18.0), QPointF(18.0, 5.0));
+        break;
+    case PanelMenuGlyph::Export:
+        painter.drawLine(QPointF(12.0, 3.5), QPointF(12.0, 14.0));
+        painter.drawLine(QPointF(8.5, 10.8), QPointF(12.0, 14.3));
+        painter.drawLine(QPointF(15.5, 10.8), QPointF(12.0, 14.3));
+        painter.drawRoundedRect(
+            QRectF(4.0, 15.0, 16.0, 5.0), 1.3, 1.3);
+        break;
+    case PanelMenuGlyph::DataSource:
+        painter.drawEllipse(QRectF(4.0, 4.0, 16.0, 5.0));
+        painter.drawLine(QPointF(4.0, 6.5), QPointF(4.0, 17.5));
+        painter.drawLine(QPointF(20.0, 6.5), QPointF(20.0, 17.5));
+        painter.drawArc(QRectF(4.0, 10.0, 16.0, 5.0),
+                        180 * 16,
+                        180 * 16);
+        painter.drawArc(QRectF(4.0, 15.0, 16.0, 5.0),
+                        180 * 16,
+                        180 * 16);
+        break;
+    case PanelMenuGlyph::PanelSetup:
+        for (const qreal y : {6.0, 12.0, 18.0}) {
+            painter.drawLine(QPointF(4.0, y), QPointF(20.0, y));
+        }
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(color);
+        painter.drawEllipse(QPointF(9.0, 6.0), 2.0, 2.0);
+        painter.drawEllipse(QPointF(16.0, 12.0), 2.0, 2.0);
+        painter.drawEllipse(QPointF(12.0, 18.0), 2.0, 2.0);
+        break;
+    }
+    return pixmap;
+}
+
+QIcon panelMenuIcon(PanelMenuGlyph glyph)
+{
+    const QPalette palette = QApplication::palette();
+    QIcon icon;
+    icon.addPixmap(
+        panelMenuPixmap(glyph, palette.color(QPalette::Text)),
+        QIcon::Normal);
+    const QPixmap active =
+        panelMenuPixmap(
+            glyph,
+            palette.color(QPalette::HighlightedText));
+    icon.addPixmap(active, QIcon::Active);
+    icon.addPixmap(active, QIcon::Selected);
+    icon.addPixmap(
+        panelMenuPixmap(
+            glyph,
+            palette.color(QPalette::Disabled, QPalette::Text)),
+        QIcon::Disabled);
+    return icon;
+}
+
+class PanelContextMenuStyle final : public QProxyStyle {
+public:
+    explicit PanelContextMenuStyle(int iconSize)
+        : iconSize_(iconSize)
+    {
+    }
+
+    int pixelMetric(PixelMetric metric,
+                    const QStyleOption* option = nullptr,
+                    const QWidget* widget = nullptr) const override
+    {
+        if (metric == QStyle::PM_SmallIconSize) {
+            return iconSize_;
+        }
+        return QProxyStyle::pixelMetric(metric, option, widget);
+    }
+
+private:
+    int iconSize_ = 20;
+};
+
 class DownwardComboStyle final : public QProxyStyle {
 public:
     using QProxyStyle::QProxyStyle;
@@ -162,6 +353,9 @@ void MainWindow::changeEvent(QEvent* event)
         if (layoutAction_) {
             layoutAction_->setIcon(layoutIcon());
         }
+        if (appearanceAction_) {
+            appearanceAction_->setIcon(appearanceIcon());
+        }
         if (zoomButton_ && pointButton_) {
             zoomButton_->setIcon(
                 modeIcon(InteractionMode::Zoom,
@@ -173,6 +367,12 @@ void MainWindow::changeEvent(QEvent* event)
         setStopButtonPaused(refresh_ && refresh_->dataPaused());
     }
     QMainWindow::changeEvent(event);
+}
+
+void MainWindow::resizeEvent(QResizeEvent* event)
+{
+    QMainWindow::resizeEvent(event);
+    updateTopControlVisibility();
 }
 
 void MainWindow::setStopButtonPaused(bool paused)
@@ -256,7 +456,7 @@ void MainWindow::buildUi()
     addAction(zoomModeAction);
     addAction(pointModeAction);
 
-    auto* toolbar = addToolBar("Tools");
+    auto* toolbar = toolbar_ = addToolBar("Tools");
     toolbar->setMovable(false);
     toolbar->toggleViewAction()->setVisible(false);
     toolbar->setContextMenuPolicy(Qt::PreventContextMenu);
@@ -286,7 +486,8 @@ void MainWindow::buildUi()
     if (openButton_) {
         openButton_->setToolButtonStyle(Qt::ToolButtonIconOnly);
     }
-    auto* recentEnvironmentSpace = new QWidget(toolbar);
+    auto* recentEnvironmentSpace =
+        recentEnvironmentSpace_ = new QWidget(toolbar);
     recentEnvironmentSpace->setFixedSize(7, 30);
     toolbar->addWidget(recentEnvironmentSpace);
     recentEnvironmentButton_ = new QToolButton(toolbar);
@@ -309,17 +510,6 @@ void MainWindow::buildUi()
         "  min-height: 30px;"
         "  max-height: 30px;"
         "}");
-    auto positionRecentEnvironmentButton = [toolbar, this] {
-        if (openButton_ && recentEnvironmentButton_) {
-            recentEnvironmentButton_->move(openButton_->mapTo(toolbar, QPoint(openButton_->width() - 4, 0)));
-            recentEnvironmentButton_->raise();
-        }
-    };
-    if (openButton_) {
-        positionRecentEnvironmentButton();
-        QTimer::singleShot(0, this, positionRecentEnvironmentButton);
-        recentEnvironmentButton_->show();
-    }
     connect(recentEnvironmentButton_, &QToolButton::clicked, this, &MainWindow::showRecentEnvironmentMenu);
     QWidget* recentMenuParent = openButton_ ? static_cast<QWidget*>(openButton_) : static_cast<QWidget*>(toolbar);
     recentEnvironmentMenu_ = new QMenu(recentMenuParent);
@@ -330,7 +520,6 @@ void MainWindow::buildUi()
     saveAction->setShortcutContext(Qt::ApplicationShortcut);
     addAction(saveAction);
     toolbar->addAction(style()->standardIcon(QStyle::SP_DialogSaveButton), "Export data", this, &MainWindow::openExportDataDialog);
-    toolbar->addAction(style()->standardIcon(QStyle::SP_BrowserReload), "Refresh", this, &MainWindow::refreshData);
     loginAction_ = toolbar->addAction(loginIcon(false), "Login", this, &MainWindow::openLoginDialog);
     updateLoginActionIcon();
     sshAction_ = toolbar->addAction(sshIcon(0), "SSH remote access", this, &MainWindow::openSshDialog);
@@ -353,7 +542,11 @@ void MainWindow::buildUi()
     }
     layoutAction_ = toolbar->addAction(
         layoutIcon(), "Layout setup", this, &MainWindow::openLayoutSetupDialog);
-    toolbar->addAction(fontIcon(), "Customize fonts", this, &MainWindow::openCustomizeDialog);
+    appearanceAction_ = toolbar->addAction(
+        appearanceIcon(),
+        "Customize appearance",
+        this,
+        &MainWindow::openCustomizeDialog);
 
     gridHost_ = new QWidget(this);
     gridHost_->setFocusPolicy(Qt::StrongFocus);
@@ -367,9 +560,11 @@ void MainWindow::buildUi()
     statusLabel_->setStyleSheet("color: palette(highlight);");
 
     toolbar->addSeparator();
-    auto* topControls = new QWidget(toolbar);
-    topControls->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    auto* topLayout = new QHBoxLayout(topControls);
+    auto* topControls = topControls_ = new QWidget(toolbar);
+    topControls->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    topControls->setMinimumWidth(0);
+    auto* topLayout =
+        topControlsLayout_ = new QHBoxLayout(topControls);
     topLayout->setContentsMargins(2, 0, 2, 0);
     topLayout->setSpacing(3);
     topControls->setStyleSheet(
@@ -389,7 +584,8 @@ void MainWindow::buildUi()
         "  padding: 0px;"
         "  margin-left: 8px;"
         "}");
-    topLayout->addWidget(new QLabel("Rate", topControls));
+    rateLabel_ = new QLabel("Rate", topControls);
+    topLayout->addWidget(rateLabel_);
     dataModeCombo_ = new QComboBox(topControls);
     dataModeCombo_->addItem("Thin", static_cast<int>(DataReadMode::Thin));
     dataModeCombo_->addItem("Medium", static_cast<int>(DataReadMode::Medium));
@@ -448,7 +644,8 @@ void MainWindow::buildUi()
         topLayout->addWidget(label);
     }
     topLayout->addStretch(1);
-    topLayout->addWidget(new ThemeModeButton(topControls));
+    themeModeButton_ = new ThemeModeButton(topControls);
+    topLayout->addWidget(themeModeButton_);
     aboutButton_ = new QToolButton(topControls);
     aboutButton_->setObjectName("aboutButton");
     aboutButton_->setIcon(infoIcon());
@@ -458,8 +655,9 @@ void MainWindow::buildUi()
     topLayout->addWidget(aboutButton_);
     toolbar->addWidget(topControls);
 
-    auto* bottom = new QWidget(this);
-    auto* bottomLayout = new QHBoxLayout(bottom);
+    auto* bottom = bottomControls_ = new QWidget(this);
+    auto* bottomLayout =
+        bottomControlsLayout_ = new QHBoxLayout(bottom);
     bottomLayout->setContentsMargins(4, 1, 4, 1);
     bottomLayout->setSpacing(5);
     bottom->setMaximumHeight(34);
@@ -736,6 +934,7 @@ void MainWindow::buildUi()
         }
     });
     connect(aboutButton_, &QToolButton::clicked, this, &MainWindow::openAboutDialog);
+    applyUiMetrics();
 }
 
 void MainWindow::updateGlobalRateControl()
@@ -756,13 +955,70 @@ void MainWindow::showPanelContextMenu(PlotWidget* plot, int column, int row, con
     selectPlot(column, row);
 
     QMenu menu(this);
-    QAction* maxAction = menu.addAction("Max");
-    QAction* showAllAction = menu.addAction("Show All Panels");
+    constexpr int menuIconSize = 26;
+    auto* menuStyle = new PanelContextMenuStyle(menuIconSize);
+    menuStyle->setParent(&menu);
+    menu.setStyle(menuStyle);
+    const QPalette menuPalette = menu.palette();
+    menu.setStyleSheet(
+        QStringLiteral(
+            "QMenu {"
+            "  background: %1;"
+            "  color: %2;"
+            "  border: 1px solid %3;"
+            "  border-radius: 8px;"
+            "  padding: 4px;"
+            "}"
+            "QMenu::item {"
+            "  padding: 6px 30px 6px 10px;"
+            "  margin: 1px 3px;"
+            "  border-radius: 5px;"
+            "}"
+            "QMenu::item:selected {"
+            "  background: %4;"
+            "  color: %5;"
+            "}"
+            "QMenu::item:disabled {"
+            "  color: %6;"
+            "}"
+            "QMenu::right-arrow {"
+            "  margin-right: 7px;"
+            "}")
+            .arg(menuPalette.color(QPalette::Base).name(),
+                 menuPalette.color(QPalette::Text).name(),
+                 menuPalette.color(QPalette::Mid).name(),
+                 menuPalette.color(QPalette::Highlight).name(),
+                 menuPalette.color(QPalette::HighlightedText).name(),
+                 menuPalette
+                     .color(QPalette::Disabled, QPalette::Text)
+                     .name()));
+
+    QAction* maxAction = menu.addAction(
+        panelMenuIcon(PanelMenuGlyph::Maximize),
+        "Maximize Panel");
+    QAction* showAllAction = menu.addAction(
+        panelMenuIcon(PanelMenuGlyph::ShowAll),
+        "Show All Panels");
     showAllAction->setEnabled(singlePanelMaximized_);
+    QAction* resetCurrentAction = menu.addAction(
+        panelMenuIcon(PanelMenuGlyph::ResetCurrent),
+        "Reset Current Scale");
+    QAction* resetAllAction = menu.addAction(
+        panelMenuIcon(PanelMenuGlyph::ResetAll),
+        "Reset All Scales");
+
     menu.addSeparator();
-    QAction* panelSetupAction = menu.addAction("Panel Setup");
-    QAction* dataSourceAction = menu.addAction("Data Source Setup");
-    QMenu* rateMenu = menu.addMenu("Rate");
+    QAction* sameXAction = menu.addAction(
+        panelMenuIcon(PanelMenuGlyph::SameX),
+        "All Same X Scale");
+    QAction* sameYAction = menu.addAction(
+        panelMenuIcon(PanelMenuGlyph::SameY),
+        "All Same Y Scale");
+
+    menu.addSeparator();
+    QMenu* rateMenu = menu.addMenu(
+        panelMenuIcon(PanelMenuGlyph::Rate),
+        "Rate");
     QAction* thinRateAction = rateMenu->addAction("Thin");
     QAction* mediumRateAction = rateMenu->addAction("Medium");
     QAction* fullRateAction = rateMenu->addAction("Full");
@@ -790,12 +1046,17 @@ void MainWindow::showPanelContextMenu(PlotWidget* plot, int column, int row, con
             action->setChecked(uniformMode && mode == firstMode);
         }
     }
-    QAction* exportDataAction = menu.addAction("Export Data");
+    QAction* exportDataAction = menu.addAction(
+        panelMenuIcon(PanelMenuGlyph::Export),
+        "Export Data");
+
     menu.addSeparator();
-    QAction* resetCurrentAction = menu.addAction("Reset Current Scale");
-    QAction* resetAllAction = menu.addAction("Reset All Panels");
-    QAction* sameXAction = menu.addAction("All Same X Scale");
-    QAction* sameYAction = menu.addAction("All Same Y Scale");
+    QAction* dataSourceAction = menu.addAction(
+        panelMenuIcon(PanelMenuGlyph::DataSource),
+        "Data Source Setup");
+    QAction* panelSetupAction = menu.addAction(
+        panelMenuIcon(PanelMenuGlyph::PanelSetup),
+        "Panel Setup");
 
     const QAction* chosen = menu.exec(plot->mapToGlobal(pos));
     if (!chosen) {
@@ -865,12 +1126,12 @@ void MainWindow::openCustomizeDialog()
 {
     FontSettings& fonts = fontSettings();
     QDialog dialog(this);
-    dialog.setWindowTitle("Customize Fonts");
+    dialog.setWindowTitle("Customize Appearance");
     if (QApplication::palette().color(QPalette::Window).lightness() >= 128) {
         dialog.setStyleSheet(
             "QDialog { background: #f6f6f6; color: #111827; }"
             "QLabel { background: transparent; color: #111827; }"
-            "QSpinBox, QFontComboBox {"
+            "QSpinBox, QFontComboBox, QComboBox {"
             "  background: #ffffff;"
             "  color: #111827;"
             "  border: 1px solid #cbd5e1;"
@@ -879,7 +1140,7 @@ void MainWindow::openCustomizeDialog()
             "  selection-background-color: #2563eb;"
             "  selection-color: #ffffff;"
             "}"
-            "QSpinBox:focus, QFontComboBox:focus { border-color: #2563eb; }"
+            "QSpinBox:focus, QFontComboBox:focus, QComboBox:focus { border-color: #2563eb; }"
             "QSpinBox::up-button, QSpinBox::down-button { background: transparent; border: none; width: 16px; }");
     }
     auto* layout = new QFormLayout(&dialog);
@@ -889,6 +1150,7 @@ void MainWindow::openCustomizeDialog()
     auto* axisSize = new QSpinBox(&dialog);
     auto* unitSize = new QSpinBox(&dialog);
     auto* uiSize = new QSpinBox(&dialog);
+    auto* iconSize = new QComboBox(&dialog);
     for (QSpinBox* box : {legendSize, axisSize, unitSize, uiSize}) {
         box->setRange(6, 28);
         box->setSingleStep(1);
@@ -898,11 +1160,18 @@ void MainWindow::openCustomizeDialog()
     axisSize->setValue(fonts.axisSize);
     unitSize->setValue(fonts.unitSize);
     uiSize->setValue(fonts.uiSize);
+    iconSize->addItem("20 px (Compact)", 20);
+    iconSize->addItem("24 px (Default)", 24);
+    iconSize->addItem("28 px (Large)", 28);
+    iconSize->addItem("32 px (Extra large)", 32);
+    iconSize->setCurrentIndex(
+        std::max(0, iconSize->findData(fonts.iconSize)));
     layout->addRow("Font", family);
     layout->addRow("Legend size", legendSize);
     layout->addRow("Axis size", axisSize);
     layout->addRow("Unit size", unitSize);
     layout->addRow("UI size", uiSize);
+    layout->addRow("Icon size", iconSize);
     auto* buttons = new QHBoxLayout();
     auto* ok = new QPushButton("OK", &dialog);
     auto* cancel = new QPushButton("Cancel", &dialog);
@@ -921,9 +1190,329 @@ void MainWindow::openCustomizeDialog()
     fonts.axisSize = axisSize->value();
     fonts.unitSize = unitSize->value();
     fonts.uiSize = uiSize->value();
+    fonts.iconSize = iconSize->currentData().toInt();
     saveFontSettings(rootPath_);
     applyUiFont();
+    applyUiMetrics();
     refreshPlotFonts();
+}
+
+void MainWindow::positionRecentEnvironmentButton()
+{
+    if (!toolbar_ || !openButton_ || !recentEnvironmentButton_) {
+        return;
+    }
+    const qreal scale = fontSettings().iconSize / 24.0;
+    const int overlap = qRound(4.0 * scale);
+    const int y =
+        std::max(0, (openButton_->height()
+                     - recentEnvironmentButton_->height())
+                        / 2);
+    recentEnvironmentButton_->move(
+        openButton_->mapTo(
+            toolbar_,
+            QPoint(std::max(0, openButton_->width() - overlap), y)));
+    recentEnvironmentButton_->raise();
+    recentEnvironmentButton_->show();
+}
+
+void MainWindow::updateTopControlVisibility()
+{
+    if (!topControls_
+        || !topControlsLayout_
+        || !rateLabel_
+        || !dataModeCombo_
+        || !topInfoLabel_
+        || !themeModeButton_
+        || !aboutButton_) {
+        return;
+    }
+
+    const QVector<QLabel*> secondaryLabels{
+        ipInfoLabel_,
+        pulseInfoLabel_,
+        itInfoLabel_,
+        timeInfoLabel_,
+    };
+    for (QLabel* label : secondaryLabels) {
+        if (label) {
+            label->hide();
+        }
+    }
+
+    topControlsLayout_->invalidate();
+    topControls_->updateGeometry();
+    if (toolbar_ && toolbar_->layout()) {
+        toolbar_->layout()->invalidate();
+        toolbar_->layout()->activate();
+    }
+
+    int available = topControls_->width();
+    if (toolbar_) {
+        const qreal scale = fontSettings().iconSize / 24.0;
+        const int rightPadding =
+            std::max(1, qRound(4.0 * scale));
+        const int left =
+            topControls_->mapTo(toolbar_, QPoint(0, 0)).x();
+        const int remaining =
+            toolbar_->width() - left - rightPadding;
+        if (remaining > 0) {
+            available = remaining;
+            topControls_->setMaximumWidth(available);
+        }
+    }
+    if (available <= 0) {
+        return;
+    }
+    topInfoLabel_->setMinimumWidth(0);
+    topInfoLabel_->setMinimumWidth(topInfoLabel_->sizeHint().width());
+
+    const QMargins margins = topControlsLayout_->contentsMargins();
+    const int spacing = topControlsLayout_->spacing();
+    const QVector<QWidget*> alwaysVisible{
+        rateLabel_,
+        dataModeCombo_,
+        topInfoLabel_,
+        themeModeButton_,
+        aboutButton_,
+    };
+    int required = margins.left() + margins.right();
+    for (QWidget* widget : alwaysVisible) {
+        required += widget->sizeHint().width();
+    }
+    // The stretch between the summary and the theme control is also a layout
+    // item, so the five persistent widgets create five inter-item gaps.
+    required += spacing * static_cast<int>(alwaysVisible.size());
+
+    for (QLabel* label : secondaryLabels) {
+        if (!label) {
+            continue;
+        }
+        const int candidate = required + spacing
+                              + label->sizeHint().width();
+        if (candidate > available) {
+            continue;
+        }
+        label->show();
+        required = candidate;
+    }
+}
+
+void MainWindow::applyUiMetrics()
+{
+    FontSettings& settings = fontSettings();
+    if (!QList<int>{20, 24, 28, 32}.contains(settings.iconSize)) {
+        settings.iconSize = 24;
+    }
+    const int iconSize = settings.iconSize;
+    const qreal scale = iconSize / 24.0;
+    const auto metric = [scale](int base) {
+        return std::max(1, qRound(base * scale));
+    };
+
+    const int toolbarButton = metric(30);
+    const int toolbarRadius = metric(4);
+    if (toolbar_) {
+        toolbar_->setIconSize(QSize(iconSize, iconSize));
+        toolbar_->setStyleSheet(
+            QStringLiteral(
+                "QToolBar {"
+                "  spacing: %1px;"
+                "  padding: %2px %3px;"
+                "  border: 0px;"
+                "}"
+                "QToolButton {"
+                "  margin: 0px;"
+                "  padding: %4px;"
+                "  min-width: %5px;"
+                "  min-height: %5px;"
+                "  background: transparent;"
+                "  border: 1px solid transparent;"
+                "  border-radius: %6px;"
+                "}"
+                "QToolButton:hover {"
+                "  background: palette(midlight);"
+                "  border-color: palette(highlight);"
+                "}"
+                "QToolButton:pressed {"
+                "  background: palette(dark);"
+                "  border-color: palette(highlight);"
+                "}")
+                .arg(metric(5))
+                .arg(metric(2))
+                .arg(metric(4))
+                .arg(metric(3))
+                .arg(toolbarButton)
+                .arg(toolbarRadius));
+    }
+
+    const int recentWidth = metric(12);
+    const int recentHeight = toolbarButton;
+    if (recentEnvironmentSpace_) {
+        recentEnvironmentSpace_->setFixedSize(
+            metric(7), recentHeight);
+    }
+    if (recentEnvironmentButton_) {
+        recentEnvironmentButton_->setIconSize(
+            QSize(recentWidth, recentHeight));
+        recentEnvironmentButton_->setFixedSize(
+            recentWidth, recentHeight);
+        recentEnvironmentButton_->setStyleSheet(
+            QStringLiteral(
+                "QToolButton#recentEnvironmentButton {"
+                "  background: transparent;"
+                "  color: palette(buttonText);"
+                "  border: 0px;"
+                "  padding: 0px;"
+                "  margin: 0px;"
+                "  min-width: %1px;"
+                "  max-width: %1px;"
+                "  min-height: %2px;"
+                "  max-height: %2px;"
+                "}")
+                .arg(recentWidth)
+                .arg(recentHeight));
+    }
+
+    if (topControlsLayout_) {
+        topControlsLayout_->setContentsMargins(
+            metric(2), 0, metric(2), 0);
+        topControlsLayout_->setSpacing(metric(3));
+    }
+    if (topControls_) {
+        topControls_->setStyleSheet(
+            QStringLiteral(
+                "QPushButton {"
+                "  padding: %1px %2px;"
+                "  min-height: %3px;"
+                "}"
+                "QLineEdit, QComboBox {"
+                "  min-height: %3px;"
+                "  padding: 0px %4px;"
+                "}"
+                "QLabel {"
+                "  margin-left: %4px;"
+                "  margin-right: %4px;"
+                "}"
+                "QToolButton#aboutButton {"
+                "  border: 1px solid transparent;"
+                "  border-radius: %5px;"
+                "  background: transparent;"
+                "  padding: 0px;"
+                "  margin-left: %6px;"
+                "}")
+                .arg(metric(1))
+                .arg(metric(8))
+                .arg(metric(18))
+                .arg(metric(2))
+                .arg(metric(15))
+                .arg(metric(8)));
+    }
+    if (themeModeButton_) {
+        themeModeButton_->setUiScale(scale);
+    }
+    if (aboutButton_) {
+        const int aboutIcon = metric(28);
+        const int aboutButton = metric(34);
+        aboutButton_->setIconSize(QSize(aboutIcon, aboutIcon));
+        aboutButton_->setFixedSize(aboutButton, aboutButton);
+    }
+
+    const int controlHeight =
+        std::max(metric(28), iconSize + metric(4));
+    const int shotWidth = metric(66);
+    const int bottomHeight =
+        std::max(metric(34), controlHeight + metric(2));
+    if (bottomControlsLayout_) {
+        bottomControlsLayout_->setContentsMargins(
+            metric(4), metric(1), metric(4), metric(1));
+        bottomControlsLayout_->setSpacing(metric(5));
+    }
+    if (bottomControls_) {
+        bottomControls_->setFixedHeight(bottomHeight);
+        bottomControls_->setStyleSheet(
+            QStringLiteral(
+                "QPushButton {"
+                "  padding: %1px %2px;"
+                "  min-height: %3px;"
+                "}"
+                "QLineEdit, QComboBox {"
+                "  min-height: %3px;"
+                "  padding: 0px %4px;"
+                "}"
+                "QToolButton {"
+                "  margin: 0px;"
+                "  padding: %1px;"
+                "  min-width: %5px;"
+                "  min-height: %6px;"
+                "}"
+                "QToolButton[interactionControl=\"true\"]:hover {"
+                "  background: palette(midlight);"
+                "  border-color: palette(highlight);"
+                "}"
+                "QToolButton[interactionControl=\"true\"]:pressed {"
+                "  background: palette(dark);"
+                "  border-color: palette(highlight);"
+                "}"
+                "QToolButton[shotControl=\"true\"] {"
+                "  min-width: %7px;"
+                "  max-width: %7px;"
+                "  min-height: %6px;"
+                "  max-height: %6px;"
+                "  background: palette(button);"
+                "  border: 1px solid palette(mid);"
+                "  border-radius: %8px;"
+                "}"
+                "QToolButton[shotControl=\"true\"]:hover {"
+                "  background: palette(midlight);"
+                "  border-color: palette(highlight);"
+                "}"
+                "QToolButton[shotControl=\"true\"]:pressed {"
+                "  background: palette(dark);"
+                "  border-color: palette(highlight);"
+                "}")
+                .arg(metric(1))
+                .arg(metric(8))
+                .arg(metric(18))
+                .arg(metric(2))
+                .arg(metric(30))
+                .arg(controlHeight)
+                .arg(shotWidth)
+                .arg(metric(4)));
+    }
+
+    for (QToolButton* button : {zoomButton_, pointButton_}) {
+        if (button) {
+            button->setIconSize(QSize(iconSize, iconSize));
+        }
+    }
+    for (QToolButton* button :
+         {applyShotButton_,
+          stopButton_,
+          previousShotButton_,
+          nextShotButton_,
+          latestShotButton_}) {
+        if (!button) {
+            continue;
+        }
+        button->setIconSize(QSize(iconSize, iconSize));
+        button->setFixedSize(shotWidth, controlHeight);
+        button->setProperty("toolTipOffset", metric(22));
+    }
+
+    if (toolbar_ && toolbar_->layout()) {
+        toolbar_->layout()->activate();
+    }
+    positionRecentEnvironmentButton();
+    updateTopControlVisibility();
+    QTimer::singleShot(
+        0, this, &MainWindow::positionRecentEnvironmentButton);
+    QTimer::singleShot(
+        0, this, &MainWindow::updateTopControlVisibility);
+    if (statusBar()) {
+        statusBar()->updateGeometry();
+    }
+    updateGeometry();
 }
 
 void MainWindow::applyUiFont()
@@ -949,6 +1538,7 @@ void MainWindow::applyUiFont()
             label->setFont(uiFont);
         }
     }
+    updateTopControlVisibility();
 }
 
 void MainWindow::refreshPlotFonts()
@@ -1036,6 +1626,16 @@ void MainWindow::updateTopInfoLabels()
     setLabelTextIfChanged(pulseInfoLabel_, "Pulse: " + (topSummaryPulse_.isEmpty() ? emptyText : topSummaryPulse_ + " s"));
     setLabelTextIfChanged(itInfoLabel_, "It: " + (topSummaryIt_.isEmpty() ? emptyText : topSummaryIt_ + " A"));
     setLabelTextIfChanged(timeInfoLabel_, "Time: " + (topSummaryTime_.isEmpty() ? emptyText : topSummaryTime_));
+    if (topInfoLabel_) {
+        topInfoLabel_->setToolTip(
+            QStringLiteral("%1\n%2\n%3\n%4\n%5")
+                .arg(topInfoLabel_->text(),
+                     ipInfoLabel_->text(),
+                     pulseInfoLabel_->text(),
+                     itInfoLabel_->text(),
+                     timeInfoLabel_->text()));
+    }
+    updateTopControlVisibility();
 }
 
 void MainWindow::scheduleTopInfoUpdate(const QString& shot)
