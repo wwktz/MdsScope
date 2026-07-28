@@ -185,6 +185,12 @@ QString applicationStyleSheet(const QPalette& palette)
                "QMenu::item:selected {"
                "  background: %7;"
                "  color: %11;"
+               "}"
+               "QToolTip {"
+               "  background: %13;"
+               "  color: %14;"
+               "  border: 1px solid %5;"
+               "  padding: 4px 6px;"
                "}")
         .arg(cssColor(palette, QPalette::Window),
              cssColor(palette, QPalette::WindowText),
@@ -197,7 +203,9 @@ QString applicationStyleSheet(const QPalette& palette)
              cssColor(palette, QPalette::Base),
              cssColor(palette, QPalette::Text),
              cssColor(palette, QPalette::HighlightedText),
-             cssColor(palette, QPalette::Disabled, QPalette::Text));
+             cssColor(palette, QPalette::Disabled, QPalette::Text),
+             cssColor(palette, QPalette::ToolTipBase),
+             cssColor(palette, QPalette::ToolTipText));
 }
 
 constexpr const char* kThemeModeSetting = "ui/themeMode";
@@ -690,7 +698,12 @@ HRESULT createWindowsStartMenuShortcut()
         result = link->SetDescription(L"MdsScope");
     }
     if (SUCCEEDED(result)) {
-        result = link->SetIconLocation(executablePath.c_str(), 0);
+        // Address the embedded icon by resource ID rather than by its
+        // enumeration index. The taskbar resolves the icon through the
+        // AppUserModelID shortcut and needs a stable resource reference.
+        result = link->SetIconLocation(
+            executablePath.c_str(),
+            -MDS_SCOPE_WINDOWS_ICON_RESOURCE_ID);
     }
 
     IPropertyStore* properties = nullptr;

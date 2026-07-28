@@ -171,7 +171,11 @@ set_target_properties(transfer PROPERTIES AUTOMOC OFF)
 set_target_properties(MdsScope PROPERTIES WIN32_EXECUTABLE TRUE)
 
 if(WIN32)
-    target_compile_definitions(MdsScope PRIVATE NOMINMAX)
+    set(MDS_SCOPE_WINDOWS_ICON_RESOURCE_ID 101)
+    target_compile_definitions(MdsScope PRIVATE
+        NOMINMAX
+        MDS_SCOPE_WINDOWS_ICON_RESOURCE_ID=${MDS_SCOPE_WINDOWS_ICON_RESOURCE_ID}
+    )
     set(MDS_SCOPE_WINDOWS_ICON "${PROJECT_SOURCE_DIR}/packaging/windows/mdsscope.ico")
     configure_file(
         "${PROJECT_SOURCE_DIR}/packaging/windows/mdsscope.rc.in"
