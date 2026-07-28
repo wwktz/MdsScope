@@ -10,6 +10,7 @@
 #include <QAbstractButton>
 #include <QAbstractSpinBox>
 #include <QPlainTextEdit>
+#include <QShortcut>
 #include <QTextEdit>
 
 namespace {
@@ -34,6 +35,17 @@ bool isInputWidget(QWidget* widget)
         return true;
     }
     return qobject_cast<QComboBox*>(widget) != nullptr;
+}
+
+bool isShotInputWidget(QWidget* widget,
+                       QComboBox* shotCombo,
+                       QLineEdit* shotEdit)
+{
+    return widget
+           && (widget == shotEdit
+               || widget == shotCombo
+               || (shotCombo
+                   && shotCombo->isAncestorOf(widget)));
 }
 
 QKeySequence keySequenceFrom(
@@ -80,7 +92,10 @@ QList<QKeySequence> assignedSequences(
 bool MainWindow::eventFilter(QObject* watched, QEvent* event)
 {
     if (event->type() == QEvent::FocusIn
-        && watched == shotEdit_) {
+        && isShotInputWidget(
+            qobject_cast<QWidget*>(watched),
+            shotCombo_,
+            shotEdit_)) {
         beginShotEditSession();
         return QMainWindow::eventFilter(watched, event);
     }
@@ -90,6 +105,19 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
 
     auto* target = qobject_cast<QWidget*>(watched);
     auto* keyEvent = static_cast<QKeyEvent*>(event);
+    QWidget* focus = QApplication::focusWidget();
+    const bool shotInputFocused =
+        isShotInputWidget(
+            focus, shotCombo_, shotEdit_)
+        || isShotInputWidget(
+            target, shotCombo_, shotEdit_);
+    if (shotInputFocused) {
+        beginShotEditSession();
+        if (handleShotEditExitKey(keyEvent)) {
+            keyEvent->accept();
+            return true;
+        }
+    }
     if (!target
         || target->window() != this
         || QApplication::activeModalWidget()
@@ -97,12 +125,9 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
         return QMainWindow::eventFilter(watched, event);
     }
 
-    if (target == shotEdit_) {
+    if (isShotInputWidget(
+            target, shotCombo_, shotEdit_)) {
         beginShotEditSession();
-        if (handleShotEditExitKey(keyEvent)) {
-            keyEvent->accept();
-            return true;
-        }
     }
 
     if (isInputWidget(target)) {
@@ -142,13 +167,15 @@ bool MainWindow::handleShortcutKey(QKeyEvent* event,
     }
 
     const bool editingText = isInputWidget(target);
+    const bool editingShot = isShotInputWidget(
+        target, shotCombo_, shotEdit_);
     Qt::KeyboardModifiers modifiers =
         event->modifiers() & ~Qt::KeypadModifier;
     const QKeyCombination key(
         modifiers,
         static_cast<Qt::Key>(event->key()));
 
-    auto findMatch = [this, editingText](
+    auto findMatch = [this, editingText, editingShot](
                          const QKeySequence& candidate,
                          ShortcutCommand* exactCommand,
                          bool* partialMatch) {
@@ -159,10 +186,18 @@ bool MainWindow::handleShortcutKey(QKeyEvent* event,
                 continue;
             }
             // Editing widgets retain their native Select All, Cut, Undo,
-            // cursor movement, and text entry behavior. Save is the sole
-            // workspace command allowed through while editing.
+            // cursor movement, and text entry behavior. Save and shot
+            // navigation are the only workspace commands allowed through;
+            // shot navigation first discards any uncommitted shot draft.
             if (editingText
-                && binding.command != ShortcutCommand::Save) {
+                && binding.command != ShortcutCommand::Save
+                && !(editingShot
+                     && (binding.command
+                             == ShortcutCommand::PreviousShot
+                         || binding.command
+                                == ShortcutCommand::NextShot
+                         || binding.command
+                                == ShortcutCommand::LatestShot))) {
                 continue;
             }
             for (const QKeySequence& sequence :
@@ -433,25 +468,23 @@ void MainWindow::cancelShotEditSession()
 
 bool MainWindow::handleShotEditExitKey(QKeyEvent* event)
 {
-    if (!event || !shotEditSessionActive_) {
-        return false;
-    }
-    if (isModifierKey(event->key())) {
+    if (!event || !shotEditSessionActive_
+        || isModifierKey(event->key())) {
         return false;
     }
 
-    const auto exitBinding = std::find_if(
+    const auto binding = std::find_if(
         shortcutBindings_.cbegin(),
         shortcutBindings_.cend(),
-        [](const ShortcutBinding& binding) {
-            return binding.command
+        [](const ShortcutBinding& item) {
+            return item.command
                    == ShortcutCommand::ExitPoint;
         });
-    if (exitBinding == shortcutBindings_.cend()) {
+    if (binding == shortcutBindings_.cend()) {
         return false;
     }
     const QList<QKeySequence> sequences =
-        assignedSequences(*exitBinding);
+        assignedSequences(*binding);
     if (sequences.isEmpty()) {
         return false;
     }
@@ -468,10 +501,11 @@ bool MainWindow::handleShotEditExitKey(QKeyEvent* event)
                 cancelShotEditSession();
                 return 2;
             }
-            partial = partial
-                      || (candidate.count() < sequence.count()
-                          && sequenceStartsWith(
-                              sequence, candidate));
+            partial =
+                partial
+                || (candidate.count() < sequence.count()
+                    && sequenceStartsWith(
+                        sequence, candidate));
         }
         if (partial) {
             pendingShotEditExitKeys_ = std::move(keys);
@@ -498,6 +532,53 @@ bool MainWindow::handleShotEditExitKey(QKeyEvent* event)
     return result != 0;
 }
 
+void MainWindow::rebuildShotInputShortcuts()
+{
+    qDeleteAll(shotInputShortcuts_);
+    shotInputShortcuts_.clear();
+    if (!shotCombo_) {
+        return;
+    }
+
+    const QList<ShortcutCommand> commands{
+        ShortcutCommand::PreviousShot,
+        ShortcutCommand::NextShot,
+        ShortcutCommand::LatestShot,
+    };
+    for (ShortcutCommand command : commands) {
+        const auto binding = std::find_if(
+            shortcutBindings_.cbegin(),
+            shortcutBindings_.cend(),
+            [command](const ShortcutBinding& item) {
+                return item.command == command;
+            });
+        if (binding == shortcutBindings_.cend()) {
+            continue;
+        }
+        for (const QKeySequence& sequence :
+             assignedSequences(*binding)) {
+            auto* shortcut =
+                new QShortcut(sequence, shotCombo_);
+            shortcut->setContext(
+                Qt::WidgetWithChildrenShortcut);
+            shortcut->setAutoRepeat(false);
+            connect(shortcut,
+                    &QShortcut::activated,
+                    this,
+                    [this, command] {
+                beginShotEditSession();
+                if (command
+                    == ShortcutCommand::ExitPoint) {
+                    cancelShotEditSession();
+                    return;
+                }
+                triggerShortcutCommand(command);
+            });
+            shotInputShortcuts_.push_back(shortcut);
+        }
+    }
+}
+
 void MainWindow::openShortcutDialog()
 {
     pendingShortcutKeys_.clear();
@@ -508,6 +589,7 @@ void MainWindow::openShortcutDialog()
     }
     shortcutBindings_ = dialog.bindings();
     saveShortcutBindings(rootPath_, shortcutBindings_);
+    rebuildShotInputShortcuts();
     updateShortcutToolTips();
     setStatus(QStringLiteral("Keyboard shortcuts updated for %1")
                   .arg(shortcutPlatformName()));

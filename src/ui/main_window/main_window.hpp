@@ -24,6 +24,7 @@ class QLineEdit;
 class QMenu;
 class QResizeEvent;
 class QScrollArea;
+class QShortcut;
 class QToolBar;
 class QToolButton;
 class PlotWidget;
@@ -186,6 +187,7 @@ private:
     void beginShotEditSession();
     void cancelShotEditSession();
     bool handleShotEditExitKey(QKeyEvent* event);
+    void rebuildShotInputShortcuts();
     void updateShortcutToolTips();
     QString shortcutText(ShortcutCommand command) const;
 
@@ -243,6 +245,7 @@ private:
     QTimer shortcutSequenceTimer_;
     QTimer shotEditExitTimer_;
     QList<QKeyCombination> pendingShotEditExitKeys_;
+    QVector<QShortcut*> shotInputShortcuts_;
     QString shotEditSessionText_;
     bool shotEditSessionActive_ = false;
     std::unique_ptr<RefreshCoordinator> refresh_;

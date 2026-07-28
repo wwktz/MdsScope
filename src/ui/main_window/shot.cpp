@@ -81,6 +81,9 @@ void MainWindow::stepShot(int delta)
     if (!shotEdit_) {
         return;
     }
+    if (shotEditSessionActive_) {
+        cancelShotEditSession();
+    }
     bool ok = false;
     const int shot = shotEdit_->text().trimmed().toInt(&ok);
     if (!ok) {
@@ -109,6 +112,9 @@ void MainWindow::stepShot(int delta)
 
 void MainWindow::latestShot()
 {
+    if (shotEditSessionActive_) {
+        cancelShotEditSession();
+    }
     // Latest is an active refresh, not a jump to a possibly stale cached value.
     fetchLatestShotAsync(true);
 }

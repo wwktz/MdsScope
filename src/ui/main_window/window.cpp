@@ -47,7 +47,7 @@ MainWindow::MainWindow(QString rootPath, QWidget* parent)
             this,
             [this] { pendingShortcutKeys_.clear(); });
     shotEditExitTimer_.setSingleShot(true);
-    shotEditExitTimer_.setInterval(500);
+    shotEditExitTimer_.setInterval(1000);
     connect(&shotEditExitTimer_,
             &QTimer::timeout,
             this,

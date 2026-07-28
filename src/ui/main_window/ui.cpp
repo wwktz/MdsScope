@@ -993,6 +993,7 @@ void MainWindow::buildUi()
         }
     });
     connect(aboutButton_, &QToolButton::clicked, this, &MainWindow::openAboutDialog);
+    rebuildShotInputShortcuts();
     applyUiMetrics();
     updateShortcutToolTips();
 }
