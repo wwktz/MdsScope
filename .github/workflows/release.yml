@@ -326,6 +326,10 @@ jobs:
       - name: Build
         run: cmake --build build --config Release
 
+      - name: Verify executable icon
+        shell: pwsh
+        run: packaging/windows/verify-icon.ps1 -Executable "build\Release\MdsScope.exe"
+
       - name: Package portable ZIP
         shell: pwsh
         run: |

@@ -747,6 +747,43 @@ void ensureWindowsStartMenuShortcut()
         CoUninitialize();
     }
 }
+
+void configureWindowsWindowIcon(HWND window)
+{
+    if (!window) {
+        return;
+    }
+    HMODULE module = GetModuleHandleW(nullptr);
+    if (!module) {
+        return;
+    }
+
+    auto loadIcon = [module](int width, int height) {
+        return static_cast<HICON>(
+            LoadImageW(module,
+                       L"IDI_MDSSCOPE_ICON",
+                       IMAGE_ICON,
+                       width,
+                       height,
+                       LR_SHARED));
+    };
+    if (HICON largeIcon =
+            loadIcon(GetSystemMetrics(SM_CXICON),
+                     GetSystemMetrics(SM_CYICON))) {
+        SendMessageW(window,
+                     WM_SETICON,
+                     ICON_BIG,
+                     reinterpret_cast<LPARAM>(largeIcon));
+    }
+    if (HICON smallIcon =
+            loadIcon(GetSystemMetrics(SM_CXSMICON),
+                     GetSystemMetrics(SM_CYSMICON))) {
+        SendMessageW(window,
+                     WM_SETICON,
+                     ICON_SMALL,
+                     reinterpret_cast<LPARAM>(smallIcon));
+    }
+}
 #endif
 }
 
@@ -869,6 +906,10 @@ int runMdsScopeApplication(int argc, char* argv[])
     {
         MainWindow window(workDir.absolutePath());
         window.resize(1440, 920);
+#ifdef Q_OS_WIN
+        configureWindowsWindowIcon(
+            reinterpret_cast<HWND>(window.winId()));
+#endif
         window.show();
         code = app.exec();
     }
