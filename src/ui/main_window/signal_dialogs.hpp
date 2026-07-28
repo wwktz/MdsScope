@@ -326,6 +326,28 @@ private:
             "QAbstractItemView::item:hover, QAbstractItemView::item:selected {"
             " background: palette(highlight); color: palette(highlighted-text);"
             "}");
+#ifdef Q_OS_WIN
+        constexpr bool needsMouseSelectionFallback = true;
+#else
+        constexpr bool needsMouseSelectionFallback = false;
+#endif
+        auto* lineEdit = qobject_cast<QLineEdit*>(parent);
+        if (needsMouseSelectionFallback && lineEdit) {
+            QObject::connect(
+                popup,
+                &QAbstractItemView::pressed,
+                lineEdit,
+                [completer, lineEdit](const QModelIndex& index) {
+                    if (!index.isValid()
+                        || !(QApplication::mouseButtons() & Qt::LeftButton)) {
+                        return;
+                    }
+                    const QString completion = completer->pathFromIndex(index);
+                    lineEdit->setText(completion);
+                    lineEdit->setCursorPosition(completion.size());
+                    completer->popup()->hide();
+                });
+        }
         return completer;
     }
 
