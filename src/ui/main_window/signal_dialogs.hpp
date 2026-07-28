@@ -129,7 +129,6 @@ private:
         QCompleter* treeCompleter = nullptr;
         QStringListModel* signalModel = nullptr;
         QCompleter* signalCompleter = nullptr;
-        QListWidget* reverseTreePopup = nullptr;
         QPushButton* colorButton = nullptr;
         QCheckBox* hidden = nullptr;
         QComboBox* dataMode = nullptr;
@@ -154,28 +153,6 @@ private:
         row->treeCompleter = makeCompleter(row->treeModel, row->tree);
         row->signalModel = new QStringListModel(row->signal);
         row->signalCompleter = makeCompleter(row->signalModel, row->signal);
-        row->reverseTreePopup = new QListWidget(this);
-        row->reverseTreePopup->setObjectName(QStringLiteral("reverseTreePopup"));
-        row->reverseTreePopup->setWindowFlags(Qt::ToolTip
-                                              | Qt::FramelessWindowHint
-                                              | Qt::WindowDoesNotAcceptFocus);
-        row->reverseTreePopup->setAttribute(Qt::WA_ShowWithoutActivating, true);
-        row->reverseTreePopup->setFocusPolicy(Qt::NoFocus);
-        row->reverseTreePopup->viewport()->setFocusPolicy(Qt::NoFocus);
-        row->reverseTreePopup->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-        row->reverseTreePopup->setSelectionMode(QAbstractItemView::SingleSelection);
-        row->reverseTreePopup->setSelectionBehavior(QAbstractItemView::SelectRows);
-        row->reverseTreePopup->setMouseTracking(true);
-        row->reverseTreePopup->viewport()->setMouseTracking(true);
-        row->reverseTreePopup->setAttribute(Qt::WA_Hover, true);
-        row->reverseTreePopup->viewport()->setAttribute(Qt::WA_Hover, true);
-        row->reverseTreePopup->setStyleSheet(
-            "QListWidget { outline: 0; }"
-            "QListWidget::item { padding: 2px 6px; }"
-            "QListWidget::item:hover, QListWidget::item:selected {"
-            " background: palette(highlight); color: palette(highlighted-text);"
-            "}");
-        row->reverseTreePopup->hide();
         row->colorButton = new QPushButton(rowsHost_);
         row->hidden = new QCheckBox(rowsHost_);
         row->dataMode = new QComboBox(rowsHost_);
@@ -199,6 +176,17 @@ private:
         row->dataMode->setMinimumWidth(90);
         row->tree->setCompleter(row->treeCompleter);
         row->signal->setCompleter(row->signalCompleter);
+        connect(
+            row->treeCompleter,
+            qOverload<const QString&>(&QCompleter::activated),
+            row->tree,
+            [row](const QString& completion) {
+                if (row->tree->hasFocus()) {
+                    return;
+                }
+                row->tree->setText(completion);
+                row->tree->setCursorPosition(completion.size());
+            });
         updateTreeCompleter(row, false);
         updateSignalCompleter(row);
         updateColorButton(row);
@@ -232,28 +220,13 @@ private:
             updateSignalCompleter(row);
             if (row->tree->text().trimmed().isEmpty()) {
                 updateTreeCompleter(row, true);
-            } else if (row->reverseTreePopup) {
-                row->reverseTreePopup->hide();
+            } else if (!row->tree->hasFocus() && row->treeCompleter) {
+                row->treeCompleter->popup()->hide();
             }
         });
         connect(row->signal, &QLineEdit::textChanged, this, [this, row] {
             refreshSignalSuggestions(row);
             updateTreeCompleter(row, true);
-        });
-        connect(row->reverseTreePopup, &QListWidget::itemPressed, this, [row](QListWidgetItem* item) {
-            if (!row || !row->tree || !row->reverseTreePopup || !item) {
-                return;
-            }
-            row->tree->setText(item->text());
-            row->reverseTreePopup->hide();
-            if (row->signal) {
-                row->signal->setFocus(Qt::OtherFocusReason);
-            }
-        });
-        connect(row->reverseTreePopup, &QListWidget::itemEntered, this, [row](QListWidgetItem* item) {
-            if (row && row->reverseTreePopup && item) {
-                row->reverseTreePopup->setCurrentItem(item);
-            }
         });
         connect(row->deleteButton, &QPushButton::clicked, this, [row] {
             row->deleted = true;
@@ -267,8 +240,8 @@ private:
                                     static_cast<QWidget*>(row->deleteButton)}) {
                 widget->hide();
             }
-            if (row->reverseTreePopup) {
-                row->reverseTreePopup->hide();
+            if (row->treeCompleter) {
+                row->treeCompleter->popup()->hide();
             }
         });
     }
@@ -513,8 +486,8 @@ private:
             if (row->treeModel->stringList() != treeNames_) {
                 row->treeModel->setStringList(treeNames_);
             }
-            if (row->reverseTreePopup) {
-                row->reverseTreePopup->hide();
+            if (row->treeCompleter) {
+                row->treeCompleter->popup()->hide();
             }
             return;
         }
@@ -526,8 +499,8 @@ private:
         }
         if (!showReverseMatches || !row->tree->text().trimmed().isEmpty()
             || exactTrees.isEmpty()) {
-            if (row->reverseTreePopup) {
-                row->reverseTreePopup->hide();
+            if (row->treeCompleter) {
+                row->treeCompleter->popup()->hide();
             }
             return;
         }
@@ -536,34 +509,11 @@ private:
 
     void showReverseTreePopup(Row* row, const QStringList& trees)
     {
-        if (!row || row->deleted || !row->tree || !row->reverseTreePopup || trees.isEmpty()) {
+        if (!row || row->deleted || !row->tree || !row->treeCompleter || trees.isEmpty()) {
             return;
         }
-
-        QStringList currentTrees;
-        currentTrees.reserve(row->reverseTreePopup->count());
-        for (int i = 0; i < row->reverseTreePopup->count(); ++i) {
-            currentTrees.push_back(row->reverseTreePopup->item(i)->text());
-        }
-        if (currentTrees != trees) {
-            row->reverseTreePopup->clear();
-            row->reverseTreePopup->addItems(trees);
-        }
-        if (row->reverseTreePopup->count() > 0 && !row->reverseTreePopup->currentItem()) {
-            row->reverseTreePopup->setCurrentRow(0);
-        }
-
-        const QFontMetrics fm(row->reverseTreePopup->font());
-        int popupWidth = row->tree->width();
-        for (const QString& tree : trees) {
-            popupWidth = std::max(popupWidth, fm.horizontalAdvance(tree) + 32);
-        }
-        const int visibleRows = std::min(8, static_cast<int>(trees.size()));
-        const int rowHeight = std::max(fm.height() + 8, row->reverseTreePopup->sizeHintForRow(0));
-        row->reverseTreePopup->resize(popupWidth, visibleRows * rowHeight + 4);
-        row->reverseTreePopup->move(row->tree->mapToGlobal(QPoint(0, row->tree->height())));
-        row->reverseTreePopup->show();
-        row->reverseTreePopup->raise();
+        row->treeCompleter->setCompletionPrefix(QString());
+        row->treeCompleter->complete();
     }
 
     static bool hasSignalExpressionSuffix(QString text)
