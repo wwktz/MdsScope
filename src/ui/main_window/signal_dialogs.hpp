@@ -240,7 +240,7 @@ private:
             refreshSignalSuggestions(row);
             updateTreeCompleter(row, true);
         });
-        connect(row->reverseTreePopup, &QListWidget::itemClicked, this, [row](QListWidgetItem* item) {
+        connect(row->reverseTreePopup, &QListWidget::itemPressed, this, [row](QListWidgetItem* item) {
             if (!row || !row->tree || !row->reverseTreePopup || !item) {
                 return;
             }
