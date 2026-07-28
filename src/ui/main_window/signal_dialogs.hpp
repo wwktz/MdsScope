@@ -140,6 +140,7 @@ private:
         bool manualColor = false;
         bool reverseTreeCompletionActive = false;
         bool deferReverseTreeCompletion = false;
+        bool signalCompletionPending = false;
         DataReadMode originalReadMode = DataReadMode::Thin;
         bool readModeTouched = false;
     };
@@ -149,6 +150,22 @@ private:
         if (event && event->type() == QEvent::MouseButtonPress) {
             auto* mouseEvent = static_cast<QMouseEvent*>(event);
             if (mouseEvent->button() == Qt::LeftButton) {
+                for (Row* row : std::as_const(rows_)) {
+                    if (row && watched == row->tree) {
+                        QTimer::singleShot(0, this, [this, row] {
+                            if (!row || row->deleted || !row->tree
+                                || !row->tree->hasFocus()) {
+                                return;
+                            }
+                            if (row->tree->text().trimmed().isEmpty()) {
+                                updateTreeCompleter(row, true);
+                            } else {
+                                refreshTreeSuggestions(row);
+                            }
+                        });
+                        break;
+                    }
+                }
                 for (Row* row : std::as_const(rows_)) {
                     if (!row) {
                         continue;
@@ -255,6 +272,7 @@ private:
         row->dataMode->setMinimumWidth(90);
         row->tree->setCompleter(row->treeCompleter);
         row->signal->setCompleter(row->signalCompleter);
+        row->tree->installEventFilter(this);
         row->treeCompleter->popup()->viewport()->installEventFilter(this);
         row->signalCompleter->popup()->viewport()->installEventFilter(this);
         updateTreeCompleter(row, false);
@@ -295,8 +313,9 @@ private:
                 row->treeCompleter->popup()->hide();
             }
         });
-        connect(row->tree, &QLineEdit::textEdited, this, [row] {
+        connect(row->tree, &QLineEdit::textEdited, this, [this, row] {
             row->reverseTreeCompletionActive = false;
+            refreshTreeSuggestions(row);
         });
         connect(row->signal, &QLineEdit::textChanged, this, [this, row] {
             refreshSignalSuggestions(row);
@@ -556,6 +575,13 @@ private:
         if (row->treeModel->stringList() != treeChoices) {
             row->treeModel->setStringList(treeChoices);
         }
+        if (row->signalCompletionPending) {
+            row->reverseTreeCompletionActive = false;
+            if (row->treeCompleter) {
+                row->treeCompleter->popup()->hide();
+            }
+            return;
+        }
         if (row->deferReverseTreeCompletion) {
             row->reverseTreeCompletionActive = false;
             row->treeCompleter->popup()->hide();
@@ -585,6 +611,26 @@ private:
         row->treeCompleter->complete();
     }
 
+    void refreshTreeSuggestions(Row* row)
+    {
+        if (!row || row->deleted || !row->tree || !row->treeCompleter
+            || !row->tree->hasFocus()) {
+            return;
+        }
+        const QString treeText = row->tree->text().trimmed();
+        if (treeText.isEmpty()) {
+            return;
+        }
+
+        row->treeCompleter->setCompletionPrefix(treeText);
+        const int completionCount = row->treeCompleter->completionCount();
+        if (completionCount <= 0) {
+            row->treeCompleter->popup()->hide();
+            return;
+        }
+        row->treeCompleter->complete();
+    }
+
     static bool hasSignalExpressionSuffix(QString text)
     {
         text = text.trimmed();
@@ -601,6 +647,7 @@ private:
         if (!row || row->deleted || !row->signal || !row->signalModel) {
             return;
         }
+        row->signalCompletionPending = false;
         const QString signalText = row->signal->text().trimmed();
         if (signalText.isEmpty() || hasSignalExpressionSuffix(signalText)) {
             if (!row->signalModel->stringList().isEmpty()) {
@@ -647,12 +694,20 @@ private:
         }
         QString exactCandidate;
         if (suggestions.size() == 1) {
-            exactCandidate = suggestions.front().toLower();
-            if (exactCandidate.startsWith('\\')) {
-                exactCandidate.remove(0, 1);
-            }
+            exactCandidate = suggestions.front().trimmed();
         }
-        const bool uniqueExactMatch = exactCandidate == needle;
+        const bool uniqueExactMatch =
+            !exactCandidate.isEmpty()
+            && exactCandidate.compare(signalText, Qt::CaseInsensitive) == 0;
+        QString normalizedCandidate = exactCandidate.toLower();
+        if (normalizedCandidate.startsWith('\\')
+            || normalizedCandidate.startsWith('/')) {
+            normalizedCandidate.remove(0, 1);
+        }
+        row->signalCompletionPending =
+            !uniqueExactMatch
+            && !normalizedCandidate.isEmpty()
+            && normalizedCandidate == needle;
         if (uniqueExactMatch) {
             if (row->signalCompleter && row->signalCompleter->popup()) {
                 row->signalCompleter->popup()->hide();
