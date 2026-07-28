@@ -335,11 +335,19 @@ private:
         if (needsMouseSelectionFallback && lineEdit) {
             QObject::connect(
                 popup,
+                &QAbstractItemView::entered,
+                popup,
+                [popup](const QModelIndex& index) {
+                    if (index.isValid()) {
+                        popup->setCurrentIndex(index);
+                    }
+                });
+            QObject::connect(
+                popup,
                 &QAbstractItemView::pressed,
                 lineEdit,
                 [completer, lineEdit](const QModelIndex& index) {
-                    if (!index.isValid()
-                        || !(QApplication::mouseButtons() & Qt::LeftButton)) {
+                    if (!index.isValid()) {
                         return;
                     }
                     const QString completion = completer->pathFromIndex(index);
