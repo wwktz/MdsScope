@@ -697,14 +697,6 @@ HRESULT createWindowsStartMenuShortcut()
     if (SUCCEEDED(result)) {
         result = link->SetDescription(L"MdsScope");
     }
-    if (SUCCEEDED(result)) {
-        // Address the embedded icon by resource ID rather than by its
-        // enumeration index. The taskbar resolves the icon through the
-        // AppUserModelID shortcut and needs a stable resource reference.
-        result = link->SetIconLocation(
-            executablePath.c_str(),
-            -MDS_SCOPE_WINDOWS_ICON_RESOURCE_ID);
-    }
 
     IPropertyStore* properties = nullptr;
     if (SUCCEEDED(result)) {

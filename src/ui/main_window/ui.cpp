@@ -12,38 +12,8 @@
 #include <QFontMetrics>
 #include <QProxyStyle>
 #include <QCursor>
-#include <QToolTip>
 
 namespace {
-
-class UpwardToolTipButton final : public QToolButton {
-public:
-    using QToolButton::QToolButton;
-
-protected:
-    bool event(QEvent* event) override
-    {
-        if (event->type() == QEvent::ToolTip && !toolTip().isEmpty()) {
-            const QFontMetrics metrics(QToolTip::font());
-            const QRect textBounds = metrics.boundingRect(toolTip());
-            const int tooltipWidth = textBounds.width() + 12;
-            const int tooltipHeight = textBounds.height() + 10;
-            const QPoint topCenter =
-                mapToGlobal(QPoint(width() / 2, 0));
-            const int configuredOffset =
-                property("toolTipOffset").toInt();
-            const int tooltipOffset =
-                configuredOffset > 0 ? configuredOffset : 22;
-            QToolTip::showText(
-                QPoint(topCenter.x() - tooltipWidth / 2,
-                       topCenter.y() - tooltipHeight - tooltipOffset),
-                toolTip(),
-                this);
-            return true;
-        }
-        return QToolButton::event(event);
-    }
-};
 
 enum class ShotControlGlyph {
     Apply,
@@ -788,11 +758,11 @@ void MainWindow::buildUi()
     };
     resizeShotEdit();
     bottomLayout->addWidget(shotCombo_);
-    applyShotButton_ = new UpwardToolTipButton(bottom);
-    stopButton_ = new UpwardToolTipButton(bottom);
-    previousShotButton_ = new UpwardToolTipButton(bottom);
-    nextShotButton_ = new UpwardToolTipButton(bottom);
-    latestShotButton_ = new UpwardToolTipButton(bottom);
+    applyShotButton_ = new QToolButton(bottom);
+    stopButton_ = new QToolButton(bottom);
+    previousShotButton_ = new QToolButton(bottom);
+    nextShotButton_ = new QToolButton(bottom);
+    latestShotButton_ = new QToolButton(bottom);
     for (QToolButton* button :
          {applyShotButton_,
           stopButton_,
@@ -1581,7 +1551,6 @@ void MainWindow::applyUiMetrics()
         }
         button->setIconSize(QSize(iconSize, iconSize));
         button->setFixedSize(shotWidth, controlHeight);
-        button->setProperty("toolTipOffset", metric(22));
     }
 
     if (toolbar_ && toolbar_->layout()) {
