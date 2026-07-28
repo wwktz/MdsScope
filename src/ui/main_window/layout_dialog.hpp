@@ -117,6 +117,7 @@ public:
     {
         setMinimumSize(620, 420);
         setFocusPolicy(Qt::StrongFocus);
+        setMouseTracking(true);
         layoutAnimation_ = new QVariantAnimation(this);
         layoutAnimation_->setDuration(180);
         layoutAnimation_->setEasingCurve(QEasingCurve::OutCubic);
@@ -390,6 +391,33 @@ protected:
             }
         }
 
+        if (editable_
+            && !draggingColumn_
+            && hoveredColumn_ >= 0
+            && hoveredColumn_ < columns_.size()) {
+            QRectF outline = animatedRect(
+                columnIds_.value(hoveredColumn_),
+                columnHeaderRect(area, hoveredColumn_, cellW, gap),
+                columnAnimationStarts_);
+            for (int r = 0; r < columns_[hoveredColumn_].size(); ++r) {
+                const Item& item = columns_[hoveredColumn_][r];
+                outline = outline.united(animatedRect(
+                    item.id,
+                    cellRect(area, hoveredColumn_, r, cellW, cellH, gap),
+                    itemAnimationStarts_));
+            }
+            outline.adjust(-5.0, -5.0, 5.0, 5.0);
+            QColor highlight = pal.color(QPalette::Highlight);
+            QColor fill = highlight;
+            fill.setAlpha(24);
+            highlight.setAlpha(155);
+            painter.save();
+            painter.setBrush(fill);
+            painter.setPen(QPen(highlight, 2.0));
+            painter.drawRoundedRect(outline, 10.0, 10.0);
+            painter.restore();
+        }
+
         if (hasFloatingHeader) {
             drawHeader(
                 floatingHeader, floatingHeaderLabel, 1.0, true);
@@ -473,6 +501,18 @@ protected:
     void mouseMoveEvent(QMouseEvent* event) override
     {
         if (!(event->buttons() & Qt::LeftButton)) {
+            const int hovered = editable_
+                ? hitColumnHeader(event->position())
+                : -1;
+            if (hoveredColumn_ != hovered) {
+                hoveredColumn_ = hovered;
+                update();
+            }
+            if (hoveredColumn_ >= 0) {
+                setCursor(Qt::OpenHandCursor);
+            } else {
+                unsetCursor();
+            }
             return;
         }
         if (!dragMoved_ && (event->position() - dragStart_).manhattanLength() < 3.0) {
@@ -496,7 +536,7 @@ protected:
         moveDraggedItemTo(target);
     }
 
-    void mouseReleaseEvent(QMouseEvent*) override
+    void mouseReleaseEvent(QMouseEvent* event) override
     {
         const bool settleItem =
             draggingItem_ && dragMoved_ && draggedItemId_ != 0;
@@ -546,11 +586,28 @@ protected:
         draggedColumn_ = -1;
         dragMoved_ = false;
         lastDragTarget_ = {-1, -1};
-        unsetCursor();
+        hoveredColumn_ = editable_
+            ? hitColumnHeader(event->position())
+            : -1;
+        if (hoveredColumn_ >= 0) {
+            setCursor(Qt::OpenHandCursor);
+        } else {
+            unsetCursor();
+        }
         if (settleItem || settleColumn) {
             startLayoutAnimation(settleFrom);
         }
         update();
+    }
+
+    void leaveEvent(QEvent* event) override
+    {
+        hoveredColumn_ = -1;
+        if (!draggingItem_ && !draggingColumn_) {
+            unsetCursor();
+        }
+        update();
+        QWidget::leaveEvent(event);
     }
 
     void keyPressEvent(QKeyEvent* event) override
@@ -926,6 +983,7 @@ private:
     bool pressWasSelected_ = false;
     quint64 draggedItemId_ = 0;
     int draggedColumn_ = -1;
+    int hoveredColumn_ = -1;
     QPointF dragStart_;
     QPointF dragCurrentPos_;
     QPointF dragGrabOffset_;

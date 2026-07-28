@@ -31,7 +31,7 @@ protected:
                 mapToGlobal(QPoint(width() / 2, 0));
             QToolTip::showText(
                 QPoint(topCenter.x() - tooltipWidth / 2,
-                       topCenter.y() - tooltipHeight - 17),
+                       topCenter.y() - tooltipHeight - 22),
                 toolTip(),
                 this);
             return true;
@@ -264,7 +264,23 @@ void MainWindow::buildUi()
     toolbar->setToolButtonStyle(Qt::ToolButtonIconOnly);
     toolbar->setStyleSheet(
         "QToolBar { spacing: 5px; padding: 2px 4px; border: 0px; }"
-        "QToolButton { margin: 0px; padding: 3px; min-width: 30px; min-height: 30px; }");
+        "QToolButton {"
+        "  margin: 0px;"
+        "  padding: 3px;"
+        "  min-width: 30px;"
+        "  min-height: 30px;"
+        "  background: transparent;"
+        "  border: 1px solid transparent;"
+        "  border-radius: 4px;"
+        "}"
+        "QToolButton:hover {"
+        "  background: palette(midlight);"
+        "  border-color: palette(highlight);"
+        "}"
+        "QToolButton:pressed {"
+        "  background: palette(dark);"
+        "  border-color: palette(highlight);"
+        "}");
     QAction* openAction = toolbar->addAction(style()->standardIcon(QStyle::SP_DirOpenIcon), "Open configure file", this, &MainWindow::openEnvironmentFile);
     openButton_ = qobject_cast<QToolButton*>(toolbar->widgetForAction(openAction));
     if (openButton_) {
@@ -457,15 +473,35 @@ void MainWindow::buildUi()
         "  padding: 0px 2px;"
         "}"
         "QToolButton { margin: 0px; padding: 1px; min-width: 30px; min-height: 28px; }"
+        "QToolButton[interactionControl=\"true\"]:hover {"
+        "  background: palette(midlight);"
+        "  border-color: palette(highlight);"
+        "}"
+        "QToolButton[interactionControl=\"true\"]:pressed {"
+        "  background: palette(dark);"
+        "  border-color: palette(highlight);"
+        "}"
         "QToolButton[shotControl=\"true\"] {"
         "  min-width: 66px;"
         "  max-width: 66px;"
-        "  min-height: 32px;"
-        "  max-height: 32px;"
+        "  min-height: 28px;"
+        "  max-height: 28px;"
+        "  background: palette(button);"
+        "  border: 1px solid palette(mid);"
+        "  border-radius: 4px;"
+        "}"
+        "QToolButton[shotControl=\"true\"]:hover {"
+        "  background: palette(midlight);"
+        "  border-color: palette(highlight);"
+        "}"
+        "QToolButton[shotControl=\"true\"]:pressed {"
+        "  background: palette(dark);"
+        "  border-color: palette(highlight);"
         "}");
     zoomButton_ = new QToolButton(bottom);
     pointButton_ = new QToolButton(bottom);
     for (QToolButton* button : {zoomButton_, pointButton_}) {
+        button->setProperty("interactionControl", true);
         button->setCheckable(true);
         button->setAutoExclusive(true);
         button->setIconSize(QSize(24, 24));
@@ -511,10 +547,10 @@ void MainWindow::buildUi()
           nextShotButton_,
           latestShotButton_}) {
         button->setProperty("shotControl", true);
-        button->setIconSize(QSize(28, 28));
+        button->setIconSize(QSize(24, 24));
         button->setToolButtonStyle(Qt::ToolButtonIconOnly);
         button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-        button->setFixedSize(66, 32);
+        button->setFixedSize(66, 28);
     }
     applyShotButton_->setToolTip("Apply shot (Enter)");
     previousShotButton_->setToolTip("Previous shot");
