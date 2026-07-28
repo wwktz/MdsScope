@@ -93,9 +93,8 @@ try {
         $largeIcons,
         $smallIcons,
         1)
-    if ($extracted -ne 1
-        -or ($largeIcons[0] -eq [IntPtr]::Zero
-             -and $smallIcons[0] -eq [IntPtr]::Zero)) {
+    $missingIconHandles = ($largeIcons[0] -eq [IntPtr]::Zero) -and ($smallIcons[0] -eq [IntPtr]::Zero)
+    if ($extracted -ne 1 -or $missingIconHandles) {
         throw "Windows could not extract an icon from $resolvedExecutable"
     }
 }
