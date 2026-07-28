@@ -24,7 +24,7 @@ public static class MdsScopeIconNative
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     public static extern IntPtr FindResource(
         IntPtr module,
-        IntPtr name,
+        string name,
         IntPtr type);
 
     [DllImport("kernel32.dll", SetLastError = true)]
@@ -35,19 +35,10 @@ public static class MdsScopeIconNative
     [DllImport("kernel32.dll")]
     public static extern bool FreeLibrary(IntPtr module);
 
-    [DllImport("shell32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
-    public static extern IntPtr ExtractIconW(
-        IntPtr instance,
-        string fileName,
-        uint iconIndex);
-
-    [DllImport("user32.dll")]
-    public static extern bool DestroyIcon(IntPtr icon);
 }
 '@
 
 $loadLibraryAsDataFile = 0x00000002
-$iconResource = [IntPtr]1
 $groupIconResource = [IntPtr]14
 $module = [MdsScopeIconNative]::LoadLibraryEx(
     $resolvedExecutable,
@@ -60,32 +51,45 @@ if ($module -eq [IntPtr]::Zero) {
 try {
     $resource = [MdsScopeIconNative]::FindResource(
         $module,
-        $iconResource,
+        "IDI_MDSSCOPE_ICON",
         $groupIconResource)
     if ($resource -eq [IntPtr]::Zero) {
-        throw "Icon resource 1 is missing from $resolvedExecutable"
+        throw "IDI_MDSSCOPE_ICON is missing from $resolvedExecutable"
     }
     if ([MdsScopeIconNative]::SizeofResource($module, $resource) -eq 0) {
-        throw "Icon resource 1 is empty in $resolvedExecutable"
+        throw "IDI_MDSSCOPE_ICON is empty in $resolvedExecutable"
     }
 }
 finally {
     [void][MdsScopeIconNative]::FreeLibrary($module)
 }
 
-$icon = [MdsScopeIconNative]::ExtractIconW(
-    [IntPtr]::Zero,
-    $resolvedExecutable,
-    0)
+Add-Type -AssemblyName System.Drawing
+$icon = [System.Drawing.Icon]::ExtractAssociatedIcon($resolvedExecutable)
+if ($null -eq $icon) {
+    throw "Windows could not extract an associated icon from $resolvedExecutable"
+}
+
+$bitmap = $icon.ToBitmap()
 try {
-    if ($icon -eq [IntPtr]::Zero -or $icon -eq [IntPtr]1) {
-        throw "Windows could not extract an icon from $resolvedExecutable"
+    $hasOrange = $false
+    for ($y = 0; $y -lt $bitmap.Height -and !$hasOrange; ++$y) {
+        for ($x = 0; $x -lt $bitmap.Width; ++$x) {
+            $pixel = $bitmap.GetPixel($x, $y)
+            $isOrange = $pixel.A -gt 0 -and $pixel.R -ge 180 -and $pixel.G -ge 50 -and $pixel.G -le 180 -and $pixel.B -le 100
+            if ($isOrange) {
+                $hasOrange = $true
+                break
+            }
+        }
+    }
+    if (!$hasOrange) {
+        throw "Windows extracted a fallback icon instead of the MdsScope icon from $resolvedExecutable"
     }
 }
 finally {
-    if ($icon -ne [IntPtr]::Zero -and $icon -ne [IntPtr]1) {
-        [void][MdsScopeIconNative]::DestroyIcon($icon)
-    }
+    $bitmap.Dispose()
+    $icon.Dispose()
 }
 
 Write-Host "Verified Windows icon resources in $resolvedExecutable"

@@ -698,7 +698,16 @@ HRESULT createWindowsStartMenuShortcut()
         result = link->SetDescription(L"MdsScope");
     }
     if (SUCCEEDED(result)) {
-        result = link->SetIconLocation(executablePath.c_str(), 0);
+        const QString bundledIcon =
+            QDir(QCoreApplication::applicationDirPath())
+                .filePath(QStringLiteral("mdsscope.ico"));
+        const std::wstring iconPath =
+            QDir::toNativeSeparators(
+                QFileInfo::exists(bundledIcon)
+                    ? bundledIcon
+                    : executable)
+                .toStdWString();
+        result = link->SetIconLocation(iconPath.c_str(), 0);
     }
 
     IPropertyStore* properties = nullptr;
@@ -764,8 +773,7 @@ void configureWindowsWindowIcon(HWND window)
     auto loadIcon = [module](int width, int height) {
         return static_cast<HICON>(
             LoadImageW(module,
-                       MAKEINTRESOURCEW(
-                           MDS_SCOPE_WINDOWS_ICON_RESOURCE_ID),
+                       L"IDI_MDSSCOPE_ICON",
                        IMAGE_ICON,
                        width,
                        height,

@@ -338,6 +338,7 @@ jobs:
 
           Copy-Item "build\Release\MdsScope.exe" $stage
           Copy-Item "build\Release\transfer.exe" $stage
+          Copy-Item "packaging\windows\mdsscope.ico" $stage
 
           windeployqt --release --compiler-runtime --no-translations --dir $stage (Join-Path $stage "MdsScope.exe")
 
