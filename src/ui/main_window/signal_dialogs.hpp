@@ -393,19 +393,9 @@ private:
             "QAbstractItemView::item:hover, QAbstractItemView::item:selected {"
             " background: palette(highlight); color: palette(highlighted-text);"
             "}");
-#ifdef Q_OS_WIN
-        {
-            QObject::connect(
-                popup,
-                &QAbstractItemView::entered,
-                popup,
-                [popup](const QModelIndex& index) {
-                    if (index.isValid()) {
-                        popup->setCurrentIndex(index);
-                    }
-                });
-        }
-#endif
+        // Hover is visual only. The dialog event filter commits a completion
+        // on mouse press; changing the current index while hovering can make
+        // QCompleter write the highlighted value into its line edit on Windows.
         return completer;
     }
 
