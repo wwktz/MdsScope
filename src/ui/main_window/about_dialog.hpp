@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "core/font_settings.hpp"
+
 class QWidget;
 
-void showAboutDialog(QWidget* parent = nullptr);
+void showAboutDialog(const FontSettings& fonts, QWidget* parent = nullptr);

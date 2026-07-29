@@ -1,12 +1,28 @@
 // SPDX-FileCopyrightText: 2026 Weikang Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "mdsscope_internal.hpp"
+#include "ui/visuals.hpp"
 #include "main_window.hpp"
 #include "user_preferences.hpp"
 
+#include <QAbstractItemView>
+#include <QCheckBox>
+#include <QDialog>
 #include <QDialogButtonBox>
+#include <QFontMetrics>
+#include <QFormLayout>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QLineEdit>
+#include <QListWidget>
+#include <QMenu>
+#include <QPainter>
+#include <QPainterPath>
+#include <QPen>
+#include <QPushButton>
 #include <QSignalBlocker>
+#include <QUrl>
+#include <QVBoxLayout>
 
 namespace {
 class BookmarkCheckBox final : public QCheckBox {

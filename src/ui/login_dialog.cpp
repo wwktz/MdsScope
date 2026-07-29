@@ -1,8 +1,29 @@
 // SPDX-FileCopyrightText: 2026 Weikang Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "mdsscope_internal.hpp"
+#include "core/api_auth.hpp"
 #include "login_dialog.hpp"
+
+#include <QtConcurrent>
+
+#include <QApplication>
+#include <QCheckBox>
+#include <QFormLayout>
+#include <QFutureWatcher>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QLineEdit>
+#include <QMessageBox>
+#include <QPainter>
+#include <QPainterPath>
+#include <QPalette>
+#include <QPen>
+#include <QPushButton>
+#include <QStyle>
+#include <QStyleOptionButton>
+#include <QVBoxLayout>
+
+#include <algorithm>
 
 namespace {
 class ThemeCheckBox final : public QCheckBox {

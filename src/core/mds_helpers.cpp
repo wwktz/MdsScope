@@ -1,7 +1,15 @@
 // SPDX-FileCopyrightText: 2026 Weikang Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "mdsscope_internal.hpp"
+#include "mds_helpers.hpp"
+#include "series_style.hpp"
+
+#include <QRegularExpression>
+#include <QSet>
+#include <QTextStream>
+
+#include <algorithm>
+#include <cmath>
 
 void writeLine(QTextStream& out, const QString& key, const QString& value)
 {

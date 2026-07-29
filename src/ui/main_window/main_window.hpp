@@ -4,6 +4,7 @@
 #pragma once
 
 #include "core/app_types.hpp"
+#include "core/font_settings.hpp"
 #include "shortcut_settings.hpp"
 
 #include <QHash>
@@ -31,7 +32,7 @@ class PlotWidget;
 class RefreshCoordinator;
 struct PanelRefreshRequest;
 class SshTunnelManager;
-class ShotMetadataClient;
+class ShotWorkflow;
 class ThemeModeButton;
 class UserPreferences;
 
@@ -156,7 +157,6 @@ private:
     void saveCurrentEnvironment();
     void saveCurrentEnvironmentAs();
     bool saveEnvironmentFile(const QString& path);
-    bool saveWebscpEnvironmentFile(const QString& path) const;
     PlotSpec defaultPlotFromSelection() const;
     void updateTopInfoLabels();
     void setStatus(const QString& text);
@@ -179,7 +179,8 @@ private:
 
     QString rootPath_;
     std::unique_ptr<UserPreferences> preferences_;
-    std::unique_ptr<ShotMetadataClient> shotMetadata_;
+    FontSettings fontSettings_;
+    std::unique_ptr<ShotWorkflow> shotWorkflow_;
     QString environmentPath_;
     QString exportBasePath_;
     LayoutConfig config_;
@@ -238,14 +239,6 @@ private:
     QString shotEditSessionText_;
     bool shotEditSessionActive_ = false;
     std::unique_ptr<RefreshCoordinator> refresh_;
-    QTimer latestShotPollTimer_;
-    QString topSummaryShot_;
-    QString topSummaryIp_;
-    QString topSummaryPulse_;
-    QString topSummaryIt_;
-    QString topSummaryTime_;
-    QString pendingTopSummaryShot_;
-    int topSummaryGeneration_ = 0;
     int selectedColumn_ = -1;
     int selectedRow_ = -1;
     bool singlePanelMaximized_ = false;
@@ -253,10 +246,6 @@ private:
     int maximizedRow_ = -1;
     InteractionMode currentInteractionMode_ = InteractionMode::Zoom;
     QSet<QString> rememberedSourceSignals_;
-    QString latestShot_;
-    bool latestShotFetchRunning_ = false;
-    bool latestShotApplyPending_ = false;
-    int latestShotGeneration_ = 0;
     PlotWidget* activePointPlot_ = nullptr;
     PlotWidget* pointSyncSource_ = nullptr;
     bool pointSyncQueued_ = false;

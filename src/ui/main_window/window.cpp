@@ -1,20 +1,25 @@
 // SPDX-FileCopyrightText: 2026 Weikang Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "mdsscope_internal.hpp"
+#include "core/app_paths.hpp"
+#include "ui/visuals.hpp"
 #include "main_window.hpp"
 #include "refresh_coordinator.hpp"
+#include "shot_workflow.hpp"
 #include "user_preferences.hpp"
-#include "core/shot_metadata_client.hpp"
-#include "mds_client.hpp"
-#include "ssh_tunnel_manager.hpp"
+#include "mds/mds_client.hpp"
+#include "ssh/ssh_tunnel_manager.hpp"
+
+#include <QApplication>
 
 MainWindow::MainWindow(QString rootPath, QWidget* parent)
     : QMainWindow(parent)
     , rootPath_(std::move(rootPath))
     , preferences_(
           std::make_unique<UserPreferences>(uiSettingsPath(rootPath_)))
-    , shotMetadata_(std::make_unique<ShotMetadataClient>(rootPath_))
+    , fontSettings_(loadFontSettings(rootPath_))
+    , shotWorkflow_(std::make_unique<ShotWorkflow>(
+          rootPath_, this, [this] { fetchLatestShotAsync(false); }))
     , refresh_(std::make_unique<RefreshCoordinator>())
 {
     setWindowIcon(appIcon());
@@ -29,7 +34,6 @@ MainWindow::MainWindow(QString rootPath, QWidget* parent)
         preferences_->exportBasePath(defaultExportBaseDir());
     defaultRateMode_ = preferences_->defaultReadMode();
     globalRateMode_ = defaultRateMode_;
-    loadFontSettings(rootPath_);
     shortcutBindings_ = loadShortcutBindings(rootPath_);
     shortcutSequenceTimer_.setSingleShot(true);
     shortcutSequenceTimer_.setInterval(500);
@@ -81,11 +85,6 @@ MainWindow::MainWindow(QString rootPath, QWidget* parent)
         }
     },
             Qt::QueuedConnection);
-    latestShotPollTimer_.setInterval(20'000);
-    connect(&latestShotPollTimer_, &QTimer::timeout, this, [this] {
-        fetchLatestShotAsync(false);
-    });
-    latestShotPollTimer_.start();
     refresh_->shotDebounceTimer().setSingleShot(true);
     connect(&refresh_->shotDebounceTimer(), &QTimer::timeout, this, [this] {
         refreshData();
@@ -132,8 +131,8 @@ MainWindow::~MainWindow()
     cancelPanelFetch();
     cancelPrewarmConnections();
     refresh_->invalidateDataFetch();
-    ++latestShotGeneration_;
-    ++topSummaryGeneration_;
+    shotWorkflow_->invalidateLatest();
+    shotWorkflow_->invalidateSummary();
     QThreadPool::globalInstance()->clear();
     QThreadPool::globalInstance()->waitForDone();
 }

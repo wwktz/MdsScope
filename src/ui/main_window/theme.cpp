@@ -257,13 +257,15 @@ private:
 
 ThemeModeButton::ThemeModeButton(QWidget* parent)
     : QWidget(parent)
-    , impl_(new Impl(this))
+    , impl_(std::make_unique<Impl>(this))
 {
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
-    layout->addWidget(impl_);
+    layout->addWidget(impl_.get());
     setFixedSize(impl_->size());
 }
+
+ThemeModeButton::~ThemeModeButton() = default;
 
 void ThemeModeButton::setUiScale(qreal scale)
 {

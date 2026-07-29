@@ -1,9 +1,15 @@
 // SPDX-FileCopyrightText: 2026 Weikang Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "mdsscope_internal.hpp"
 #include "helpers.hpp"
 #include "plot_widget.hpp"
+
+#include <QFont>
+#include <QFontMetrics>
+
+#include <algorithm>
+#include <cmath>
+#include <limits>
 
 namespace {
 
@@ -251,7 +257,7 @@ void PlotWidget::applyYRangeKeepX(double ymin, double ymax)
 
 QRectF PlotWidget::plotRect() const
 {
-    const FontSettings& fonts = fontSettings();
+    const FontSettings& fonts = fontSettings_;
     QFont axisFont(fonts.family, fonts.axisSize + (largeDisplayMode_ ? 4 : 0));
     axisFont.setPointSize(std::max(7, axisFont.pointSize()));
     const QFontMetrics axisFm(axisFont);

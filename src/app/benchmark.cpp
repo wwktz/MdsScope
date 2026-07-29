@@ -1,8 +1,22 @@
 // SPDX-FileCopyrightText: 2026 Weikang Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "mdsscope_internal.hpp"
-#include "mds_client.hpp"
+#include "app_runtime.hpp"
+#include "core/environment_io.hpp"
+#include "core/mds_helpers.hpp"
+#include "mds/mds_client.hpp"
+
+#include <QDir>
+#include <QElapsedTimer>
+#include <QFile>
+#include <QFileInfo>
+#include <QMutex>
+#include <QRegularExpression>
+#include <QSet>
+#include <QTextStream>
+#include <QThreadPool>
+
+#include <algorithm>
 
 namespace {
 QString readModeName(DataReadMode readMode)

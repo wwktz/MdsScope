@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Weikang Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "mdsscope_internal.hpp"
+#include "ui/visuals.hpp"
 #include "main_window.hpp"
-#include "ssh_dialog.hpp"
-#include "ssh_tunnel_manager.hpp"
+#include "ssh/ssh_tunnel_manager.hpp"
+#include "ui/ssh_dialog.hpp"
 
 #include <QMessageBox>
 

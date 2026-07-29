@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Weikang Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "mdsscope_internal.hpp"
 #include "main_window.hpp"
 #include "refresh_coordinator.hpp"
 #include "shortcut_dialog.hpp"
@@ -9,9 +8,13 @@
 
 #include <QAbstractButton>
 #include <QAbstractSpinBox>
+#include <QApplication>
+#include <QComboBox>
+#include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QShortcut>
 #include <QTextEdit>
+#include <QToolButton>
 
 namespace {
 bool isModifierKey(int key)
@@ -67,7 +70,7 @@ bool sequenceStartsWith(const QKeySequence& sequence,
         || prefix.count() > sequence.count()) {
         return false;
     }
-    for (int i = 0; i < prefix.count(); ++i) {
+    for (uint i = 0; i < static_cast<uint>(prefix.count()); ++i) {
         if (sequence[i] != prefix[i]) {
             return false;
         }

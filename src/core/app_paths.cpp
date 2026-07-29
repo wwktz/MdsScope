@@ -1,7 +1,23 @@
 // SPDX-FileCopyrightText: 2026 Weikang Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "mdsscope_internal.hpp"
+#include "app_paths.hpp"
+#include "mds_helpers.hpp"
+#include "mds_support.hpp"
+
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QMutex>
+#include <QMutexLocker>
+#include <QRegularExpression>
+#include <QSaveFile>
+#include <QSet>
+#include <QSettings>
+#include <QStandardPaths>
+#include <QTextStream>
+
+#include <algorithm>
 
 namespace {
 QMutex& sourceIndexMutex()
@@ -313,16 +329,10 @@ QString uiSettingsPath(const QString& rootPath)
     return QDir(appConfigDir()).filePath("mdsscope_ui.ini");
 }
 
-FontSettings& fontSettings()
-{
-    static FontSettings settings;
-    return settings;
-}
-
-void loadFontSettings(const QString& rootPath)
+FontSettings loadFontSettings(const QString& rootPath)
 {
     QSettings settings(uiSettingsPath(rootPath), QSettings::IniFormat);
-    FontSettings& fonts = fontSettings();
+    FontSettings fonts;
     fonts.family = settings.value("font/family", fonts.family).toString();
     fonts.legendSize = settings.value("font/legend_size", fonts.legendSize).toInt();
     fonts.axisSize = settings.value("font/axis_size", fonts.axisSize).toInt();
@@ -332,11 +342,11 @@ void loadFontSettings(const QString& rootPath)
         settings.value("appearance/icon_size", fonts.iconSize).toInt();
     fonts.iconSize =
         QList<int>{20, 24, 28, 32}.contains(iconSize) ? iconSize : 24;
+    return fonts;
 }
 
-void saveFontSettings(const QString& rootPath)
+void saveFontSettings(const QString& rootPath, const FontSettings& fonts)
 {
-    const FontSettings& fonts = fontSettings();
     QSettings settings(uiSettingsPath(rootPath), QSettings::IniFormat);
     settings.setValue("font/family", fonts.family);
     settings.setValue("font/legend_size", fonts.legendSize);

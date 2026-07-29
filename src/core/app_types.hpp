@@ -83,9 +83,6 @@ inline size_t qHash(const PanelId& panel, size_t seed = 0) noexcept
     return qHashMulti(seed, panel.column, panel.row);
 }
 
-QStringList expandedShotList(const QString& expression);
-LayoutConfig expandedShotLayout(const LayoutConfig& config);
-
 struct SignalSeries {
     QString name;
     QString unit;

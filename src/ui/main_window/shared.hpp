@@ -5,7 +5,6 @@
 
 #include "core/app_types.hpp"
 
-#include <QDir>
 #include <QIcon>
 #include <QString>
 
@@ -20,32 +19,5 @@ bool signalDataSourceEqual(const SignalSpec& lhs, const SignalSpec& rhs);
 bool signalDataSourcesEqual(const QVector<SignalSpec>& lhs, const QVector<SignalSpec>& rhs);
 bool signalSpecsEqual(const QVector<SignalSpec>& lhs, const QVector<SignalSpec>& rhs);
 bool optionalDoubleFromText(const QString& text, double* value);
-QString exportFileToken(QString text);
-
-enum class ExportFormat {
-    Text,
-    Csv,
-    Tsv,
-    Json,
-};
-
-enum class ExportRange {
-    AllData,
-    CurrentView,
-    CustomXRange,
-};
-
-QString exportFormatExtension(ExportFormat format);
-QString exportFormatSettingValue(ExportFormat format);
-ExportFormat exportFormatFromSetting(QString value);
-QString uniqueExportPath(const QDir& dir, const QString& baseName, ExportFormat format);
-QString exportRangeFileSuffix(bool useXRange, double xmin, double xmax);
-bool writeSeriesDataFile(const QString& path,
-                         const SignalSeries& series,
-                         ExportFormat format,
-                         bool useXRange,
-                         double xmin,
-                         double xmax,
-                         QString* error);
 QIcon infoIcon();
 QIcon recentArrowIcon();

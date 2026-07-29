@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "shared.hpp"
+#include "services/data_export_service.hpp"
 
 #include <QPair>
 #include <QString>

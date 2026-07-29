@@ -1,11 +1,23 @@
 // SPDX-FileCopyrightText: 2026 Weikang Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "mdsscope_internal.hpp"
+#include "core/environment_io.hpp"
+#include "core/mds_helpers.hpp"
 #include "main_window.hpp"
 #include "refresh_coordinator.hpp"
 #include "shared.hpp"
 #include "user_preferences.hpp"
+
+#include <QComboBox>
+#include <QDir>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QFontMetrics>
+#include <QLineEdit>
+#include <QMenu>
+#include <QMessageBox>
+#include <QSignalBlocker>
+#include <QToolButton>
 
 namespace {
 void alignLayoutRatesToMinimum(LayoutConfig* config, DataReadMode minimum)
@@ -259,114 +271,30 @@ bool MainWindow::saveEnvironmentFile(const QString& path)
 {
     // Rates were resolved when the configuration opened and may since have
     // been freely changed by the user. Save those exact current values.
-    QFileInfo info(path);
-    const QString suffix = info.suffix().toLower();
-    QString primaryPath = path;
-    if (suffix != "toml" && suffix != "webscp") {
-        primaryPath += ".toml";
-        info = QFileInfo(primaryPath);
-    }
+    const EnvironmentSaveResult result =
+        saveEnvironmentBundle(config_,
+                              path,
+                              QDir(rootPath_).filePath("data"));
 
-    const QString baseName = info.completeBaseName();
-    const QDir dir(info.absolutePath());
-    const QString tomlPath = suffix == "toml" ? primaryPath : dir.filePath(baseName + ".toml");
-    const QString webscpPath = suffix == "webscp" ? primaryPath : dir.filePath(baseName + ".webscp");
-
-    QString tomlError;
-    const bool tomlOk = writeEnvironmentToml(config_, tomlPath, &tomlError);
-    const bool webscpOk = saveWebscpEnvironmentFile(webscpPath);
-
-    if (!tomlOk && !webscpOk) {
-        QMessageBox::warning(nullptr, "Save", "Cannot write TOML: " + tomlError + "\nCannot write webscp: " + webscpPath);
-        return false;
-    }
-    if (!tomlOk) {
-        QMessageBox::warning(nullptr, "Save", "Saved webscp, but TOML export failed: " + tomlError);
-    }
-    if (!webscpOk) {
-        QMessageBox::warning(nullptr, "Save", "Saved TOML, but webscp export failed: " + webscpPath);
-    }
-    return tomlOk && webscpOk;
-}
-
-bool MainWindow::saveWebscpEnvironmentFile(const QString& path) const
-{
-    QSaveFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+    if (!result.tomlSaved && !result.webscpSaved) {
         QMessageBox::warning(nullptr,
                              "Save",
-                             QStringLiteral("Cannot write %1: %2")
-                                 .arg(path, file.errorString()));
+                             "Cannot write TOML: " + result.tomlError
+                                 + "\nCannot write webscp: "
+                                 + result.webscpError);
         return false;
     }
-    QTextStream out(&file);
-    writeLine(out, "Title_Font", "java.awt.Font[family=Times New Roman,name=Times New Roman,style=plain,size=16]");
-    writeLine(out, "Measurement_Units", "java.awt.Font[family=Times New Roman,name=Times New Roman,style=plain,size=14]");
-    writeLine(out, "Coordinate_Axis", "java.awt.Font[family=Times New Roman,name=Times New Roman,style=plain,size=12]");
-    writeLine(out, "Grid_Mode", "1");
-    writeLine(out, "X_Lines", "5");
-    writeLine(out, "Y_Lines", "5");
-    writeLine(out, "Extraction_points", "2000");
-    writeLine(out, "Vertical_offset", "0");
-    writeLine(out, "Horizontal_offset", "0");
-    writeLine(out, "xmax", "");
-    writeLine(out, "xmin", "");
-    writeLine(out, "ymax", "");
-    writeLine(out, "ymin", "");
-    writeLine(out, "File_position", QDir(rootPath_).filePath("data"));
-    out << "\n \n";
-    writeLine(out, "cols", QString::number(config_.columns.size()));
-    out << " \n";
-    for (int c = 0; c < config_.columns.size(); ++c) {
-        writeLine(out, QString("%1.rows").arg(c + 1), QString::number(config_.columns[c].size()));
-        for (int r = 0; r < config_.columns[c].size(); ++r) {
-            const PlotSpec& plot = config_.columns[c][r];
-            const QString p = QString("%1_%2.").arg(c + 1).arg(r + 1);
-            writeLine(out, p + "shot_txt", plot.shot);
-            writeLine(out, p + "num_shot", "1");
-            writeLine(out, p + "num_sig", QString::number(plot.signalSpecs.size()));
-            writeLine(out, p + "title_position", "0");
-            writeLine(out, p + "y_log", "0");
-            writeLine(out, p + "legend", "1");
-            writeLine(out, p + "xseting_mode", plot.customXRange ? "0" : "1");
-            writeLine(out, p + "yseting_mode", plot.customYRange ? "0" : "1");
-            writeLine(out, p + "x_line_num", "5");
-            writeLine(out, p + "y_line_num", "5");
-            writeLine(out, p + "extraction_points", QString::number(plot.extractionPoints));
-            writeLine(out, p + "vertical_offset", "0");
-            writeLine(out, p + "horizontal_offset", "0");
-            writeLine(out, p + "grid_mode", plot.grid ? "1" : "0");
-            writeLine(out, p + "xmin_custom", std::isfinite(plot.xmin) ? QString::number(plot.xmin, 'g', 12) : "");
-            writeLine(out, p + "xmax_custom", std::isfinite(plot.xmax) ? QString::number(plot.xmax, 'g', 12) : "");
-            writeLine(out, p + "ymin_custom", std::isfinite(plot.ymin) ? QString::number(plot.ymin, 'g', 12) : "");
-            writeLine(out, p + "ymax_custom", std::isfinite(plot.ymax) ? QString::number(plot.ymax, 'g', 12) : "");
-            writeLine(out, p + "title", plot.title);
-            writeLine(out, p + "xlabel", plot.xLabel);
-            writeLine(out, p + "ylabel", plot.yLabel);
-            for (int s = 0; s < plot.signalSpecs.size(); ++s) {
-                const SignalSpec& sig = plot.signalSpecs[s];
-                const bool defaultColor = !sig.manualColor || isDefaultSeriesColor(sig.colorName, s);
-                const int colorIndex = defaultColor ? s : colorIndexForName(sig.colorName, s);
-                writeLine(out, p + QString("color_%1_%2").arg(r + 1).arg(s + 1), QString::number(colorIndex));
-                writeLine(out, p + QString("markers_%1_%2").arg(r + 1).arg(s + 1), "0");
-                writeLine(out, p + QString("interpolate_%1_%2").arg(r + 1).arg(s + 1), "1");
-                writeLine(out, p + QString("color_name_%1").arg(s + 1), defaultColor ? QString() : sig.colorName);
-                writeLine(out, p + QString("color_manual_%1").arg(s + 1), defaultColor ? "0" : "1");
-                writeLine(out, p + QString("shot_%1").arg(s + 1), sig.shot);
-                writeLine(out, p + QString("y_expr_%1").arg(s + 1), sig.yExpr);
-                writeLine(out, p + QString("x_expr_%1").arg(s + 1), sig.xExpr);
-                writeLine(out, p + QString("experiment_%1").arg(s + 1), sig.experiment);
-                writeLine(out, p + QString("server_ip_%1").arg(s + 1), sig.serverIp);
-            }
-        }
+    if (!result.tomlSaved) {
+        QMessageBox::warning(
+            nullptr,
+            "Save",
+            "Saved webscp, but TOML export failed: " + result.tomlError);
     }
-    out.flush();
-    if (out.status() != QTextStream::Ok || !file.commit()) {
+    if (!result.webscpSaved) {
         QMessageBox::warning(nullptr,
                              "Save",
-                             QStringLiteral("Cannot replace %1: %2")
-                                 .arg(path, file.errorString()));
-        return false;
+                             "Saved TOML, but webscp export failed: "
+                                 + result.webscpError);
     }
-    return true;
+    return result.complete();
 }

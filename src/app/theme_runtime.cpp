@@ -1,51 +1,26 @@
 // SPDX-FileCopyrightText: 2026 Weikang Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "app_runtime.hpp"
-#include "mdsscope_internal.hpp"
-#include "ssh_diagnostic.hpp"
-#include "ssh_tunnel_manager.hpp"
-#include "ui/login_dialog.hpp"
-#include "ui/main_window/main_window.hpp"
+#include "theme_runtime.hpp"
+#include "core/theme_mode.hpp"
 
 #include <QApplication>
 #include <QColor>
-#include <QCoreApplication>
 #ifdef Q_OS_LINUX
 #include <QDBusConnection>
 #include <QDBusInterface>
 #include <QDBusReply>
 #include <QDBusVariant>
 #endif
-#include <QDir>
-#include <QFileInfo>
 #include <QGuiApplication>
-#include <QMessageBox>
 #include <QPalette>
 #include <QProcess>
 #include <QSettings>
 #include <QStyleHints>
 #include <QStringList>
-#include <QThreadPool>
 #include <QTimer>
 
-#ifdef Q_OS_WIN
-#include <windows.h>
-#include <shellapi.h>
-#include <shlobj.h>
-#include <shobjidl.h>
-#include <propsys.h>
-#include <propkey.h>
-#endif
-
-#include <algorithm>
-#include <string>
-
 namespace {
-class SystemThemeWatcher;
-
-SystemThemeWatcher* gThemeWatcher = nullptr;
-
 QPalette lightPalette()
 {
     QPalette palette;
@@ -255,7 +230,7 @@ public:
     explicit SystemThemeWatcher(QApplication& app)
         : QObject(&app), app_(app)
     {
-        gThemeWatcher = this;
+        setObjectName(QStringLiteral("mdsscope.themeRuntime"));
         currentMode_ = readStoredThemeMode();
         currentScheme_ = resolveColorScheme(readCurrentColorScheme());
         applyCurrentTheme();
@@ -299,13 +274,6 @@ public:
         });
         if (currentMode_ == ThemeMode::Auto) {
             pollTimer_.start(10000);
-        }
-    }
-
-    ~SystemThemeWatcher() override
-    {
-        if (gThemeWatcher == this) {
-            gThemeWatcher = nullptr;
         }
     }
 
@@ -593,258 +561,19 @@ private:
     ThemeMode currentMode_ = ThemeMode::Auto;
 };
 
-QDir runtimeRootDir()
+SystemThemeWatcher* themeWatcher()
 {
-    auto runtimeResourceRootPath = [](const QDir& base) -> QString {
-        if (base.exists("environment")) {
-            return base.absolutePath();
-        }
-        const QDir resources(base.filePath("resources"));
-        if (resources.exists("environment")) {
-            return resources.absolutePath();
-        }
-        return {};
-    };
-
-    const QString configuredRoot = qEnvironmentVariable("MDSSCOPE_RESOURCE_ROOT");
-    if (!configuredRoot.isEmpty()) {
-        const QString resourceRoot = runtimeResourceRootPath(QDir(configuredRoot));
-        if (!resourceRoot.isEmpty()) {
-            return QDir(resourceRoot);
-        }
-    }
-
-    QDir dir(QCoreApplication::applicationDirPath());
-#if defined(Q_OS_MACOS) || defined(Q_OS_MAC)
-    QDir bundleResources(dir);
-    if (bundleResources.cdUp() && bundleResources.cd("Resources")) {
-        const QString resourceRoot = runtimeResourceRootPath(bundleResources);
-        if (!resourceRoot.isEmpty()) {
-            return QDir(resourceRoot);
-        }
-    }
-#endif
-    for (int i = 0; i < 4; ++i) {
-        const QString resourceRoot = runtimeResourceRootPath(dir);
-        if (!resourceRoot.isEmpty()) {
-            return QDir(resourceRoot);
-        }
-        dir.cdUp();
-    }
-
-    const QString currentResourceRoot = runtimeResourceRootPath(QDir::current());
-    if (!currentResourceRoot.isEmpty()) {
-        return QDir(currentResourceRoot);
-    }
-
-    QDir installDir(QCoreApplication::applicationDirPath());
-    if (installDir.cdUp() && installDir.cd("share") && installDir.cd("mdsscope") && installDir.exists("environment")) {
-        return installDir;
-    }
-    return QDir(QCoreApplication::applicationDirPath());
+    return qApp ? qApp->findChild<SystemThemeWatcher*>(
+                      QStringLiteral("mdsscope.themeRuntime"), Qt::FindDirectChildrenOnly)
+                : nullptr;
 }
 
-bool desktopFileIsInstalled(const QString& desktopFileName)
-{
-    const QString fileName = desktopFileName.endsWith(".desktop") ? desktopFileName : desktopFileName + ".desktop";
-    QStringList dataDirs;
-    const QString dataHome = qEnvironmentVariable("XDG_DATA_HOME");
-    dataDirs.push_back(dataHome.isEmpty() ? QDir::home().filePath(".local/share") : dataHome);
-
-    const QString dataDirsEnv = qEnvironmentVariable("XDG_DATA_DIRS");
-    if (dataDirsEnv.isEmpty()) {
-        dataDirs << "/usr/local/share" << "/usr/share";
-    } else {
-        dataDirs += dataDirsEnv.split(':', Qt::SkipEmptyParts);
-    }
-
-    for (const QString& dir : std::as_const(dataDirs)) {
-        if (QFileInfo::exists(QDir(QDir(dir).filePath("applications")).filePath(fileName))) {
-            return true;
-        }
-    }
-    return false;
-}
-
-bool ensureApiLoginBeforeMain(const QString& rootPath)
-{
-    QHash<QString, QString> properties = readApiSettings(rootPath);
-    CachedAuth auth;
-    if (loadCachedAuth(&auth) && !auth.token.trimmed().isEmpty() && !tokenExpiresSoon(auth.token)) {
-        return true;
-    }
-
-    const QString originalApi = properties.value("ApiUrl").trimmed();
-    QString api = originalApi;
-    QString tunnelError;
-    SshTunnelManager loginTunnel;
-    if (!originalApi.isEmpty()) {
-        loginTunnel.prepareUrl(originalApi, &api, &tunnelError);
-    }
-    if (!api.isEmpty() && (!auth.userName.isEmpty() || !auth.password.isEmpty())) {
-        ApiLoginResult result = requestApiToken(api, properties.value("Charset", "UTF-8"), auth.userName, auth.password);
-        if (result.ok) {
-            auth.token = result.token;
-            return saveCachedAuth(auth);
-        }
-    }
-
-    LoginDialog dialog(rootPath, nullptr, api, true);
-    dialog.setWindowIcon(appIcon());
-    const int result = dialog.exec();
-    return result == QDialog::Accepted || result == LoginDialog::Skipped;
-}
-
-#ifdef Q_OS_WIN
-HRESULT setStringProperty(IPropertyStore* store,
-                          REFPROPERTYKEY key,
-                          const QString& text)
-{
-    const std::wstring nativeText = text.toStdWString();
-    PROPVARIANT value{};
-    value.vt = VT_LPWSTR;
-    value.pwszVal = const_cast<wchar_t*>(nativeText.c_str());
-    return store->SetValue(key, value);
-}
-
-HRESULT createWindowsStartMenuShortcut()
-{
-    PWSTR programsPath = nullptr;
-    HRESULT result = SHGetKnownFolderPath(FOLDERID_Programs, KF_FLAG_CREATE, nullptr, &programsPath);
-    if (FAILED(result)) {
-        return result;
-    }
-
-    const QString executable = QDir::toNativeSeparators(QCoreApplication::applicationFilePath());
-    const QString shortcutPath = QDir(QString::fromWCharArray(programsPath))
-                                     .filePath(QStringLiteral("MdsScope.lnk"));
-    CoTaskMemFree(programsPath);
-
-    IShellLinkW* link = nullptr;
-    result = CoCreateInstance(CLSID_ShellLink,
-                              nullptr,
-                              CLSCTX_INPROC_SERVER,
-                              IID_PPV_ARGS(&link));
-    if (FAILED(result)) {
-        return result;
-    }
-
-    const std::wstring executablePath = executable.toStdWString();
-    const std::wstring workingDirectory =
-        QDir::toNativeSeparators(QCoreApplication::applicationDirPath()).toStdWString();
-    result = link->SetPath(executablePath.c_str());
-    if (SUCCEEDED(result)) {
-        result = link->SetWorkingDirectory(workingDirectory.c_str());
-    }
-    if (SUCCEEDED(result)) {
-        result = link->SetDescription(L"MdsScope");
-    }
-    if (SUCCEEDED(result)) {
-        const QString bundledIcon =
-            QDir(QCoreApplication::applicationDirPath())
-                .filePath(QStringLiteral("mdsscope.ico"));
-        const std::wstring iconPath =
-            QDir::toNativeSeparators(
-                QFileInfo::exists(bundledIcon)
-                    ? bundledIcon
-                    : executable)
-                .toStdWString();
-        result = link->SetIconLocation(iconPath.c_str(), 0);
-    }
-
-    IPropertyStore* properties = nullptr;
-    if (SUCCEEDED(result)) {
-        result = link->QueryInterface(IID_PPV_ARGS(&properties));
-    }
-    if (SUCCEEDED(result)) {
-        result = setStringProperty(
-            properties, PKEY_AppUserModel_ID, QStringLiteral("MdsScope.MdsScope"));
-    }
-    if (SUCCEEDED(result)) {
-        result = properties->Commit();
-    }
-    if (properties) {
-        properties->Release();
-    }
-
-    IPersistFile* persistFile = nullptr;
-    if (SUCCEEDED(result)) {
-        result = link->QueryInterface(IID_PPV_ARGS(&persistFile));
-    }
-    if (SUCCEEDED(result)) {
-        const std::wstring nativeShortcutPath =
-            QDir::toNativeSeparators(shortcutPath).toStdWString();
-        result = persistFile->Save(nativeShortcutPath.c_str(), TRUE);
-        if (SUCCEEDED(result)) {
-            SHChangeNotify(SHCNE_UPDATEITEM,
-                           SHCNF_PATHW,
-                           nativeShortcutPath.c_str(),
-                           nullptr);
-        }
-    }
-    if (persistFile) {
-        persistFile->Release();
-    }
-    link->Release();
-    return result;
-}
-
-void ensureWindowsStartMenuShortcut()
-{
-    const HRESULT initializeResult =
-        CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-    if (FAILED(initializeResult) && initializeResult != RPC_E_CHANGED_MODE) {
-        return;
-    }
-    createWindowsStartMenuShortcut();
-    if (SUCCEEDED(initializeResult)) {
-        CoUninitialize();
-    }
-}
-
-void configureWindowsWindowIcon(HWND window)
-{
-    if (!window) {
-        return;
-    }
-    HMODULE module = GetModuleHandleW(nullptr);
-    if (!module) {
-        return;
-    }
-
-    auto loadIcon = [module](int width, int height) {
-        return static_cast<HICON>(
-            LoadImageW(module,
-                       L"IDI_MDSSCOPE_ICON",
-                       IMAGE_ICON,
-                       width,
-                       height,
-                       LR_SHARED));
-    };
-    if (HICON largeIcon =
-            loadIcon(GetSystemMetrics(SM_CXICON),
-                     GetSystemMetrics(SM_CYICON))) {
-        SendMessageW(window,
-                     WM_SETICON,
-                     ICON_BIG,
-                     reinterpret_cast<LPARAM>(largeIcon));
-    }
-    if (HICON smallIcon =
-            loadIcon(GetSystemMetrics(SM_CXSMICON),
-                     GetSystemMetrics(SM_CYSMICON))) {
-        SendMessageW(window,
-                     WM_SETICON,
-                     ICON_SMALL,
-                     reinterpret_cast<LPARAM>(smallIcon));
-    }
-}
-#endif
 }
 
 ThemeMode mdsScopeThemeMode()
 {
-    if (gThemeWatcher) {
-        return gThemeWatcher->themeMode();
+    if (auto* watcher = themeWatcher()) {
+        return watcher->themeMode();
     }
     const QVariant value = qApp ? qApp->property(kThemeModeProperty) : QVariant();
     if (value.isValid()) {
@@ -856,120 +585,18 @@ ThemeMode mdsScopeThemeMode()
 void setMdsScopeThemeMode(ThemeMode mode)
 {
     mode = normalizedThemeMode(static_cast<int>(mode));
-    if (gThemeWatcher) {
-        gThemeWatcher->setThemeMode(mode);
+    if (auto* watcher = themeWatcher()) {
+        watcher->setThemeMode(mode);
         return;
     }
     QSettings().setValue(QString::fromLatin1(kThemeModeSetting), static_cast<int>(mode));
 }
 
-int runMdsScopeApplication(int argc, char* argv[])
+void installThemeRuntime(QApplication& app)
 {
-    if (qEnvironmentVariable("MDSSCOPE_SSH_ASKPASS") == QStringLiteral("1")) {
-        QCoreApplication::setApplicationName("mdsscope");
-        QCoreApplication::setOrganizationName("MdsScope");
-        QCoreApplication helper(argc, argv);
-        CachedAuth auth;
-        if (loadCachedAuth(&auth) && !auth.ssh.password.isEmpty()) {
-            QTextStream(stdout) << auth.ssh.password << Qt::endl;
-            return 0;
-        }
-        return 1;
+    if (!themeWatcher()) {
+        new SystemThemeWatcher(app);
     }
-#ifdef Q_OS_WIN
-    // Give the portable executable a stable taskbar identity. This must be set
-    // before QApplication creates any windows so Windows can pin and relaunch
-    // the running application from its taskbar button.
-    SetCurrentProcessExplicitAppUserModelID(L"MdsScope.MdsScope");
-#endif
-    QApplication::setApplicationName("mdsscope");
-    QApplication::setApplicationDisplayName("MdsScope");
-    QApplication::setApplicationVersion(QStringLiteral(MDSSCOPE_VERSION));
-    if (desktopFileIsInstalled("mdsscope")) {
-        QApplication::setDesktopFileName("mdsscope");
-    }
-    QApplication::setOrganizationName("MdsScope");
-    QApplication app(argc, argv);
-    QApplication::setWindowIcon(appIcon());
-#ifdef Q_OS_WIN
-    ensureWindowsStartMenuShortcut();
-#endif
-    SystemThemeWatcher themeWatcher(app);
-    QThreadPool::globalInstance()->setMaxThreadCount(16);
-    QThreadPool::globalInstance()->setExpiryTimeout(300000);
-
-    QDir workDir = runtimeRootDir();
-
-    const QStringList args = QCoreApplication::arguments();
-    if (args.contains(QStringLiteral("--ssh-api-test"))) {
-        return runSshApiTest(workDir.absolutePath());
-    }
-    const qsizetype sshBenchmarkIndex = args.indexOf(QStringLiteral("--ssh-benchmark"));
-    if (sshBenchmarkIndex >= 0) {
-        QString configPath = QDir(workDir).filePath(QStringLiteral("environment/init.toml"));
-        if (sshBenchmarkIndex + 1 < args.size() && !args[sshBenchmarkIndex + 1].startsWith(QStringLiteral("--"))) {
-            configPath = args[sshBenchmarkIndex + 1];
-        }
-        QString shotOverride;
-        const qsizetype shotIndex = args.indexOf(QStringLiteral("--shot"));
-        if (shotIndex >= 0 && shotIndex + 1 < args.size()) {
-            shotOverride = args[shotIndex + 1].trimmed();
-        }
-        return runSshTunnelBenchmark(configPath, shotOverride);
-    }
-    const qsizetype benchmarkIndex =
-        args.indexOf("--benchmark") >= 0 ? args.indexOf("--benchmark") : args.indexOf("--bench");
-    if (benchmarkIndex >= 0) {
-        QString configPath = QDir(workDir).filePath("environment/high_desity_impurity_0626.webscp");
-        if (benchmarkIndex + 1 < args.size() && !args[benchmarkIndex + 1].startsWith("--")) {
-            configPath = args[benchmarkIndex + 1];
-        }
-        QString shotOverride;
-        const qsizetype shotIndex = args.indexOf("--shot");
-        if (shotIndex >= 0 && shotIndex + 1 < args.size()) {
-            shotOverride = args[shotIndex + 1].trimmed();
-        }
-        int repeat = 1;
-        const qsizetype repeatIndex = args.indexOf("--repeat");
-        if (repeatIndex >= 0 && repeatIndex + 1 < args.size()) {
-            bool ok = false;
-            const int parsed = args[repeatIndex + 1].toInt(&ok);
-            if (ok && parsed > 0) {
-                repeat = parsed;
-            }
-        }
-        const DataReadMode readMode = args.contains("--full") ? DataReadMode::Full
-                                          : args.contains("--medium") ? DataReadMode::Medium
-                                          : DataReadMode::Thin;
-        int code = 0;
-        for (int i = 0; i < repeat; ++i) {
-            code = std::max(code, runMdsScopeBenchmark(configPath,
-                                                       readMode,
-                                                       shotOverride,
-                                                       args.contains("--summary"),
-                                                       args.contains("--prewarm")));
-        }
-        return code;
-    }
-
-    if (!ensureApiLoginBeforeMain(workDir.absolutePath())) {
-        shutdownMdsScopeWorkers();
-        return 1;
-    }
-
-    int code = 0;
-    {
-        MainWindow window(workDir.absolutePath());
-        window.resize(1440, 920);
-#ifdef Q_OS_WIN
-        configureWindowsWindowIcon(
-            reinterpret_cast<HWND>(window.winId()));
-#endif
-        window.show();
-        code = app.exec();
-    }
-    shutdownMdsScopeWorkers();
-    return code;
 }
 
-#include "app_runtime.moc"
+#include "theme_runtime.moc"

@@ -4,7 +4,7 @@
 #pragma once
 
 #include "core/app_types.hpp"
-#include "ssh_settings.hpp"
+#include "core/ssh_settings.hpp"
 
 #include <QObject>
 #include <QHash>

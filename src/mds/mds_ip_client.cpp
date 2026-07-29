@@ -1,8 +1,21 @@
 // SPDX-FileCopyrightText: 2026 Weikang Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "mds_ip_client.hpp"
-#include "core/mdsscope_internal.hpp"
+#include "internal/mds_ip_client.hpp"
+
+#include "core/mds_helpers.hpp"
+
+#include <QtConcurrent>
+
+#include <QAbstractSocket>
+#include <QFuture>
+#include <QMutex>
+#include <QMutexLocker>
+#include <QThreadPool>
+
+#include <algorithm>
+#include <limits>
+#include <utility>
 
 namespace mds_client_internal {
 
@@ -59,6 +72,59 @@ MdsIpClient::MdsIpClient(DataReadMode readMode,
     , cancel_(std::move(cancel))
     , preserveConnectionsOnCancel_(preserveConnectionsOnCancel)
 {
+}
+
+MdsIpClient::SemaphoreGuard::SemaphoreGuard(QSemaphore* semaphore)
+    : semaphore_(semaphore)
+{
+    if (semaphore_) {
+        semaphore_->acquire();
+    }
+}
+
+MdsIpClient::SemaphoreGuard::~SemaphoreGuard()
+{
+    if (semaphore_) {
+        semaphore_->release();
+    }
+}
+
+MdsIpClient::CurrentCancelGuard::CurrentCancelGuard(
+    const std::shared_ptr<std::atomic_bool>& cancel,
+    bool preserveConnections)
+    : previous_(MdsIpClient::currentCancel())
+    , previousPreserve_(MdsIpClient::currentPreserveConnectionsOnCancel())
+{
+    MdsIpClient::currentCancel() = cancel.get();
+    MdsIpClient::currentPreserveConnectionsOnCancel() = preserveConnections;
+}
+
+MdsIpClient::CurrentCancelGuard::~CurrentCancelGuard()
+{
+    MdsIpClient::currentCancel() = previous_;
+    MdsIpClient::currentPreserveConnectionsOnCancel() = previousPreserve_;
+}
+
+MdsIpClient::CurrentReadTimeoutGuard::CurrentReadTimeoutGuard(int idleTimeoutMs)
+    : previous_(MdsIpClient::currentReadIdleTimeoutMs())
+{
+    MdsIpClient::currentReadIdleTimeoutMs() = idleTimeoutMs;
+}
+
+MdsIpClient::CurrentReadTimeoutGuard::~CurrentReadTimeoutGuard()
+{
+    MdsIpClient::currentReadIdleTimeoutMs() = previous_;
+}
+
+MdsIpClient::CurrentCancelSuppressionGuard::CurrentCancelSuppressionGuard()
+    : previous_(MdsIpClient::currentCancel())
+{
+    MdsIpClient::currentCancel() = nullptr;
+}
+
+MdsIpClient::CurrentCancelSuppressionGuard::~CurrentCancelSuppressionGuard()
+{
+    MdsIpClient::currentCancel() = previous_;
 }
 
 void MdsIpClient::clearCurrentThreadConnections()

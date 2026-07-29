@@ -3,8 +3,10 @@
 
 #include "ssh_diagnostic.hpp"
 #include "ssh_tunnel_manager.hpp"
-#include "mds_client.hpp"
-#include "core/mdsscope_internal.hpp"
+#include "core/api_auth.hpp"
+#include "core/environment_io.hpp"
+#include "core/mds_helpers.hpp"
+#include "mds/mds_client.hpp"
 
 #include <QTextStream>
 #include <QEventLoop>

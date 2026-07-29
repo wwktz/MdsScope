@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "app_types.hpp"
+#include "core/app_types.hpp"
 
 int runMdsScopeBenchmark(const QString& configPath,
                          DataReadMode readMode = DataReadMode::Thin,
@@ -11,6 +11,4 @@ int runMdsScopeBenchmark(const QString& configPath,
                          bool summaryOnly = false,
                          bool prewarm = false);
 void shutdownMdsScopeWorkers();
-ThemeMode mdsScopeThemeMode();
-void setMdsScopeThemeMode(ThemeMode mode);
 int runMdsScopeApplication(int argc, char* argv[]);

@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "core/app_runtime.hpp"
+#include "app/app_runtime.hpp"
 #include "ui/login_dialog.hpp"
 #include "ui/main_window/main_window.hpp"
 #include "ui/plot/plot_widget.hpp"

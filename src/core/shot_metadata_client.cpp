@@ -3,7 +3,7 @@
 
 #include "shot_metadata_client.hpp"
 
-#include "mdsscope_internal.hpp"
+#include "api_auth.hpp"
 
 #include <QEventLoop>
 #include <QJsonArray>

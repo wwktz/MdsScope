@@ -1,9 +1,17 @@
 // SPDX-FileCopyrightText: 2026 Weikang Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "mdsscope_internal.hpp"
 #include "helpers.hpp"
 #include "plot_widget.hpp"
+
+#include <QFont>
+#include <QFontMetrics>
+
+#include <algorithm>
+#include <cmath>
+#include <iterator>
+#include <limits>
+#include <utility>
 
 namespace {
 
@@ -134,7 +142,7 @@ int PlotWidget::legendSeriesAt(const QPointF& pixelPos) const
         return -1;
     }
 
-    const FontSettings& fonts = fontSettings();
+    const FontSettings& fonts = fontSettings_;
     QFont legendFont(fonts.family, fonts.legendSize + (largeDisplayMode_ ? 4 : 0));
     const QFontMetrics legendFm(legendFont);
     int legendWidth = 0;

@@ -1,8 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Weikang Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "mdsscope_internal.hpp"
+#include "core/app_paths.hpp"
 #include "shortcut_settings.hpp"
+
+#include <QSettings>
 
 namespace {
 QKeySequence shortcut(const char* portableText)

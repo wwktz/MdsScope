@@ -1,9 +1,22 @@
 // SPDX-FileCopyrightText: 2026 Weikang Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "mdsscope_internal.hpp"
+#include "core/series_style.hpp"
 #include "helpers.hpp"
 #include "plot_widget.hpp"
+
+#include <QFont>
+#include <QFontMetrics>
+#include <QLineF>
+#include <QPainter>
+#include <QPaintEvent>
+#include <QPalette>
+#include <QPen>
+
+#include <algorithm>
+#include <array>
+#include <limits>
+#include <utility>
 
 namespace {
 
@@ -53,7 +66,8 @@ QRectF PlotWidget::pointReadoutTextRect(const PointReadout& readout,
     };
 
     const int placementIndex = std::clamp(readout.placementIndex, 0, 3);
-    QRectF result = candidates[placementIndex];
+    QRectF result =
+        candidates[static_cast<std::size_t>(placementIndex)];
     if (result.left() < available.left()) {
         result.moveLeft(available.left());
     } else if (result.right() > available.right()) {
@@ -100,7 +114,7 @@ void PlotWidget::updatePointReadoutPlacement(PointReadout& readout) const
     };
 
     QVector<QRectF> obstacles;
-    const FontSettings& fonts = fontSettings();
+    const FontSettings& fonts = fontSettings_;
     if (!spec_.title.trimmed().isEmpty()) {
         QFont titleFont(fonts.family, fonts.legendSize + (largeDisplayMode_ ? 4 : 0));
         titleFont.setBold(true);
@@ -136,7 +150,7 @@ void PlotWidget::updatePointReadoutPlacement(PointReadout& readout) const
     std::array<bool, 4> backgrounds{};
     const bool preferRight = readout.pixel.x() <= available.center().x();
     const bool preferBelow = readout.pixel.y() <= available.center().y();
-    for (int i = 0; i < static_cast<int>(candidates.size()); ++i) {
+    for (std::size_t i = 0; i < candidates.size(); ++i) {
         const QRectF& rect = candidates[i];
         const double overflow = std::max(0.0, available.left() - rect.left())
                                 + std::max(0.0, rect.right() - available.right())
@@ -181,25 +195,25 @@ void PlotWidget::updatePointReadoutPlacement(PointReadout& readout) const
 
     const int current = readout.placementIndex;
     int chosen = -1;
+    const bool currentIsValid =
+        current >= 0
+        && current < static_cast<int>(backgrounds.size());
     // Keep a clear placement stable. Switch only when the current placement
     // needs a background and another nearby placement does not.
-    if (current >= 0
-        && current < static_cast<int>(backgrounds.size())
-        && !backgrounds[current]) {
+    if (currentIsValid
+        && !backgrounds[static_cast<std::size_t>(current)]) {
         chosen = current;
     }
     if (chosen < 0) {
         double bestCleanScore = std::numeric_limits<double>::infinity();
-        for (int i = 0; i < static_cast<int>(backgrounds.size()); ++i) {
+        for (std::size_t i = 0; i < backgrounds.size(); ++i) {
             if (!backgrounds[i] && scores[i] < bestCleanScore) {
-                chosen = i;
+                chosen = static_cast<int>(i);
                 bestCleanScore = scores[i];
             }
         }
     }
-    if (chosen < 0
-        && current >= 0
-        && current < static_cast<int>(backgrounds.size())) {
+    if (chosen < 0 && currentIsValid) {
         chosen = current;
     }
     if (chosen < 0) {
@@ -208,7 +222,8 @@ void PlotWidget::updatePointReadoutPlacement(PointReadout& readout) const
     }
 
     readout.placementIndex = chosen;
-    readout.needsBackground = backgrounds[chosen];
+    readout.needsBackground =
+        backgrounds[static_cast<std::size_t>(chosen)];
 }
 
 QRect PlotWidget::syncedPointDirtyRect(const PointReadout& readout) const
@@ -361,7 +376,7 @@ void PlotWidget::renderBasePlot(QPainter& painter) const
     const QColor gridColor = pal.color(QPalette::AlternateBase).isValid()
                                  ? pal.color(QPalette::AlternateBase)
                                  : pal.color(QPalette::Midlight);
-    const FontSettings& fonts = fontSettings();
+    const FontSettings& fonts = fontSettings_;
     QFont axisFont(fonts.family, fonts.axisSize);
     int plotPointSize = fonts.axisSize;
     if (largeDisplayMode_) {
@@ -611,7 +626,8 @@ void PlotWidget::renderBasePlot(QPainter& painter) const
             xLabels.value(i),
             Qt::ElideMiddle,
             std::max(1, static_cast<int>(textRect.width() - 2.0)));
-        painter.drawText(textRect, alignment, displayLabel);
+        painter.drawText(
+            textRect, static_cast<int>(alignment), displayLabel);
     }
     const QString xUnit = spec_.xLabel.trimmed().isEmpty() ? QStringLiteral("s") : spec_.xLabel.trimmed();
     double xUnitCenter = pr.center().x();

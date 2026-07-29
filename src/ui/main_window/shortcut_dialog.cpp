@@ -1,12 +1,17 @@
 // SPDX-FileCopyrightText: 2026 Weikang Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "mdsscope_internal.hpp"
 #include "shortcut_dialog.hpp"
 
 #include <QDialogButtonBox>
+#include <QGridLayout>
+#include <QGroupBox>
 #include <QKeySequenceEdit>
+#include <QLabel>
+#include <QMessageBox>
+#include <QPushButton>
 #include <QScrollArea>
+#include <QVBoxLayout>
 
 namespace {
 bool isPanelNavigation(ShortcutCommand command)
@@ -39,7 +44,7 @@ bool isStrictPrefix(const QKeySequence& prefix,
         || prefix.count() >= sequence.count()) {
         return false;
     }
-    for (int i = 0; i < prefix.count(); ++i) {
+    for (uint i = 0; i < static_cast<uint>(prefix.count()); ++i) {
         if (prefix[i] != sequence[i]) {
             return false;
         }

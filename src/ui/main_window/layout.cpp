@@ -1,13 +1,23 @@
 // SPDX-FileCopyrightText: 2026 Weikang Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "mdsscope_internal.hpp"
+#include "core/app_paths.hpp"
+#include "core/mds_helpers.hpp"
+#include "core/series_style.hpp"
 #include "main_window.hpp"
 #include "refresh_coordinator.hpp"
 #include "ui/plot/plot_widget.hpp"
 #include "layout_dialog.hpp"
 #include "shared.hpp"
 #include "signal_dialogs.hpp"
+
+#include <QBoxLayout>
+#include <QGridLayout>
+#include <QLineEdit>
+#include <QMessageBox>
+#include <QScrollArea>
+#include <QToolButton>
+#include <QVBoxLayout>
 
 namespace {
 struct PreservedPanelData {
@@ -77,6 +87,7 @@ void MainWindow::rebuildGrid()
         plotWidgets_[c].resize(displayConfig_.columns[c].size());
         for (int r = 0; r < displayConfig_.columns[c].size(); ++r) {
             auto* plot = new PlotWidget(columnHost);
+            plot->setFontSettings(fontSettings_);
             plot->setSpec(displayConfig_.columns[c][r]);
             plot->setLargeDisplayMode(false);
             if (zoomButton_ && zoomButton_->isChecked()) {

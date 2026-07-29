@@ -1,8 +1,15 @@
 // SPDX-FileCopyrightText: 2026 Weikang Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "mds_ip_client.hpp"
-#include "core/mdsscope_internal.hpp"
+#include "internal/mds_ip_client.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <limits>
+#include <utility>
+
+#include <QtEndian>
 
 namespace mds_client_internal {
 

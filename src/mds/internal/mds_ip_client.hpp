@@ -4,7 +4,7 @@
 #pragma once
 
 #include "core/mds_support.hpp"
-#include "mds_client.hpp"
+#include "mds/mds_client.hpp"
 
 #include <QByteArray>
 #include <QHash>
@@ -97,20 +97,8 @@ private:
 
     class SemaphoreGuard {
     public:
-        explicit SemaphoreGuard(QSemaphore* semaphore)
-            : semaphore_(semaphore)
-        {
-            if (semaphore_) {
-                semaphore_->acquire();
-            }
-        }
-
-        ~SemaphoreGuard()
-        {
-            if (semaphore_) {
-                semaphore_->release();
-            }
-        }
+        explicit SemaphoreGuard(QSemaphore* semaphore);
+        ~SemaphoreGuard();
 
         SemaphoreGuard(const SemaphoreGuard&) = delete;
         SemaphoreGuard& operator=(const SemaphoreGuard&) = delete;
@@ -123,19 +111,8 @@ private:
 
     class CurrentCancelGuard {
     public:
-        CurrentCancelGuard(const std::shared_ptr<std::atomic_bool>& cancel, bool preserveConnections)
-            : previous_(currentCancel())
-            , previousPreserve_(currentPreserveConnectionsOnCancel())
-        {
-            currentCancel() = cancel.get();
-            currentPreserveConnectionsOnCancel() = preserveConnections;
-        }
-
-        ~CurrentCancelGuard()
-        {
-            currentCancel() = previous_;
-            currentPreserveConnectionsOnCancel() = previousPreserve_;
-        }
+        CurrentCancelGuard(const std::shared_ptr<std::atomic_bool>& cancel, bool preserveConnections);
+        ~CurrentCancelGuard();
 
         CurrentCancelGuard(const CurrentCancelGuard&) = delete;
         CurrentCancelGuard& operator=(const CurrentCancelGuard&) = delete;
@@ -147,16 +124,8 @@ private:
 
     class CurrentReadTimeoutGuard {
     public:
-        explicit CurrentReadTimeoutGuard(int idleTimeoutMs)
-            : previous_(currentReadIdleTimeoutMs())
-        {
-            currentReadIdleTimeoutMs() = idleTimeoutMs;
-        }
-
-        ~CurrentReadTimeoutGuard()
-        {
-            currentReadIdleTimeoutMs() = previous_;
-        }
+        explicit CurrentReadTimeoutGuard(int idleTimeoutMs);
+        ~CurrentReadTimeoutGuard();
 
         CurrentReadTimeoutGuard(const CurrentReadTimeoutGuard&) = delete;
         CurrentReadTimeoutGuard& operator=(const CurrentReadTimeoutGuard&) = delete;
@@ -167,16 +136,8 @@ private:
 
     class CurrentCancelSuppressionGuard {
     public:
-        CurrentCancelSuppressionGuard()
-            : previous_(currentCancel())
-        {
-            currentCancel() = nullptr;
-        }
-
-        ~CurrentCancelSuppressionGuard()
-        {
-            currentCancel() = previous_;
-        }
+        CurrentCancelSuppressionGuard();
+        ~CurrentCancelSuppressionGuard();
 
         CurrentCancelSuppressionGuard(const CurrentCancelSuppressionGuard&) = delete;
         CurrentCancelSuppressionGuard& operator=(const CurrentCancelSuppressionGuard&) = delete;

@@ -3,7 +3,8 @@
 
 #include "signal_dialogs.hpp"
 
-#include "core/mdsscope_internal.hpp"
+#include "core/mds_helpers.hpp"
+#include "core/series_style.hpp"
 #include "shared.hpp"
 
 #include <QAbstractItemView>
@@ -16,7 +17,9 @@
 #include <QDir>
 #include <QFile>
 #include <QGridLayout>
+#include <QLabel>
 #include <QLineEdit>
+#include <QMouseEvent>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QSet>

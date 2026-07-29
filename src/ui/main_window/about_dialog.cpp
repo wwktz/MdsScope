@@ -3,7 +3,8 @@
 
 #include "about_dialog.hpp"
 
-#include "core/mdsscope_internal.hpp"
+#include "core/version.hpp"
+#include "ui/visuals.hpp"
 #include "shared.hpp"
 
 #include <QApplication>
@@ -13,6 +14,7 @@
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QLabel>
 #include <QMessageBox>
 #include <QNetworkAccessManager>
@@ -305,7 +307,7 @@ inline QMessageBox* makeAboutMessageBox(QWidget* parent,
 
 class AboutDialog final : public QDialog {
 public:
-    explicit AboutDialog(QWidget* parent = nullptr)
+    explicit AboutDialog(const FontSettings& fonts, QWidget* parent = nullptr)
         : QDialog(parent)
     {
         setWindowTitle("About MdsScope");
@@ -314,7 +316,6 @@ public:
         setSizeGripEnabled(false);
         networkManager_ = new QNetworkAccessManager(this);
 
-        const FontSettings& fonts = fontSettings();
         const QFont baseFont(fonts.family, fonts.uiSize);
         const QFontMetrics baseMetrics(baseFont);
         setFont(baseFont);
@@ -565,8 +566,8 @@ private:
 
 }
 
-void showAboutDialog(QWidget* parent)
+void showAboutDialog(const FontSettings& fonts, QWidget* parent)
 {
-    AboutDialog dialog(parent);
+    AboutDialog dialog(fonts, parent);
     dialog.exec();
 }

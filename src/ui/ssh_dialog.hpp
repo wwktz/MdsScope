@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "ssh/ssh_settings.hpp"
+#include "core/ssh_settings.hpp"
 
 #include <QDialog>
 

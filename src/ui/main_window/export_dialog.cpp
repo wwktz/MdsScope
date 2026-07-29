@@ -3,7 +3,7 @@
 
 #include "export_dialog.hpp"
 
-#include "core/mdsscope_internal.hpp"
+#include "core/mds_helpers.hpp"
 #include "layout_dialog.hpp"
 
 #include <QComboBox>

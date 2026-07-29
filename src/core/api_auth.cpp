@@ -1,8 +1,30 @@
 // SPDX-FileCopyrightText: 2026 Weikang Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "mdsscope_internal.hpp"
+#include "api_auth.hpp"
+#include "app_paths.hpp"
 #include "text_utils.hpp"
+
+#include <QCryptographicHash>
+#include <QDateTime>
+#include <QDir>
+#include <QEventLoop>
+#include <QFile>
+#include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QRandomGenerator>
+#include <QSaveFile>
+#include <QSysInfo>
+#include <QTimer>
+#include <QUrl>
+#include <QtEndian>
+
+#include <algorithm>
 
 QHash<QString, QString> defaultApiProperties()
 {

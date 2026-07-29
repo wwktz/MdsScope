@@ -1,7 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Weikang Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "mdsscope_internal.hpp"
+#include "text_utils.hpp"
+
+#include <QFile>
 
 QString trimQuotes(QString value)
 {

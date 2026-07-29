@@ -3,18 +3,21 @@
 
 #pragma once
 
-#include "core/app_runtime.hpp"
+#include "core/theme_mode.hpp"
 
 #include <QWidget>
+
+#include <memory>
 
 class ThemeModeButton final : public QWidget {
 public:
     explicit ThemeModeButton(QWidget* parent = nullptr);
+    ~ThemeModeButton() override;
 
     void setUiScale(qreal scale);
     void setMode(ThemeMode mode, bool animated = true);
 
 private:
     class Impl;
-    Impl* impl_ = nullptr;
+    std::unique_ptr<Impl> impl_;
 };

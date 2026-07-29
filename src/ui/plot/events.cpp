@@ -1,9 +1,16 @@
 // SPDX-FileCopyrightText: 2026 Weikang Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "mdsscope_internal.hpp"
 #include "helpers.hpp"
 #include "plot_widget.hpp"
+
+#include <QEvent>
+#include <QMouseEvent>
+#include <QResizeEvent>
+#include <QWheelEvent>
+
+#include <algorithm>
+#include <cmath>
 
 void PlotWidget::mousePressEvent(QMouseEvent* event)
 {

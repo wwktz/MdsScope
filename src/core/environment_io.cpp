@@ -1,8 +1,20 @@
 // SPDX-FileCopyrightText: 2026 Weikang Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "mdsscope_internal.hpp"
+#include "environment_io.hpp"
+#include "mds_helpers.hpp"
 #include "text_utils.hpp"
+#include "series_style.hpp"
+
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QHash>
+#include <QSaveFile>
+#include <QTextStream>
+
+#include <algorithm>
+#include <cmath>
 
 QString tomlEscape(QString value)
 {
@@ -738,4 +750,203 @@ bool writeEnvironmentToml(const LayoutConfig& config, const QString& path, QStri
         return false;
     }
     return true;
+}
+
+bool writeEnvironmentWebscp(const LayoutConfig& config,
+                            const QString& path,
+                            const QString& dataPath,
+                            QString* error)
+{
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        if (error) {
+            *error = QStringLiteral("Cannot write %1: %2")
+                         .arg(path, file.errorString());
+        }
+        return false;
+    }
+
+    QTextStream out(&file);
+    writeLine(out, "Title_Font", "java.awt.Font[family=Times New Roman,name=Times New Roman,style=plain,size=16]");
+    writeLine(out, "Measurement_Units", "java.awt.Font[family=Times New Roman,name=Times New Roman,style=plain,size=14]");
+    writeLine(out, "Coordinate_Axis", "java.awt.Font[family=Times New Roman,name=Times New Roman,style=plain,size=12]");
+    writeLine(out, "Grid_Mode", "1");
+    writeLine(out, "X_Lines", "5");
+    writeLine(out, "Y_Lines", "5");
+    writeLine(out, "Extraction_points", "2000");
+    writeLine(out, "Vertical_offset", "0");
+    writeLine(out, "Horizontal_offset", "0");
+    writeLine(out, "xmax", "");
+    writeLine(out, "xmin", "");
+    writeLine(out, "ymax", "");
+    writeLine(out, "ymin", "");
+    writeLine(out, "File_position", dataPath);
+    out << "\n \n";
+    writeLine(out, "cols", QString::number(config.columns.size()));
+    out << " \n";
+    for (int c = 0; c < config.columns.size(); ++c) {
+        writeLine(out,
+                  QString("%1.rows").arg(c + 1),
+                  QString::number(config.columns[c].size()));
+        for (int r = 0; r < config.columns[c].size(); ++r) {
+            const PlotSpec& plot = config.columns[c][r];
+            const QString prefix =
+                QString("%1_%2.").arg(c + 1).arg(r + 1);
+            writeLine(out, prefix + "shot_txt", plot.shot);
+            writeLine(out, prefix + "num_shot", "1");
+            writeLine(out,
+                      prefix + "num_sig",
+                      QString::number(plot.signalSpecs.size()));
+            writeLine(out, prefix + "title_position", "0");
+            writeLine(out, prefix + "y_log", "0");
+            writeLine(out, prefix + "legend", "1");
+            writeLine(out,
+                      prefix + "xseting_mode",
+                      plot.customXRange ? "0" : "1");
+            writeLine(out,
+                      prefix + "yseting_mode",
+                      plot.customYRange ? "0" : "1");
+            writeLine(out, prefix + "x_line_num", "5");
+            writeLine(out, prefix + "y_line_num", "5");
+            writeLine(out,
+                      prefix + "extraction_points",
+                      QString::number(plot.extractionPoints));
+            writeLine(out, prefix + "vertical_offset", "0");
+            writeLine(out, prefix + "horizontal_offset", "0");
+            writeLine(out, prefix + "grid_mode", plot.grid ? "1" : "0");
+            writeLine(out,
+                      prefix + "xmin_custom",
+                      std::isfinite(plot.xmin)
+                          ? QString::number(plot.xmin, 'g', 12)
+                          : "");
+            writeLine(out,
+                      prefix + "xmax_custom",
+                      std::isfinite(plot.xmax)
+                          ? QString::number(plot.xmax, 'g', 12)
+                          : "");
+            writeLine(out,
+                      prefix + "ymin_custom",
+                      std::isfinite(plot.ymin)
+                          ? QString::number(plot.ymin, 'g', 12)
+                          : "");
+            writeLine(out,
+                      prefix + "ymax_custom",
+                      std::isfinite(plot.ymax)
+                          ? QString::number(plot.ymax, 'g', 12)
+                          : "");
+            writeLine(out, prefix + "title", plot.title);
+            writeLine(out, prefix + "xlabel", plot.xLabel);
+            writeLine(out, prefix + "ylabel", plot.yLabel);
+            for (int s = 0; s < plot.signalSpecs.size(); ++s) {
+                const SignalSpec& sig = plot.signalSpecs[s];
+                const bool defaultColor =
+                    !sig.manualColor
+                    || isDefaultSeriesColor(sig.colorName, s);
+                const int colorIndex =
+                    defaultColor
+                        ? s
+                        : colorIndexForName(sig.colorName, s);
+                writeLine(
+                    out,
+                    prefix
+                        + QString("color_%1_%2")
+                              .arg(r + 1)
+                              .arg(s + 1),
+                    QString::number(colorIndex));
+                writeLine(
+                    out,
+                    prefix
+                        + QString("markers_%1_%2")
+                              .arg(r + 1)
+                              .arg(s + 1),
+                    "0");
+                writeLine(
+                    out,
+                    prefix
+                        + QString("interpolate_%1_%2")
+                              .arg(r + 1)
+                              .arg(s + 1),
+                    "1");
+                writeLine(out,
+                          prefix
+                              + QString("color_name_%1")
+                                    .arg(s + 1),
+                          defaultColor ? QString() : sig.colorName);
+                writeLine(out,
+                          prefix
+                              + QString("color_manual_%1")
+                                    .arg(s + 1),
+                          defaultColor ? "0" : "1");
+                writeLine(out,
+                          prefix + QString("shot_%1").arg(s + 1),
+                          sig.shot);
+                writeLine(out,
+                          prefix + QString("y_expr_%1").arg(s + 1),
+                          sig.yExpr);
+                writeLine(out,
+                          prefix + QString("x_expr_%1").arg(s + 1),
+                          sig.xExpr);
+                writeLine(
+                    out,
+                    prefix + QString("experiment_%1").arg(s + 1),
+                    sig.experiment);
+                writeLine(
+                    out,
+                    prefix + QString("server_ip_%1").arg(s + 1),
+                    sig.serverIp);
+            }
+        }
+    }
+
+    out.flush();
+    if (out.status() != QTextStream::Ok) {
+        if (error) {
+            *error = QStringLiteral("Cannot write %1: %2")
+                         .arg(path, file.errorString());
+        }
+        file.cancelWriting();
+        return false;
+    }
+    if (!file.commit()) {
+        if (error) {
+            *error = QStringLiteral("Cannot replace %1: %2")
+                         .arg(path, file.errorString());
+        }
+        return false;
+    }
+    return true;
+}
+
+EnvironmentSaveResult saveEnvironmentBundle(const LayoutConfig& config,
+                                            const QString& requestedPath,
+                                            const QString& dataPath)
+{
+    EnvironmentSaveResult result;
+    QFileInfo info(requestedPath);
+    QString suffix = info.suffix().toLower();
+    result.primaryPath = requestedPath;
+    if (suffix != QStringLiteral("toml")
+        && suffix != QStringLiteral("webscp")) {
+        result.primaryPath += QStringLiteral(".toml");
+        info = QFileInfo(result.primaryPath);
+        suffix = QStringLiteral("toml");
+    }
+
+    const QDir directory(info.absolutePath());
+    const QString baseName = info.completeBaseName();
+    result.tomlPath =
+        suffix == QStringLiteral("toml")
+            ? result.primaryPath
+            : directory.filePath(baseName + QStringLiteral(".toml"));
+    result.webscpPath =
+        suffix == QStringLiteral("webscp")
+            ? result.primaryPath
+            : directory.filePath(baseName + QStringLiteral(".webscp"));
+
+    result.tomlSaved =
+        writeEnvironmentToml(config, result.tomlPath, &result.tomlError);
+    result.webscpSaved =
+        writeEnvironmentWebscp(
+            config, result.webscpPath, dataPath, &result.webscpError);
+    return result;
 }

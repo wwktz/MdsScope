@@ -1,14 +1,18 @@
 // SPDX-FileCopyrightText: 2026 Weikang Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "mdsscope_internal.hpp"
+#include "core/api_auth.hpp"
+#include "core/mds_helpers.hpp"
+#include "ui/visuals.hpp"
 #include "main_window.hpp"
+#include "shot_workflow.hpp"
 #include "user_preferences.hpp"
-#include "core/shot_metadata_client.hpp"
 #include "refresh_coordinator.hpp"
 #include "about_dialog.hpp"
 #include "shared.hpp"
 #include "ui/login_dialog.hpp"
+
+#include <QLineEdit>
 
 namespace {
 bool layoutUsesFullRate(const LayoutConfig& config, DataReadMode globalMode)
@@ -45,7 +49,7 @@ void MainWindow::applyShot()
     shotEditExitTimer_.stop();
     preferences_->rememberShotExpression(shot);
     refreshShotHistory();
-    ++latestShotGeneration_;
+    shotWorkflow_->invalidateLatest();
     setAllPlotShots(shot);
     scheduleShotRefresh();
 }
@@ -95,13 +99,14 @@ void MainWindow::stepShot(int delta)
     int next = std::max(0, shot + delta);
     if (delta > 0) {
         bool latestOk = false;
-        const int latest = latestShot_.trimmed().toInt(&latestOk);
+        const QString latestShot = shotWorkflow_->latestShot();
+        const int latest = latestShot.trimmed().toInt(&latestOk);
         if (latestOk && next > latest) {
-            if (shot != latest && shotEdit_->text() != latestShot_) {
-                shotEdit_->setText(latestShot_);
+            if (shot != latest && shotEdit_->text() != latestShot) {
+                shotEdit_->setText(latestShot);
                 applyShot();
             } else {
-                setStatus(QString("Already at latest shot %1").arg(latestShot_));
+                setStatus(QString("Already at latest shot %1").arg(latestShot));
             }
             return;
         }
@@ -143,20 +148,15 @@ void MainWindow::openLoginDialog()
 
 void MainWindow::openAboutDialog()
 {
-    showAboutDialog(this);
+    showAboutDialog(fontSettings_, this);
 }
 
 void MainWindow::applyLoginSuccessStatus(const QString& statusText)
 {
     updateLoginActionIcon();
-    latestShot_.clear();
-    pendingTopSummaryShot_.clear();
-    topSummaryShot_.clear();
-    topSummaryIp_.clear();
-    topSummaryPulse_.clear();
-    topSummaryIt_.clear();
-    topSummaryTime_.clear();
-    ++topSummaryGeneration_;
+    shotWorkflow_->clearLatest();
+    shotWorkflow_->clearSummary();
+    shotWorkflow_->invalidateSummary();
     updateTopInfoLabels();
     setStatus(statusText);
 
@@ -177,15 +177,10 @@ void MainWindow::applyLoginSuccessStatus(const QString& statusText)
 void MainWindow::applyLogoutStatus()
 {
     updateLoginActionIcon();
-    latestShot_.clear();
-    pendingTopSummaryShot_.clear();
-    topSummaryShot_.clear();
-    topSummaryIp_.clear();
-    topSummaryPulse_.clear();
-    topSummaryIt_.clear();
-    topSummaryTime_.clear();
-    ++latestShotGeneration_;
-    ++topSummaryGeneration_;
+    shotWorkflow_->clearLatest();
+    shotWorkflow_->clearSummary();
+    shotWorkflow_->invalidateLatest();
+    shotWorkflow_->invalidateSummary();
     updateTopInfoLabels();
     setStatus("Logged out");
 }
@@ -206,56 +201,49 @@ void MainWindow::updateLoginActionIcon()
 void MainWindow::fetchLatestShotAsync(bool applyLatest)
 {
     if (applyLatest) {
-        latestShotApplyPending_ = true;
         setStatus("Fetching latest shot...");
     }
-    if (latestShotFetchRunning_) {
+    const ShotWorkflow::LatestRequest request =
+        shotWorkflow_->beginLatestFetch(applyLatest);
+    if (!request.started) {
         return;
     }
-    latestShotFetchRunning_ = true;
-    const int generation = ++latestShotGeneration_;
     QString apiUrl;
     if (!prepareSshUrl(readApiUrl(rootPath_), &apiUrl)) {
-        latestShotFetchRunning_ = false;
-        const bool shouldApply = latestShotApplyPending_;
-        latestShotApplyPending_ = false;
-        if (shouldApply) {
+        if (shotWorkflow_->failLatestFetchStart()) {
             setStatus("Latest shot unavailable through SSH");
         }
         return;
     }
-    QThreadPool::globalInstance()->start([this, generation, apiUrl] {
-        const QString latest = shotMetadata_->latestShot(apiUrl);
+    QThreadPool::globalInstance()->start([this, generation = request.generation, apiUrl] {
+        const QString latest = shotWorkflow_->fetchLatest(apiUrl);
         QMetaObject::invokeMethod(this, [this, latest, generation] {
-            if (generation != latestShotGeneration_) {
-                latestShotFetchRunning_ = false;
-                latestShotApplyPending_ = false;
+            const ShotWorkflow::LatestCompletion completion =
+                shotWorkflow_->completeLatestFetch(generation, latest);
+            if (!completion.current) {
                 return;
             }
-            latestShotFetchRunning_ = false;
-            const bool shouldApply = latestShotApplyPending_;
-            latestShotApplyPending_ = false;
             if (latest.isEmpty()) {
                 cachedApiSourceUrl_.clear();
                 cachedPreparedApiUrl_.clear();
-                if (shouldApply) {
+                if (completion.shouldApply) {
                     refresh_->cancelDeferredInitialRefresh();
                     setStatus("Latest shot unavailable");
                 }
                 return;
             }
-            latestShot_ = latest;
-            if (!shouldApply) {
+            if (!completion.shouldApply) {
                 return;
             }
-            if (shotEdit_ && shotEdit_->text() != latestShot_) {
-                shotEdit_->setText(latestShot_);
+            const QString latestShot = shotWorkflow_->latestShot();
+            if (shotEdit_ && shotEdit_->text() != latestShot) {
+                shotEdit_->setText(latestShot);
             }
             if (refresh_->initialRefreshDeferred()) {
-                preferences_->rememberShotExpression(latestShot_);
+                preferences_->rememberShotExpression(latestShot);
                 refreshShotHistory();
-                setAllPlotShots(latestShot_);
-                setStatus(QString("Preparing MDS connections for shot %1...").arg(latestShot_));
+                setAllPlotShots(latestShot);
+                setStatus(QString("Preparing MDS connections for shot %1...").arg(latestShot));
                 if (prewarmConnections()) {
                     return;
                 }
@@ -276,7 +264,7 @@ void MainWindow::updateShotControlsFromConfig(const QString& preferredShot)
         if (shotEdit_) {
             shotEdit_->setText(shot);
         }
-        ++latestShotGeneration_;
+        shotWorkflow_->invalidateLatest();
         setAllPlotShots(shot);
     }
 }

@@ -75,7 +75,31 @@ endif()
 
 option(MDS_SCOPE_DEPLOY_RUNTIME "Deploy Qt runtime dependencies during installation" OFF)
 option(MDS_SCOPE_BUILD_TESTS "Build MdsScope internal tests" OFF)
+option(MDS_SCOPE_STRICT_COMPILE "Treat project compiler warnings as errors" OFF)
 set(MDS_SCOPE_RPM_RELEASE "1" CACHE STRING "RPM release suffix")
+
+function(mdsscope_configure_target target)
+    if(MDS_SCOPE_STRICT_COMPILE)
+        if(MSVC)
+            target_compile_options(${target} PRIVATE
+                /W4
+                /WX
+                /permissive-
+                /Zc:__cplusplus
+            )
+        elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+            target_compile_options(${target} PRIVATE
+                -Wall
+                -Wextra
+                -Wpedantic
+                -Wconversion
+                -Wsign-conversion
+                -Wshadow
+                -Werror
+            )
+        endif()
+    endif()
+endfunction()
 
 configure_file(
     "${PROJECT_SOURCE_DIR}/cmake/cmake_uninstall.cmake.in"
@@ -87,17 +111,28 @@ add_custom_target(uninstall
     COMMAND "${CMAKE_COMMAND}" -P "${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake"
 )
 
-add_executable(MdsScope
-    src/main.cpp
-    src/core/app_runtime.cpp
+set(MDSSCOPE_INCLUDE_DIR "${PROJECT_SOURCE_DIR}/src")
+
+add_library(mdsscope_core STATIC
     src/core/api_auth.cpp
-    src/core/benchmark.cpp
     src/core/environment_io.cpp
     src/core/mds_helpers.cpp
     src/core/app_paths.cpp
-    src/core/visuals.cpp
+    src/core/series_style.cpp
     src/core/text_utils.cpp
     src/core/shot_metadata_client.cpp
+)
+mdsscope_configure_target(mdsscope_core)
+target_include_directories(mdsscope_core PUBLIC
+    "${MDSSCOPE_INCLUDE_DIR}"
+)
+target_link_libraries(mdsscope_core PUBLIC
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Network
+)
+
+add_library(mdsscope_mds STATIC
     src/mds/mds_client.cpp
     src/mds/mds_ip_client.cpp
     src/mds/mds_ip_east.cpp
@@ -105,15 +140,89 @@ add_executable(MdsScope
     src/mds/mds_ip_protocol.cpp
     src/mds/mds_ip_signal_fetch.cpp
     src/mds/mds_ip_series.cpp
+)
+mdsscope_configure_target(mdsscope_mds)
+target_include_directories(mdsscope_mds PUBLIC
+    "${MDSSCOPE_INCLUDE_DIR}"
+)
+target_link_libraries(mdsscope_mds PUBLIC
+    mdsscope_core
+)
+target_link_libraries(mdsscope_mds PRIVATE
+    Qt6::Concurrent
+    Qt6::Network
+)
+
+add_library(mdsscope_ssh STATIC
+    src/ssh/ssh_tunnel_manager.hpp
     src/ssh/ssh_tunnel_manager.cpp
     src/ssh/ssh_diagnostic.cpp
-    src/ui/login_dialog.cpp
-    src/ui/ssh_dialog.cpp
+)
+mdsscope_configure_target(mdsscope_ssh)
+target_include_directories(mdsscope_ssh PUBLIC
+    "${MDSSCOPE_INCLUDE_DIR}"
+)
+target_link_libraries(mdsscope_ssh PUBLIC
+    mdsscope_core
+)
+target_link_libraries(mdsscope_ssh PRIVATE
+    mdsscope_mds
+    Qt6::Network
+)
+
+add_library(mdsscope_plot STATIC
+    src/ui/plot/plot_widget.hpp
+    src/ui/plot/helpers.cpp
     src/ui/plot/events.cpp
     src/ui/plot/readout.cpp
     src/ui/plot/render.cpp
     src/ui/plot/state.cpp
     src/ui/plot/view.cpp
+)
+mdsscope_configure_target(mdsscope_plot)
+target_include_directories(mdsscope_plot PUBLIC
+    "${MDSSCOPE_INCLUDE_DIR}"
+)
+target_link_libraries(mdsscope_plot PUBLIC
+    mdsscope_core
+    Qt6::Widgets
+)
+
+add_library(mdsscope_services STATIC
+    src/services/data_export_service.cpp
+)
+mdsscope_configure_target(mdsscope_services)
+target_include_directories(mdsscope_services PUBLIC
+    "${MDSSCOPE_INCLUDE_DIR}"
+)
+target_link_libraries(mdsscope_services PUBLIC
+    mdsscope_core
+)
+target_link_libraries(mdsscope_services PRIVATE
+    mdsscope_mds
+)
+
+add_library(mdsscope_ui_support STATIC
+    src/ui/visuals.cpp
+    src/ui/login_dialog.cpp
+    src/ui/ssh_dialog.cpp
+)
+mdsscope_configure_target(mdsscope_ui_support)
+target_include_directories(mdsscope_ui_support PUBLIC
+    "${MDSSCOPE_INCLUDE_DIR}"
+)
+target_link_libraries(mdsscope_ui_support PUBLIC
+    mdsscope_core
+    mdsscope_ssh
+    Qt6::Widgets
+)
+target_link_libraries(mdsscope_ui_support PRIVATE
+    Qt6::Concurrent
+    Qt6::Network
+)
+
+add_library(mdsscope_ui STATIC
+    src/ui/main_window/main_window.hpp
     src/ui/main_window/about_dialog.cpp
     src/ui/main_window/window.cpp
     src/ui/main_window/data.cpp
@@ -131,50 +240,72 @@ add_executable(MdsScope
     src/ui/main_window/shortcuts.cpp
     src/ui/main_window/shared.cpp
     src/ui/main_window/shot.cpp
+    src/ui/main_window/shot_workflow.cpp
     src/ui/main_window/ssh.cpp
     src/ui/main_window/theme.cpp
     src/ui/main_window/web_access.cpp
     src/ui/main_window/web_bookmarks.cpp
     src/ui/main_window/ui.cpp
-    src/mdsscope_app.hpp
-    src/core/app_runtime.hpp
-    src/core/app_types.hpp
-    src/core/mdsscope_internal.hpp
-    src/core/mds_support.hpp
-    src/core/text_utils.hpp
-    src/core/shot_metadata_client.hpp
-    src/mds/mds_client.hpp
-    src/mds/mds_ip_client.hpp
-    src/ssh/ssh_tunnel_manager.hpp
-    src/ssh/ssh_diagnostic.hpp
-    src/ssh/ssh_settings.hpp
-    src/ui/login_dialog.hpp
-    src/ui/ssh_dialog.hpp
-    src/ui/main_window/main_window.hpp
-    src/ui/main_window/about_dialog.hpp
-    src/ui/main_window/export_dialog.hpp
-    src/ui/main_window/layout_dialog.hpp
-    src/ui/main_window/shortcut_dialog.hpp
-    src/ui/main_window/shortcut_settings.hpp
-    src/ui/main_window/user_preferences.hpp
-    src/ui/main_window/signal_dialogs.hpp
-    src/ui/main_window/shared.hpp
-    src/ui/main_window/theme.hpp
-    src/ui/plot/helpers.hpp
-    src/ui/plot/plot_widget.hpp
+)
+mdsscope_configure_target(mdsscope_ui)
+target_include_directories(mdsscope_ui PUBLIC
+    "${MDSSCOPE_INCLUDE_DIR}"
+)
+target_compile_definitions(mdsscope_ui PRIVATE
+    MDSSCOPE_VERSION="${PROJECT_VERSION}"
+    MDSSCOPE_GIT_VERSION="${MDS_SCOPE_GIT_VERSION}"
+)
+target_link_libraries(mdsscope_ui PUBLIC
+    mdsscope_core
+    mdsscope_ui_support
+    Qt6::Widgets
+)
+target_link_libraries(mdsscope_ui PRIVATE
+    mdsscope_mds
+    mdsscope_ssh
+    mdsscope_plot
+    mdsscope_services
+    Qt6::Network
+    Qt6::Concurrent
+)
+
+add_executable(MdsScope
+    src/main.cpp
+    src/app/app_runtime.cpp
+    src/app/benchmark.cpp
+    src/app/login_bootstrap.cpp
+    src/app/platform_integration.cpp
+    src/app/runtime_paths.cpp
+    src/app/theme_runtime.cpp
+)
+mdsscope_configure_target(MdsScope)
+target_include_directories(MdsScope PRIVATE
+    "${MDSSCOPE_INCLUDE_DIR}"
+)
+target_compile_definitions(MdsScope PRIVATE
+    MDSSCOPE_VERSION="${PROJECT_VERSION}"
+    MDSSCOPE_GIT_VERSION="${MDS_SCOPE_GIT_VERSION}"
+)
+target_link_libraries(MdsScope PRIVATE
+    mdsscope_ui
+    mdsscope_core
+    mdsscope_mds
+    mdsscope_ssh
+    mdsscope_ui_support
+    Qt6::Widgets
+    Qt6::Network
+    Qt6::Concurrent
 )
 
 add_executable(transfer
     src/transfer.cpp
-    src/core/api_auth.cpp
-    src/core/environment_io.cpp
-    src/core/mds_helpers.cpp
-    src/core/app_paths.cpp
-    src/core/visuals.cpp
-    src/core/text_utils.cpp
-    src/core/app_types.hpp
-    src/core/mdsscope_internal.hpp
-    src/core/text_utils.hpp
+)
+mdsscope_configure_target(transfer)
+target_include_directories(transfer PRIVATE
+    "${MDSSCOPE_INCLUDE_DIR}"
+)
+target_link_libraries(transfer PRIVATE
+    mdsscope_core
 )
 
 set_target_properties(transfer PROPERTIES AUTOMOC OFF)
@@ -238,55 +369,22 @@ if(APPLE)
     )
 endif()
 
-target_include_directories(MdsScope PRIVATE
-    src
-    src/core
-    src/mds
-    src/ui
-    src/ssh
-)
-
-target_compile_definitions(MdsScope PRIVATE
-    MDSSCOPE_VERSION="${PROJECT_VERSION}"
-    MDSSCOPE_GIT_VERSION="${MDS_SCOPE_GIT_VERSION}"
-)
-
-target_include_directories(transfer PRIVATE
-    src
-    src/core
-    src/mds
-    src/ui
-    src/ssh
-)
-
-target_link_libraries(MdsScope PRIVATE
-    Qt6::Core
-    Qt6::Widgets
-    Qt6::Network
-    Qt6::Concurrent
-)
-
-target_link_libraries(transfer PRIVATE
-    Qt6::Core
-    Qt6::Widgets
-    Qt6::Network
-    Qt6::Concurrent
-)
-
 if(MDS_SCOPE_BUILD_TESTS)
     enable_testing()
+    add_test(
+        NAME module_boundaries
+        COMMAND "${CMAKE_COMMAND}"
+            "-DMDSSCOPE_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+            -P "${PROJECT_SOURCE_DIR}/cmake/check_module_boundaries.cmake"
+    )
+
     add_executable(refresh_coordinator_test
         tests/refresh_coordinator_test.cpp
         src/ui/main_window/refresh_coordinator.cpp
     )
+    mdsscope_configure_target(refresh_coordinator_test)
     set_target_properties(refresh_coordinator_test PROPERTIES AUTOMOC OFF)
-    target_include_directories(refresh_coordinator_test PRIVATE
-        src
-        src/core
-        src/mds
-        src/ui
-        src/ssh
-    )
+    target_include_directories(refresh_coordinator_test PRIVATE src)
     target_link_libraries(refresh_coordinator_test PRIVATE
         Qt6::Core
         Qt6::Widgets
@@ -297,19 +395,15 @@ if(MDS_SCOPE_BUILD_TESTS)
     add_executable(plot_helpers_test
         tests/plot_helpers_test.cpp
     )
+    mdsscope_configure_target(plot_helpers_test)
     set_target_properties(plot_helpers_test PROPERTIES AUTOMOC OFF)
-    target_include_directories(plot_helpers_test PRIVATE
-        src
-        src/core
-        src/mds
-        src/ssh
-        src/ui
-    )
+    target_include_directories(plot_helpers_test PRIVATE src)
     target_link_libraries(plot_helpers_test PRIVATE
         Qt6::Core
         Qt6::Widgets
         Qt6::Concurrent
         Qt6::Network
+        mdsscope_plot
     )
     add_test(NAME plot_helpers COMMAND plot_helpers_test)
 
@@ -317,26 +411,34 @@ if(MDS_SCOPE_BUILD_TESTS)
         tests/shortcut_settings_test.cpp
         src/ui/main_window/shortcut_settings.cpp
     )
+    mdsscope_configure_target(shortcut_settings_test)
     set_target_properties(shortcut_settings_test PROPERTIES AUTOMOC OFF)
-    target_include_directories(shortcut_settings_test PRIVATE
-        src
-        src/core
-        src/mds
-        src/ssh
-        src/ui
-    )
+    target_include_directories(shortcut_settings_test PRIVATE src)
     target_link_libraries(shortcut_settings_test PRIVATE
         Qt6::Core
         Qt6::Widgets
         Qt6::Concurrent
         Qt6::Network
+        mdsscope_core
     )
     add_test(NAME shortcut_settings COMMAND shortcut_settings_test)
+
+    add_executable(shot_workflow_test
+        tests/shot_workflow_test.cpp
+        src/ui/main_window/shot_workflow.cpp
+    )
+    mdsscope_configure_target(shot_workflow_test)
+    set_target_properties(shot_workflow_test PROPERTIES AUTOMOC OFF)
+    target_include_directories(shot_workflow_test PRIVATE src)
+    target_link_libraries(shot_workflow_test PRIVATE
+        mdsscope_core
+        Qt6::Core
+    )
+    add_test(NAME shot_workflow COMMAND shot_workflow_test)
 endif()
 
 if(UNIX AND NOT APPLE)
     target_link_libraries(MdsScope PRIVATE Qt6::DBus)
-    target_link_libraries(transfer PRIVATE Qt6::DBus)
 endif()
 
 if(APPLE)

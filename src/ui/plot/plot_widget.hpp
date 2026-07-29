@@ -4,6 +4,7 @@
 #pragma once
 
 #include "core/app_types.hpp"
+#include "core/font_settings.hpp"
 
 #include <QImage>
 #include <QPixmap>
@@ -22,6 +23,7 @@ class PlotWidget final : public QWidget {
 public:
     explicit PlotWidget(QWidget* parent = nullptr);
 
+    void setFontSettings(FontSettings settings);
     void setSpec(PlotSpec spec);
     void setFetchSpec(PlotSpec spec);
     void setShot(QString shot);
@@ -119,6 +121,7 @@ private:
     void schedulePointHoverUpdate(const QPointF& pixelPos);
 
     PlotSpec spec_;
+    FontSettings fontSettings_;
     QVector<SignalSeries> series_;
     QVector<QColor> seriesColors_;
     QStringList legendLabels_;

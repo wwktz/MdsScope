@@ -1,19 +1,48 @@
 // SPDX-FileCopyrightText: 2026 Weikang Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "mdsscope_internal.hpp"
+#include "core/api_auth.hpp"
+#include "core/app_paths.hpp"
+#include "core/mds_helpers.hpp"
+#include "ui/visuals.hpp"
 #include "main_window.hpp"
 #include "refresh_coordinator.hpp"
+#include "shot_workflow.hpp"
 #include "ui/plot/plot_widget.hpp"
 #include "shared.hpp"
 #include "theme.hpp"
 #include "user_preferences.hpp"
-#include "core/shot_metadata_client.hpp"
-#include "ssh_tunnel_manager.hpp"
+#include "ssh/ssh_tunnel_manager.hpp"
 
-#include <QFontMetrics>
-#include <QProxyStyle>
+#include <QAbstractSpinBox>
+#include <QAbstractItemView>
+#include <QAction>
+#include <QApplication>
+#include <QComboBox>
 #include <QCursor>
+#include <QDialog>
+#include <QFontComboBox>
+#include <QFontMetrics>
+#include <QFormLayout>
+#include <QGridLayout>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QLineEdit>
+#include <QMenu>
+#include <QMenuBar>
+#include <QPainter>
+#include <QPainterPath>
+#include <QPen>
+#include <QProxyStyle>
+#include <QPushButton>
+#include <QResizeEvent>
+#include <QScrollArea>
+#include <QSignalBlocker>
+#include <QSpinBox>
+#include <QStatusBar>
+#include <QThreadPool>
+#include <QToolBar>
+#include <QToolButton>
 
 namespace {
 
@@ -1193,7 +1222,7 @@ void MainWindow::showPanelContextMenu(PlotWidget* plot, int column, int row, con
 
 void MainWindow::openCustomizeDialog()
 {
-    FontSettings& fonts = fontSettings();
+    FontSettings& fonts = fontSettings_;
     QDialog dialog(this);
     dialog.setWindowTitle("Customize Appearance");
     if (QApplication::palette().color(QPalette::Window).lightness() >= 128) {
@@ -1260,7 +1289,7 @@ void MainWindow::openCustomizeDialog()
     fonts.unitSize = unitSize->value();
     fonts.uiSize = uiSize->value();
     fonts.iconSize = iconSize->currentData().toInt();
-    saveFontSettings(rootPath_);
+    saveFontSettings(rootPath_, fontSettings_);
     applyUiFont();
     applyUiMetrics();
     refreshPlotFonts();
@@ -1271,7 +1300,7 @@ void MainWindow::positionRecentEnvironmentButton()
     if (!toolbar_ || !openButton_ || !recentEnvironmentButton_) {
         return;
     }
-    const qreal scale = fontSettings().iconSize / 24.0;
+    const qreal scale = fontSettings_.iconSize / 24.0;
     const int overlap = qRound(4.0 * scale);
     const int y =
         std::max(0, (openButton_->height()
@@ -1318,7 +1347,7 @@ void MainWindow::updateTopControlVisibility()
 
     int available = topControls_->width();
     if (toolbar_) {
-        const qreal scale = fontSettings().iconSize / 24.0;
+        const qreal scale = fontSettings_.iconSize / 24.0;
         const int rightPadding =
             std::max(1, qRound(4.0 * scale));
         const int left =
@@ -1369,7 +1398,7 @@ void MainWindow::updateTopControlVisibility()
 
 void MainWindow::applyUiMetrics()
 {
-    FontSettings& settings = fontSettings();
+    FontSettings& settings = fontSettings_;
     if (!QList<int>{20, 24, 28, 32}.contains(settings.iconSize)) {
         settings.iconSize = 24;
     }
@@ -1585,7 +1614,7 @@ void MainWindow::applyUiMetrics()
 
 void MainWindow::applyUiFont()
 {
-    const FontSettings& fonts = fontSettings();
+    const FontSettings& fonts = fontSettings_;
     QFont uiFont(fonts.family, fonts.uiSize);
     if (QApplication::font() != uiFont) {
         QApplication::setFont(uiFont);
@@ -1614,6 +1643,7 @@ void MainWindow::refreshPlotFonts()
     for (auto& col : plotWidgets_) {
         for (PlotWidget* plot : col) {
             if (plot) {
+                plot->setFontSettings(fontSettings_);
                 plot->refreshStyle();
             }
         }
@@ -1651,7 +1681,7 @@ void MainWindow::setInteractionMode(InteractionMode mode)
 void MainWindow::updateTopInfoLabels()
 {
     // The top strip describes the shot currently displayed by the plots.
-    // latestShot_ is maintained independently by the background poll and is
+    // The latest-shot cache is maintained independently by ShotWorkflow and is
     // only applied when the user explicitly chooses Latest.
     QString shot = shotEdit_ ? shotEdit_->text().trimmed() : QString();
     const PlotSpec* plot = nullptr;
@@ -1680,27 +1710,21 @@ void MainWindow::updateTopInfoLabels()
     }
 
     if (shot.isEmpty()) {
-        topSummaryShot_.clear();
-        topSummaryIp_.clear();
-        topSummaryPulse_.clear();
-        topSummaryIt_.clear();
-        topSummaryTime_.clear();
-        pendingTopSummaryShot_.clear();
-    } else if (shot != topSummaryShot_) {
-        topSummaryIp_.clear();
-        topSummaryPulse_.clear();
-        topSummaryIt_.clear();
-        topSummaryTime_.clear();
+        shotWorkflow_->clearSummary();
+    } else if (shot != shotWorkflow_->summary().shot) {
         scheduleTopInfoUpdate(shot);
     }
 
+    const ShotSummary& summary = shotWorkflow_->summary();
     setLabelTextIfChanged(topInfoLabel_, "Shot: " + (shot.isEmpty() ? QStringLiteral("--") : shot));
-    const bool loading = !shot.isEmpty() && shot != topSummaryShot_ && pendingTopSummaryShot_ == shot;
+    const bool loading = !shot.isEmpty()
+                         && shot != summary.shot
+                         && shotWorkflow_->pendingSummaryShot() == shot;
     const QString emptyText = loading ? QStringLiteral("...") : QStringLiteral("--");
-    setLabelTextIfChanged(ipInfoLabel_, "Ip: " + (topSummaryIp_.isEmpty() ? emptyText : topSummaryIp_ + " KA"));
-    setLabelTextIfChanged(pulseInfoLabel_, "Pulse: " + (topSummaryPulse_.isEmpty() ? emptyText : topSummaryPulse_ + " s"));
-    setLabelTextIfChanged(itInfoLabel_, "It: " + (topSummaryIt_.isEmpty() ? emptyText : topSummaryIt_ + " A"));
-    setLabelTextIfChanged(timeInfoLabel_, "Time: " + (topSummaryTime_.isEmpty() ? emptyText : topSummaryTime_));
+    setLabelTextIfChanged(ipInfoLabel_, "Ip: " + (summary.ip.isEmpty() ? emptyText : summary.ip + " KA"));
+    setLabelTextIfChanged(pulseInfoLabel_, "Pulse: " + (summary.pulse.isEmpty() ? emptyText : summary.pulse + " s"));
+    setLabelTextIfChanged(itInfoLabel_, "It: " + (summary.it.isEmpty() ? emptyText : summary.it + " A"));
+    setLabelTextIfChanged(timeInfoLabel_, "Time: " + (summary.time.isEmpty() ? emptyText : summary.time));
     if (topInfoLabel_) {
         topInfoLabel_->setToolTip(
             QStringLiteral("%1\n%2\n%3\n%4\n%5")
@@ -1716,35 +1740,25 @@ void MainWindow::updateTopInfoLabels()
 void MainWindow::scheduleTopInfoUpdate(const QString& shot)
 {
     const QString trimmedShot = shot.trimmed();
-    if (trimmedShot.isEmpty() || pendingTopSummaryShot_ == trimmedShot) {
+    int generation = 0;
+    if (!shotWorkflow_->beginSummaryFetch(trimmedShot, &generation)) {
         return;
     }
 
-    pendingTopSummaryShot_ = trimmedShot;
-    const int generation = ++topSummaryGeneration_;
     QString apiUrl;
     if (!prepareSshUrl(readApiUrl(rootPath_), &apiUrl)) {
-        pendingTopSummaryShot_.clear();
+        shotWorkflow_->failSummaryFetchStart(trimmedShot, generation);
         return;
     }
     QThreadPool::globalInstance()->start([this, trimmedShot, generation, apiUrl] {
-        QString ip;
-        QString pulse;
-        QString it;
-        QString shotTime;
-        const bool ok =
-            shotMetadata_->loadSummary(
-                trimmedShot, &ip, &pulse, &it, &shotTime, apiUrl);
-        QMetaObject::invokeMethod(this, [this, trimmedShot, generation, ok, ip, pulse, it, shotTime] {
-            if (generation != topSummaryGeneration_ || pendingTopSummaryShot_ != trimmedShot) {
+        ShotSummary summary;
+        const bool ok = shotWorkflow_->fetchSummary(
+            trimmedShot, &summary, apiUrl);
+        QMetaObject::invokeMethod(this, [this, trimmedShot, generation, ok, summary] {
+            if (!shotWorkflow_->completeSummaryFetch(
+                    generation, trimmedShot, ok, summary)) {
                 return;
             }
-            pendingTopSummaryShot_.clear();
-            topSummaryShot_ = trimmedShot;
-            topSummaryIp_ = ok ? ip : QString();
-            topSummaryPulse_ = ok ? pulse : QString();
-            topSummaryIt_ = ok ? it : QString();
-            topSummaryTime_ = ok ? shotTime : QString();
             if (!ok) {
                 cachedApiSourceUrl_.clear();
                 cachedPreparedApiUrl_.clear();

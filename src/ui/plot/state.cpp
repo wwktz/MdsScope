@@ -1,9 +1,15 @@
 // SPDX-FileCopyrightText: 2026 Weikang Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "mdsscope_internal.hpp"
+#include "core/series_style.hpp"
+#include "core/mds_helpers.hpp"
 #include "helpers.hpp"
 #include "plot_widget.hpp"
+
+#include <QSizePolicy>
+#include <QTimer>
+
+#include <utility>
 
 PlotWidget::PlotWidget(QWidget* parent)
     : QWidget(parent)
@@ -12,6 +18,13 @@ PlotWidget::PlotWidget(QWidget* parent)
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setMouseTracking(true);
     setFocusPolicy(Qt::ClickFocus);
+}
+
+void PlotWidget::setFontSettings(FontSettings settings)
+{
+    fontSettings_ = std::move(settings);
+    invalidatePlotCache();
+    update();
 }
 
 void PlotWidget::setSpec(PlotSpec spec)

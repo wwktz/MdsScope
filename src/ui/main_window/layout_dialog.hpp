@@ -10,6 +10,7 @@
 #include <QWidget>
 
 #include <optional>
+#include <memory>
 
 struct LayoutItem {
     int originalColumn = -1;
@@ -26,6 +27,7 @@ public:
     explicit LayoutCanvas(const LayoutConfig& config,
                           QWidget* parent = nullptr,
                           bool editable = true);
+    ~LayoutCanvas() override;
 
     void createPendingPanelAtRight();
     void deleteSelected();
@@ -37,7 +39,7 @@ public:
 
 private:
     class Impl;
-    Impl* impl_ = nullptr;
+    std::unique_ptr<Impl> impl_;
 };
 
 std::optional<PlotSpec> editPanelSetup(

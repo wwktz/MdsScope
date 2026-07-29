@@ -1,14 +1,18 @@
 // SPDX-FileCopyrightText: 2026 Weikang Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "mdsscope_internal.hpp"
+#include "core/mds_helpers.hpp"
 #include "main_window.hpp"
 #include "export_dialog.hpp"
 #include "ui/plot/plot_widget.hpp"
 #include "shared.hpp"
 #include "user_preferences.hpp"
-#include "mds_client.hpp"
+#include "services/data_export_service.hpp"
 
+#include <QLineEdit>
+#include <QMessageBox>
+#include <QPointer>
+#include <QThreadPool>
 
 void MainWindow::openExportDataDialog()
 {
@@ -153,89 +157,38 @@ void MainWindow::exportDataForPanels(const QVector<QPair<int, int>>& panels,
     const DataReadMode readMode = globalRateMode_;
     const ExportFormat format = static_cast<ExportFormat>(exportFormat);
     setStatus(QString("Exporting data from %1 panels...").arg(panels.size()));
-    QPointer<MainWindow> self(this);
-    QThreadPool::globalInstance()->start([self,
-                                          snapshot = std::move(fetchSnapshot),
-                                          baseDirPath = baseDirPath.trimmed(),
-                                          readMode,
-                                          format,
-                                          useCurrentView,
-                                          useCustomRange,
-                                          customXMin,
-                                          customXMax,
-                                          viewRanges] {
-        QStringList errors;
-        int written = 0;
-        QDir baseDir(baseDirPath);
-        if (!baseDir.exists() && !QDir().mkpath(baseDirPath)) {
-            errors.push_back("Cannot create " + baseDirPath);
-        }
-        if (errors.isEmpty() && !baseDir.mkpath("output")) {
-            errors.push_back("Cannot create " + baseDir.filePath("output"));
-        }
-        QDir outputDir(baseDir.filePath("output"));
-        if (errors.isEmpty()) {
-            const QVector<LoadedSignal> loaded = fetchMdsSignals(snapshot, readMode);
-            for (const LoadedSignal& item : loaded) {
-                if (item.column < 0 || item.row < 0 || item.signal < 0
-                    || item.column >= snapshot.columns.size()
-                    || item.row >= snapshot.columns[item.column].size()
-                    || item.signal >= snapshot.columns[item.column][item.row].signalSpecs.size()) {
-                    continue;
-                }
-                const PlotSpec& plot = snapshot.columns[item.column][item.row];
-                const SignalSpec& sig = plot.signalSpecs[item.signal];
-                if (sig.hidden) {
-                    continue;
-                }
-                const QString shot = exportFileToken(item.shot.isEmpty() ? effectiveSignalShot(plot, sig) : item.shot);
-                const QString tree = exportFileToken(sig.experiment);
-                const QString signal = exportFileToken(normalizedMdsSignal(sig.yExpr));
-                const QRectF viewRange = viewRanges.value({item.column, item.row});
-                bool useXRange = false;
-                double xmin = qQNaN();
-                double xmax = qQNaN();
-                if (useCustomRange) {
-                    useXRange = true;
-                    xmin = customXMin;
-                    xmax = customXMax;
-                } else if (useCurrentView && viewRange.isValid()) {
-                    useXRange = true;
-                    xmin = std::min(viewRange.left(), viewRange.right());
-                    xmax = std::max(viewRange.left(), viewRange.right());
-                }
-                QString baseName = QString("%1-%2-%3").arg(shot, tree, signal);
-                const QString rangeSuffix = exportRangeFileSuffix(useXRange, xmin, xmax);
-                if (!rangeSuffix.isEmpty()) {
-                    baseName += "-" + rangeSuffix;
-                }
-                const QString path = uniqueExportPath(outputDir, baseName, format);
-                QString error;
-                if (writeSeriesDataFile(path,
-                                        item.series,
-                                        format,
-                                        useXRange,
-                                        xmin,
-                                        xmax,
-                                        &error)) {
-                    ++written;
-                } else {
-                    errors.push_back(error);
-                }
-            }
-        }
+    DataExportRequest request;
+    request.snapshot = std::move(fetchSnapshot);
+    request.baseDirPath = baseDirPath.trimmed();
+    request.readMode = readMode;
+    request.format = format;
+    request.useCurrentView = useCurrentView;
+    request.useCustomRange = useCustomRange;
+    request.customXMin = customXMin;
+    request.customXMax = customXMax;
+    request.viewRanges = std::move(viewRanges);
 
+    QPointer<MainWindow> self(this);
+    QThreadPool::globalInstance()->start(
+        [self, request = std::move(request)] {
+        const DataExportResult result = runDataExport(request);
         if (!self) {
             return;
         }
-        QMetaObject::invokeMethod(self, [self, written, errors, outputPath = outputDir.absolutePath()] {
+        QMetaObject::invokeMethod(self, [self, result] {
             if (!self) {
                 return;
             }
-            if (!errors.isEmpty()) {
-                QMessageBox::warning(self, "Export Data", errors.join("\n"));
+            if (!result.errors.isEmpty()) {
+                QMessageBox::warning(
+                    self,
+                    "Export Data",
+                    result.errors.join("\n"));
             }
-            self->setStatus(QString("Exported %1 files to %2").arg(written).arg(outputPath));
+            self->setStatus(
+                QString("Exported %1 files to %2")
+                    .arg(result.written)
+                    .arg(result.outputPath));
         }, Qt::QueuedConnection);
     });
 }

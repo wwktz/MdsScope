@@ -1,14 +1,19 @@
 // SPDX-FileCopyrightText: 2026 Weikang Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "mdsscope_internal.hpp"
+#include "core/app_paths.hpp"
+#include "core/mds_helpers.hpp"
 #include "main_window.hpp"
 #include "refresh_coordinator.hpp"
+#include "shot_workflow.hpp"
 #include "ui/plot/plot_widget.hpp"
 #include "shared.hpp"
-#include "mds_client.hpp"
-#include "ssh_tunnel_manager.hpp"
+#include "mds/mds_client.hpp"
+#include "ssh/ssh_tunnel_manager.hpp"
 #include "ui/plot/helpers.hpp"
+
+#include <QLineEdit>
+#include <QtConcurrent>
 
 namespace {
 QString signalKey(int column, int row, int signal)
@@ -348,7 +353,8 @@ bool MainWindow::prewarmConnections()
 
 bool MainWindow::canStartDeferredRefresh() const
 {
-    return refresh_->canStartDeferredRefresh(latestShotFetchRunning_);
+    return refresh_->canStartDeferredRefresh(
+        shotWorkflow_->latestFetchRunning());
 }
 
 void MainWindow::maybeStartDeferredRefresh()

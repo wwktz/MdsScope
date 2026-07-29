@@ -316,6 +316,11 @@ MdsScope includes a simple benchmark mode for MDS data loading:
 ./build/MdsScope --benchmark resources/environment/your_config.webscp --summary
 ```
 
+## Architecture
+
+The module dependency graph, responsibility boundaries, and strict build
+profile are documented in [docs/architecture.md](docs/architecture.md).
+
 ## Repository Hygiene
 
 Do not commit:

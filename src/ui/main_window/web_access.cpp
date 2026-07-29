@@ -1,11 +1,18 @@
 // SPDX-FileCopyrightText: 2026 Weikang Wang
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "mdsscope_internal.hpp"
 #include "main_window.hpp"
-#include "ssh_tunnel_manager.hpp"
+#include "ssh/ssh_tunnel_manager.hpp"
 
+#include <QDesktopServices>
+#include <QEventLoop>
 #include <QMessageBox>
+#include <QNetworkAccessManager>
+#include <QNetworkProxy>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QTimer>
+#include <QUrl>
 
 namespace {
 QString httpRedirectTarget(const QString& source, const QString& prepared)

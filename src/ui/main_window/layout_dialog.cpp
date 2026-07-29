@@ -1045,12 +1045,14 @@ LayoutCanvas::LayoutCanvas(const LayoutConfig& config,
                            QWidget* parent,
                            bool editable)
     : QWidget(parent)
-    , impl_(new Impl(config, this, editable))
+    , impl_(std::make_unique<Impl>(config, this, editable))
 {
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
-    layout->addWidget(impl_);
+    layout->addWidget(impl_.get());
 }
+
+LayoutCanvas::~LayoutCanvas() = default;
 
 void LayoutCanvas::createPendingPanelAtRight()
 {
