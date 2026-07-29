@@ -164,7 +164,7 @@ void PlotWidget::applyXRangeAutoY(double xmin, double xmax)
         };
 
         if (s.hasUniformData() && s.uniformStep != 0.0) {
-            const int n = s.uniformY.size();
+            const int n = s.pointCount();
             if (n <= 0) {
                 continue;
             }
@@ -358,13 +358,13 @@ QVector<QPointF> PlotWidget::displayPointsForSeries(const SignalSeries& series, 
 {
     if (!series.hasUniformData()) {
         return pixelColumnEnvelope(series,
-                                   series.points.size(),
+                                   static_cast<int>(series.points.size()),
                                    view,
                                    pixelWidth,
                                    [&](int index) { return series.points[index]; });
     }
     return pixelColumnEnvelope(series,
-                               series.uniformY.size(),
+                               static_cast<int>(series.uniformY.size()),
                                view,
                                pixelWidth,
                                [&](int index) { return series.pointAt(index); });

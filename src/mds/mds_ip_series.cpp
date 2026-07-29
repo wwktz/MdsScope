@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "mds_ip_client.hpp"
+#include "core/mdsscope_internal.hpp"
 
 namespace mds_client_internal {
 
@@ -11,9 +12,9 @@ SignalSeries MdsIpClient::makeSeries(QString name, const QVector<double>& y, con
 {
         SignalSeries out;
         out.name = std::move(name);
-        const int n = x.isEmpty() ? y.size() : std::min(y.size(), x.size());
+        const qsizetype n = x.isEmpty() ? y.size() : std::min(y.size(), x.size());
         out.points.reserve(n);
-        for (int i = 0; i < n; ++i) {
+        for (qsizetype i = 0; i < n; ++i) {
             const double px = x.isEmpty() ? static_cast<double>(i) : x[i];
             const double py = y[i];
             if (std::isfinite(px) && std::isfinite(py)) {
@@ -31,7 +32,7 @@ SignalSeries MdsIpClient::makeSeriesUniformX(QString name,
 {
         SignalSeries out;
         out.name = std::move(name);
-        const int n = y.size();
+        const qsizetype n = y.size();
         if (n <= 0 || !std::isfinite(start) || !std::isfinite(step) || step == 0.0) {
             return out;
         }
@@ -39,7 +40,7 @@ SignalSeries MdsIpClient::makeSeriesUniformX(QString name,
         out.uniformY.resize(n);
         double minY = std::numeric_limits<double>::infinity();
         double maxY = -std::numeric_limits<double>::infinity();
-        for (int i = 0; i < n; ++i) {
+        for (qsizetype i = 0; i < n; ++i) {
             const double py = y[i];
             out.uniformY[i] = static_cast<float>(py);
             if (std::isfinite(py)) {

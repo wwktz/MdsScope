@@ -147,7 +147,8 @@ int PlotWidget::legendSeriesAt(const QPointF& pixelPos) const
 
     legendWidth += 20;
     const int legendLineHeight = std::max(10, legendFm.height());
-    const int legendHeight = legendLabels_.size() * legendLineHeight + 4;
+    const int legendHeight =
+        static_cast<int>(legendLabels_.size()) * legendLineHeight + 4;
     const QRectF legendArea = pr.adjusted(2, 2, -2, -2);
     const double legendW = std::min<double>(legendWidth, std::max(1.0, legendArea.width()));
     const double legendH = std::min<double>(legendHeight, std::max(1.0, legendArea.height()));
@@ -286,7 +287,7 @@ bool PlotWidget::pointForSeriesX(int seriesIndex,
     };
 
     if (series.hasUniformData()) {
-        const int count = series.uniformY.size();
+        const int count = series.pointCount();
         if (count < 2 || !std::isfinite(series.uniformStep) || series.uniformStep == 0.0) {
             return nearestFallback();
         }
@@ -574,10 +575,10 @@ bool PlotWidget::updateHover(const QPointF& pixelPos, bool lockSeries)
         return changed;
     }
     const QRectF view = effectiveView();
-    const QPointF data = pixelToData(pixelPos, view, pr);
+    const QPointF dataPoint = pixelToData(pixelPos, view, pr);
 
     if (hoverSeriesLocked_ && !lockSeries && hoverSeriesIndex_ >= 0 && hoverSeriesIndex_ < series_.size()) {
-        if (updateHoverForSeriesX(hoverSeriesIndex_, data.x(), false)) {
+        if (updateHoverForSeriesX(hoverSeriesIndex_, dataPoint.x(), false)) {
             return true;
         }
         return false;
@@ -589,12 +590,14 @@ bool PlotWidget::updateHover(const QPointF& pixelPos, bool lockSeries)
     if (pickedSeries >= 0) {
         return updateHoverForSeriesX(pickedSeries, point.x(), lockSeries);
     } else if (hoverSeriesLocked_ && hoverSeriesIndex_ >= 0 && hoverSeriesIndex_ < series_.size()) {
-        return updateHoverForSeriesX(hoverSeriesIndex_, data.x(), false);
+        return updateHoverForSeriesX(hoverSeriesIndex_, dataPoint.x(), false);
     } else {
-        const QString nextText = QString("%1, %2").arg(data.x(), 0, 'g', 6).arg(data.y(), 0, 'g', 6);
-        const bool changed = hoverPixel_ != pixelPos || hoverData_ != data || hoverText_ != nextText;
+        const QString nextText =
+            QString("%1, %2").arg(dataPoint.x(), 0, 'g', 6).arg(dataPoint.y(), 0, 'g', 6);
+        const bool changed =
+            hoverPixel_ != pixelPos || hoverData_ != dataPoint || hoverText_ != nextText;
         hoverPixel_ = pixelPos;
-        hoverData_ = data;
+        hoverData_ = dataPoint;
         hoverText_ = nextText;
         return changed;
     }

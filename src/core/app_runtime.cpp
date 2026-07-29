@@ -904,32 +904,33 @@ int runMdsScopeApplication(int argc, char* argv[])
     if (args.contains(QStringLiteral("--ssh-api-test"))) {
         return runSshApiTest(workDir.absolutePath());
     }
-    const int sshBenchmarkIndex = args.indexOf(QStringLiteral("--ssh-benchmark"));
+    const qsizetype sshBenchmarkIndex = args.indexOf(QStringLiteral("--ssh-benchmark"));
     if (sshBenchmarkIndex >= 0) {
         QString configPath = QDir(workDir).filePath(QStringLiteral("environment/init.toml"));
         if (sshBenchmarkIndex + 1 < args.size() && !args[sshBenchmarkIndex + 1].startsWith(QStringLiteral("--"))) {
             configPath = args[sshBenchmarkIndex + 1];
         }
         QString shotOverride;
-        const int shotIndex = args.indexOf(QStringLiteral("--shot"));
+        const qsizetype shotIndex = args.indexOf(QStringLiteral("--shot"));
         if (shotIndex >= 0 && shotIndex + 1 < args.size()) {
             shotOverride = args[shotIndex + 1].trimmed();
         }
         return runSshTunnelBenchmark(configPath, shotOverride);
     }
-    const int benchmarkIndex = args.indexOf("--benchmark") >= 0 ? args.indexOf("--benchmark") : args.indexOf("--bench");
+    const qsizetype benchmarkIndex =
+        args.indexOf("--benchmark") >= 0 ? args.indexOf("--benchmark") : args.indexOf("--bench");
     if (benchmarkIndex >= 0) {
         QString configPath = QDir(workDir).filePath("environment/high_desity_impurity_0626.webscp");
         if (benchmarkIndex + 1 < args.size() && !args[benchmarkIndex + 1].startsWith("--")) {
             configPath = args[benchmarkIndex + 1];
         }
         QString shotOverride;
-        const int shotIndex = args.indexOf("--shot");
+        const qsizetype shotIndex = args.indexOf("--shot");
         if (shotIndex >= 0 && shotIndex + 1 < args.size()) {
             shotOverride = args[shotIndex + 1].trimmed();
         }
         int repeat = 1;
-        const int repeatIndex = args.indexOf("--repeat");
+        const qsizetype repeatIndex = args.indexOf("--repeat");
         if (repeatIndex >= 0 && repeatIndex + 1 < args.size()) {
             bool ok = false;
             const int parsed = args[repeatIndex + 1].toInt(&ok);

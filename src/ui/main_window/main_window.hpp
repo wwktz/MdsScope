@@ -31,7 +31,9 @@ class PlotWidget;
 class RefreshCoordinator;
 struct PanelRefreshRequest;
 class SshTunnelManager;
+class ShotMetadataClient;
 class ThemeModeButton;
+class UserPreferences;
 
 class MainWindow final : public QMainWindow {
     Q_OBJECT
@@ -52,14 +54,8 @@ private:
     void openEnvironmentFile();
     void openRecentEnvironmentFile(const QString& path);
     void showRecentEnvironmentMenu();
-    QString rememberedFileDialogDir() const;
-    void rememberFileDialogDir(const QString& path);
-    QStringList recentEnvironmentFiles() const;
-    void rememberRecentEnvironmentFile(const QString& path);
     void refreshRecentEnvironmentMenu();
     void clearRecentEnvironmentFiles();
-    QStringList recentShotExpressions() const;
-    void rememberShotExpression(const QString& shot);
     void refreshShotHistory();
     bool loadEnvironmentFile(const QString& path,
                              bool useLatestWhenNoCurrentShot = false,
@@ -74,9 +70,6 @@ private:
     void openLoginDialog();
     void openSshDialog();
     void openInternalWebPage(const QString& source);
-    QVector<InternalWebBookmark> savedInternalWebPages() const;
-    void saveInternalWebPages(
-        const QVector<InternalWebBookmark>& bookmarks) const;
     void addInternalWebPage();
     void editInternalWebPage();
     void removeInternalWebPage();
@@ -92,7 +85,6 @@ private:
     void updateShotControlsFromConfig(const QString& preferredShot = {});
     void setAllPlotShots(const QString& shot);
     QString maxShotInConfig() const;
-    QString latestShotFromApi(const QString& apiOverride = {}) const;
     void scheduleShotRefresh();
     void refreshData();
     void stopDataRefresh();
@@ -167,12 +159,6 @@ private:
     bool saveWebscpEnvironmentFile(const QString& path) const;
     PlotSpec defaultPlotFromSelection() const;
     void updateTopInfoLabels();
-    bool loadShotSummaryFromApi(const QString& shot,
-                                QString* ip,
-                                QString* pulse,
-                                QString* it,
-                                QString* time,
-                                const QString& apiOverride = {}) const;
     void setStatus(const QString& text);
     PlotWidget* currentPlotWidget() const;
     void schedulePointSync(PlotWidget* source, double x);
@@ -192,6 +178,8 @@ private:
     QString shortcutText(ShortcutCommand command) const;
 
     QString rootPath_;
+    std::unique_ptr<UserPreferences> preferences_;
+    std::unique_ptr<ShotMetadataClient> shotMetadata_;
     QString environmentPath_;
     QString exportBasePath_;
     LayoutConfig config_;

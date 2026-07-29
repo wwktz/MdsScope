@@ -3,7 +3,13 @@
 
 #pragma once
 
-#include "mdsscope_internal.hpp"
+#include "core/app_types.hpp"
+
+#include <QDir>
+#include <QIcon>
+#include <QString>
+
+class QLabel;
 
 void setLabelTextIfChanged(QLabel* label, const QString& text);
 void clearCustomRanges(PlotSpec* plot);

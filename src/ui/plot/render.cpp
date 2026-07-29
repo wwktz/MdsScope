@@ -122,7 +122,8 @@ void PlotWidget::updatePointReadoutPlacement(PointReadout& readout) const
         const int lineHeight = std::max(10, legendMetrics.height());
         const QRectF legendArea = readout.plotRect.adjusted(2, 2, -2, -2);
         const double legendW = std::min<double>(legendWidth, std::max(1.0, legendArea.width()));
-        const double legendH = std::min<double>(legendLabels_.size() * lineHeight + 4,
+        const double legendH =
+            std::min(static_cast<double>(legendLabels_.size()) * lineHeight + 4.0,
                                                 std::max(1.0, legendArea.height()));
         obstacles.push_back(QRectF(legendArea.right() - legendW - 1,
                                    legendArea.top() + 1,
@@ -403,8 +404,8 @@ void PlotWidget::renderBasePlot(QPainter& painter) const
             continue;
         }
         painter.setPen(QPen(seriesColor(i), 1));
-        painter.drawPolyline(polyline.constData(), polyline.size());
-        occupancyPainter.drawPolyline(polyline.constData(), polyline.size());
+        painter.drawPolyline(polyline.constData(), static_cast<int>(polyline.size()));
+        occupancyPainter.drawPolyline(polyline.constData(), static_cast<int>(polyline.size()));
     }
     occupancyPainter.end();
     painter.setClipping(false);

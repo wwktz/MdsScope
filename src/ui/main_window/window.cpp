@@ -4,12 +4,17 @@
 #include "mdsscope_internal.hpp"
 #include "main_window.hpp"
 #include "refresh_coordinator.hpp"
+#include "user_preferences.hpp"
+#include "core/shot_metadata_client.hpp"
 #include "mds_client.hpp"
 #include "ssh_tunnel_manager.hpp"
 
 MainWindow::MainWindow(QString rootPath, QWidget* parent)
     : QMainWindow(parent)
     , rootPath_(std::move(rootPath))
+    , preferences_(
+          std::make_unique<UserPreferences>(uiSettingsPath(rootPath_)))
+    , shotMetadata_(std::make_unique<ShotMetadataClient>(rootPath_))
     , refresh_(std::make_unique<RefreshCoordinator>())
 {
     setWindowIcon(appIcon());
@@ -20,23 +25,9 @@ MainWindow::MainWindow(QString rootPath, QWidget* parent)
     // which happen well after startup and re-run the merge themselves. Defer it
     // off the constructor's critical path so it does not block the first frame.
     QTimer::singleShot(0, this, [this] { ensureSourceIndexCache(rootPath_); });
-    exportBasePath_ = QSettings(uiSettingsPath(rootPath_), QSettings::IniFormat)
-                          .value("export/base_dir", defaultExportBaseDir())
-                          .toString();
-    const int storedDefaultRate =
-        QSettings(uiSettingsPath(rootPath_), QSettings::IniFormat)
-            .value("rate/default_mode", static_cast<int>(DataReadMode::Thin))
-            .toInt();
-    switch (static_cast<DataReadMode>(storedDefaultRate)) {
-    case DataReadMode::Thin:
-    case DataReadMode::Medium:
-    case DataReadMode::Full:
-        defaultRateMode_ = static_cast<DataReadMode>(storedDefaultRate);
-        break;
-    default:
-        defaultRateMode_ = DataReadMode::Thin;
-        break;
-    }
+    exportBasePath_ =
+        preferences_->exportBasePath(defaultExportBaseDir());
+    defaultRateMode_ = preferences_->defaultReadMode();
     globalRateMode_ = defaultRateMode_;
     loadFontSettings(rootPath_);
     shortcutBindings_ = loadShortcutBindings(rootPath_);

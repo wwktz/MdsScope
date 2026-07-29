@@ -6,25 +6,29 @@
 #include "export_dialog.hpp"
 #include "ui/plot/plot_widget.hpp"
 #include "shared.hpp"
+#include "user_preferences.hpp"
 #include "mds_client.hpp"
 
 
 void MainWindow::openExportDataDialog()
 {
-    QSettings settings(uiSettingsPath(rootPath_), QSettings::IniFormat);
-    const ExportFormat defaultFormat = exportFormatFromSetting(settings.value("export/format", "text").toString());
-    ExportDataDialog dialog(config_, exportBasePath_, defaultFormat, this);
-    if (dialog.exec() != QDialog::Accepted) {
+    const ExportFormat defaultFormat =
+        exportFormatFromSetting(preferences_->exportFormat());
+    const std::optional<ExportDialogResult> selection =
+        selectExportData(
+            config_, exportBasePath_, defaultFormat, this);
+    if (!selection) {
         return;
     }
 
-    settings.setValue("export/format", exportFormatSettingValue(dialog.exportFormat()));
-    exportDataForPanels(dialog.selectedPanels(),
-                        dialog.outputBaseDir(),
-                        static_cast<int>(dialog.exportFormat()),
-                        static_cast<int>(dialog.exportRange()),
-                        dialog.customXMin(),
-                        dialog.customXMax());
+    preferences_->setExportFormat(
+        exportFormatSettingValue(selection->format));
+    exportDataForPanels(selection->panels,
+                        selection->outputBaseDir,
+                        static_cast<int>(selection->format),
+                        static_cast<int>(selection->range),
+                        selection->customXMin,
+                        selection->customXMax);
 }
 
 void MainWindow::exportCurrentPanelData()
@@ -35,8 +39,8 @@ void MainWindow::exportCurrentPanelData()
     if (selectedColumn_ >= config_.columns.size() || selectedRow_ >= config_.columns[selectedColumn_].size()) {
         return;
     }
-    QSettings settings(uiSettingsPath(rootPath_), QSettings::IniFormat);
-    const ExportFormat defaultFormat = exportFormatFromSetting(settings.value("export/format", "text").toString());
+    const ExportFormat defaultFormat =
+        exportFormatFromSetting(preferences_->exportFormat());
     LayoutConfig dialogConfig;
     dialogConfig.columns = {{config_.columns[selectedColumn_][selectedRow_]}};
     const QString currentShot = shotEdit_ ? shotEdit_->text().trimmed() : QString();
@@ -45,24 +49,27 @@ void MainWindow::exportCurrentPanelData()
     }
     dialogConfig = expandedShotLayout(dialogConfig);
     const PlotSpec& plot = dialogConfig.columns[0][0];
-    ExportDataDialog dialog(config_, exportBasePath_, defaultFormat, this, &plot);
-    if (dialog.exec() != QDialog::Accepted) {
+    const std::optional<ExportDialogResult> selection =
+        selectExportData(
+            config_, exportBasePath_, defaultFormat, this, &plot);
+    if (!selection) {
         return;
     }
 
-    settings.setValue("export/format", exportFormatSettingValue(dialog.exportFormat()));
+    preferences_->setExportFormat(
+        exportFormatSettingValue(selection->format));
     QSet<int> selectedSignalIndexes;
-    for (int signal : dialog.selectedSignals()) {
+    for (int signal : selection->signalIndexes) {
         selectedSignalIndexes.insert(signal);
     }
     QHash<PanelId, QSet<int>> signalFilter;
     signalFilter.insert({selectedColumn_, selectedRow_}, selectedSignalIndexes);
     exportDataForPanels({{selectedColumn_, selectedRow_}},
-                        dialog.outputBaseDir(),
-                        static_cast<int>(dialog.exportFormat()),
-                        static_cast<int>(dialog.exportRange()),
-                        dialog.customXMin(),
-                        dialog.customXMax(),
+                        selection->outputBaseDir,
+                        static_cast<int>(selection->format),
+                        static_cast<int>(selection->range),
+                        selection->customXMin,
+                        selection->customXMax,
                         signalFilter);
 }
 
@@ -83,9 +90,10 @@ void MainWindow::exportDataForPanels(const QVector<QPair<int, int>>& panels,
         return;
     }
     exportBasePath_ = QDir(baseDirPath.trimmed()).absolutePath();
-    QSettings settings(uiSettingsPath(rootPath_), QSettings::IniFormat);
-    settings.setValue("export/base_dir", exportBasePath_);
-    settings.setValue("export/format", exportFormatSettingValue(static_cast<ExportFormat>(exportFormat)));
+    preferences_->setExportBasePath(exportBasePath_);
+    preferences_->setExportFormat(
+        exportFormatSettingValue(
+            static_cast<ExportFormat>(exportFormat)));
 
     LayoutConfig snapshot = config_;
     QSet<QPair<int, int>> selected;

@@ -75,7 +75,12 @@ int runSshTunnelBenchmark(const QString& configPath, const QString& shotOverride
     QTextStream out(stdout);
     QTextStream err(stderr);
 
-    LayoutConfig source = parseEnvironment(configPath);
+    QString parseError;
+    LayoutConfig source = parseEnvironment(configPath, &parseError);
+    if (!parseError.isEmpty()) {
+        err << "Cannot load SSH benchmark config: " << parseError << Qt::endl;
+        return 2;
+    }
     if (!shotOverride.trimmed().isEmpty()) {
         for (auto& column : source.columns) {
             for (PlotSpec& plot : column) {

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "mds_ip_client.hpp"
+#include "core/mdsscope_internal.hpp"
 
 namespace mds_client_internal {
 
@@ -131,7 +132,7 @@ QVector<LoadedSignal> MdsIpClient::fetchAll(const LayoutConfig& snapshot) const
                         continue;
                     }
 
-                    const int loadedIndex = loaded.size();
+                    const int loadedIndex = static_cast<int>(loaded.size());
                     loaded.push_back(std::move(item));
                     NativeRequest request;
                     request.loadedIndex = loadedIndex;
@@ -336,24 +337,24 @@ int MdsIpClient::maxPointsForSignal(const PlotSpec& plot, const SignalSpec&)
 QString MdsIpClient::serverHost(QString server)
 {
         server = server.trimmed();
-        const int colon = server.lastIndexOf(':');
+        const qsizetype colon = server.lastIndexOf(':');
         if (colon > 0) {
             return server.left(colon);
         }
         return server;
     }
 
-int MdsIpClient::serverPort(const QString& server)
+quint16 MdsIpClient::serverPort(const QString& server)
 {
-        const int colon = server.lastIndexOf(':');
+        const qsizetype colon = server.lastIndexOf(':');
         if (colon > 0) {
             bool ok = false;
-            const int port = server.mid(colon + 1).toInt(&ok);
-            if (ok && port > 0) {
-                return port;
+            const uint port = server.mid(colon + 1).toUInt(&ok);
+            if (ok && port > 0 && port <= std::numeric_limits<quint16>::max()) {
+                return static_cast<quint16>(port);
             }
         }
-        return kMdsPort;
+        return static_cast<quint16>(kMdsPort);
     }
 
 QString MdsIpClient::serverKey(const SignalSpec& sig)

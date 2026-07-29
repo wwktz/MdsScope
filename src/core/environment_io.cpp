@@ -51,7 +51,7 @@ QString stripTomlComment(QString line)
 {
     bool inString = false;
     bool escaped = false;
-    for (int i = 0; i < line.size(); ++i) {
+    for (qsizetype i = 0; i < line.size(); ++i) {
         const QChar ch = line[i];
         if (escaped) {
             escaped = false;
@@ -72,30 +72,84 @@ QString stripTomlComment(QString line)
     return line.trimmed();
 }
 
-bool tomlBool(const QString& value, bool fallback = false)
+bool parseTomlString(const QString& value, QString* parsed)
 {
-    const QString v = value.trimmed().toLower();
-    if (v == "true") {
-        return true;
-    }
-    if (v == "false") {
+    const QString trimmed = value.trimmed();
+    if (trimmed.size() < 2 || trimmed.front() != '"') {
         return false;
     }
-    return fallback;
+    bool escaped = false;
+    for (qsizetype i = 1; i < trimmed.size(); ++i) {
+        const QChar ch = trimmed.at(i);
+        if (escaped) {
+            escaped = false;
+            continue;
+        }
+        if (ch == '\\') {
+            escaped = true;
+            continue;
+        }
+        if (ch == '"') {
+            if (i != trimmed.size() - 1) {
+                return false;
+            }
+            if (parsed) {
+                *parsed = tomlUnescape(trimmed);
+            }
+            return true;
+        }
+    }
+    return false;
 }
 
-int tomlInt(const QString& value, int fallback = 0)
+bool parseTomlBool(const QString& value, bool* parsed)
 {
-    bool ok = false;
-    const int parsed = value.trimmed().toInt(&ok);
-    return ok ? parsed : fallback;
+    const QString normalized = value.trimmed().toLower();
+    if (normalized == "true") {
+        *parsed = true;
+        return true;
+    }
+    if (normalized == "false") {
+        *parsed = false;
+        return true;
+    }
+    return false;
 }
 
-double tomlDouble(const QString& value)
+bool parseTomlInt(const QString& value, int* parsed)
 {
     bool ok = false;
-    const double parsed = value.trimmed().toDouble(&ok);
-    return ok ? parsed : qQNaN();
+    const int result = value.trimmed().toInt(&ok);
+    if (ok) {
+        *parsed = result;
+    }
+    return ok;
+}
+
+bool parseTomlDouble(const QString& value, double* parsed)
+{
+    bool ok = false;
+    const double result = value.trimmed().toDouble(&ok);
+    if (ok && std::isfinite(result)) {
+        *parsed = result;
+        return true;
+    }
+    return false;
+}
+
+LayoutConfig parseFailure(const QString& path,
+                          qsizetype lineNumber,
+                          const QString& message,
+                          QString* error)
+{
+    if (error) {
+        *error = lineNumber > 0
+                     ? QStringLiteral("%1:%2: %3").arg(path).arg(lineNumber).arg(message)
+                     : QStringLiteral("%1: %2").arg(path, message);
+    }
+    LayoutConfig config;
+    config.filePath = path;
+    return config;
 }
 
 void writeTomlString(QTextStream& out, const QString& key, const QString& value)
@@ -129,14 +183,17 @@ void writeTomlDouble(QTextStream& out, const QString& key, double value)
     }
 }
 
-LayoutConfig parseTomlEnvironment(const QString& path)
+LayoutConfig parseTomlEnvironment(const QString& path, QString* error)
 {
     LayoutConfig config;
     config.filePath = path;
 
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        return config;
+        return parseFailure(path,
+                            0,
+                            QStringLiteral("cannot open file: %1").arg(file.errorString()),
+                            error);
     }
 
     struct PanelSlot {
@@ -148,8 +205,10 @@ LayoutConfig parseTomlEnvironment(const QString& path)
     PanelSlot* currentPanel = nullptr;
     SignalSpec* currentSignal = nullptr;
     QString section;
+    qsizetype lineNumber = 0;
 
     while (!file.atEnd()) {
+        ++lineNumber;
         const QString line = stripTomlComment(QString::fromUtf8(file.readLine()));
         if (line.isEmpty()) {
             continue;
@@ -164,7 +223,10 @@ LayoutConfig parseTomlEnvironment(const QString& path)
         }
         if (line == "[[panels.signals]]") {
             if (!currentPanel) {
-                continue;
+                return parseFailure(path,
+                                    lineNumber,
+                                    QStringLiteral("[[panels.signals]] appears before [[panels]]"),
+                                    error);
             }
             SignalSpec sig;
             currentPanel->plot.signalSpecs.push_back(sig);
@@ -172,51 +234,161 @@ LayoutConfig parseTomlEnvironment(const QString& path)
             section = "signal";
             continue;
         }
+        if (line.startsWith('[')) {
+            return parseFailure(path,
+                                lineNumber,
+                                QStringLiteral("unsupported or malformed section '%1'").arg(line),
+                                error);
+        }
 
-        const int eq = line.indexOf('=');
+        const qsizetype eq = line.indexOf('=');
         if (eq < 0) {
-            continue;
+            return parseFailure(path,
+                                lineNumber,
+                                QStringLiteral("expected a key/value assignment"),
+                                error);
         }
         const QString key = line.left(eq).trimmed();
         const QString value = line.mid(eq + 1).trimmed();
+        if (key.isEmpty()) {
+            return parseFailure(path, lineNumber, QStringLiteral("empty key"), error);
+        }
+        if (value.isEmpty()) {
+            return parseFailure(path,
+                                lineNumber,
+                                QStringLiteral("missing value for '%1'").arg(key),
+                                error);
+        }
+
+        if (section.isEmpty()) {
+            if (key == "version") {
+                int version = 0;
+                if (!parseTomlInt(value, &version)) {
+                    return parseFailure(path,
+                                        lineNumber,
+                                        QStringLiteral("invalid integer for 'version': %1").arg(value),
+                                        error);
+                }
+                if (version != 1) {
+                    return parseFailure(path,
+                                        lineNumber,
+                                        QStringLiteral("unsupported configuration version %1").arg(version),
+                                        error);
+                }
+            }
+            continue;
+        }
 
         if (section == "panel" && currentPanel) {
             PlotSpec& plot = currentPanel->plot;
-            if (key == "column") currentPanel->column = std::max(1, tomlInt(value, 1));
-            else if (key == "row") currentPanel->row = std::max(1, tomlInt(value, 1));
-            else if (key == "shot") plot.shot = tomlUnescape(value);
-            else if (key == "title") plot.title = tomlUnescape(value);
-            else if (key == "x_label") plot.xLabel = tomlUnescape(value);
-            else if (key == "y_label") plot.yLabel = tomlUnescape(value);
-            else if (key == "extraction_points") plot.extractionPoints = tomlInt(value, 2000);
-            else if (key == "grid") plot.grid = tomlBool(value, true);
-            else if (key == "custom_x_range") plot.customXRange = tomlBool(value, false);
-            else if (key == "custom_y_range") plot.customYRange = tomlBool(value, false);
-            else if (key == "xmin") plot.xmin = tomlDouble(value);
-            else if (key == "xmax") plot.xmax = tomlDouble(value);
-            else if (key == "ymin") plot.ymin = tomlDouble(value);
-            else if (key == "ymax") plot.ymax = tomlDouble(value);
-        } else if (section == "signal" && currentSignal) {
-            if (key == "shot") currentSignal->shot = tomlUnescape(value);
-            else if (key == "tree") currentSignal->experiment = tomlUnescape(value);
-            else if (key == "server") currentSignal->serverIp = tomlUnescape(value);
-            else if (key == "y") currentSignal->yExpr = tomlUnescape(value);
-            else if (key == "x") currentSignal->xExpr = tomlUnescape(value);
-            else if (key == "color") currentSignal->colorName = tomlUnescape(value);
-            else if (key == "manual_color") currentSignal->manualColor = tomlBool(value, false);
-            else if (key == "hidden") currentSignal->hidden = tomlBool(value, false);
-            else if (key == "full") {
-                currentSignal->readMode = tomlBool(value, false) ? DataReadMode::Full : DataReadMode::Thin;
-                currentSignal->readModeExplicit = true;
+            if (key == "column" || key == "row" || key == "extraction_points") {
+                int parsed = 0;
+                if (!parseTomlInt(value, &parsed) || parsed <= 0) {
+                    return parseFailure(
+                        path,
+                        lineNumber,
+                        QStringLiteral("'%1' must be a positive integer, got %2").arg(key, value),
+                        error);
+                }
+                if (key == "column") currentPanel->column = parsed;
+                else if (key == "row") currentPanel->row = parsed;
+                else plot.extractionPoints = parsed;
+            } else if (key == "shot" || key == "title" || key == "x_label" || key == "y_label") {
+                QString parsed;
+                if (!parseTomlString(value, &parsed)) {
+                    return parseFailure(
+                        path,
+                        lineNumber,
+                        QStringLiteral("'%1' must be a quoted string, got %2").arg(key, value),
+                        error);
+                }
+                if (key == "shot") plot.shot = parsed;
+                else if (key == "title") plot.title = parsed;
+                else if (key == "x_label") plot.xLabel = parsed;
+                else plot.yLabel = parsed;
+            } else if (key == "grid" || key == "custom_x_range" || key == "custom_y_range") {
+                bool parsed = false;
+                if (!parseTomlBool(value, &parsed)) {
+                    return parseFailure(
+                        path,
+                        lineNumber,
+                        QStringLiteral("'%1' must be true or false, got %2").arg(key, value),
+                        error);
+                }
+                if (key == "grid") plot.grid = parsed;
+                else if (key == "custom_x_range") plot.customXRange = parsed;
+                else plot.customYRange = parsed;
+            } else if (key == "xmin" || key == "xmax" || key == "ymin" || key == "ymax") {
+                double parsed = 0.0;
+                if (!parseTomlDouble(value, &parsed)) {
+                    return parseFailure(
+                        path,
+                        lineNumber,
+                        QStringLiteral("'%1' must be a finite number, got %2").arg(key, value),
+                        error);
+                }
+                if (key == "xmin") plot.xmin = parsed;
+                else if (key == "xmax") plot.xmax = parsed;
+                else if (key == "ymin") plot.ymin = parsed;
+                else plot.ymax = parsed;
             }
-            else if (key == "read_mode") {
-                QString mode = tomlUnescape(value).toLower();
-                if (mode == "full") currentSignal->readMode = DataReadMode::Full;
-                else if (mode == "medium") currentSignal->readMode = DataReadMode::Medium;
-                else currentSignal->readMode = DataReadMode::Thin;
-                currentSignal->readModeExplicit = true;
+        } else if (section == "signal" && currentSignal) {
+            if (key == "shot" || key == "tree" || key == "server" || key == "y"
+                || key == "x" || key == "color" || key == "read_mode") {
+                QString parsed;
+                if (!parseTomlString(value, &parsed)) {
+                    return parseFailure(
+                        path,
+                        lineNumber,
+                        QStringLiteral("'%1' must be a quoted string, got %2").arg(key, value),
+                        error);
+                }
+                if (key == "shot") currentSignal->shot = parsed;
+                else if (key == "tree") currentSignal->experiment = parsed;
+                else if (key == "server") currentSignal->serverIp = parsed;
+                else if (key == "y") currentSignal->yExpr = parsed;
+                else if (key == "x") currentSignal->xExpr = parsed;
+                else if (key == "color") currentSignal->colorName = parsed;
+                else {
+                    const QString mode = parsed.toLower();
+                    if (mode == "full") currentSignal->readMode = DataReadMode::Full;
+                    else if (mode == "medium") currentSignal->readMode = DataReadMode::Medium;
+                    else if (mode == "thin") currentSignal->readMode = DataReadMode::Thin;
+                    else {
+                        return parseFailure(
+                            path,
+                            lineNumber,
+                            QStringLiteral("'read_mode' must be thin, medium, or full, got %1")
+                                .arg(value),
+                            error);
+                    }
+                    currentSignal->readModeExplicit = true;
+                }
+            } else if (key == "manual_color" || key == "hidden" || key == "full") {
+                bool parsed = false;
+                if (!parseTomlBool(value, &parsed)) {
+                    return parseFailure(
+                        path,
+                        lineNumber,
+                        QStringLiteral("'%1' must be true or false, got %2").arg(key, value),
+                        error);
+                }
+                if (key == "manual_color") currentSignal->manualColor = parsed;
+                else if (key == "hidden") currentSignal->hidden = parsed;
+                else {
+                    currentSignal->readMode =
+                        parsed ? DataReadMode::Full : DataReadMode::Thin;
+                    currentSignal->readModeExplicit = true;
+                }
             }
         }
+    }
+
+    if (panels.isEmpty()) {
+        return parseFailure(path,
+                            0,
+                            QStringLiteral("configuration contains no [[panels]] entries"),
+                            error);
     }
 
     int maxColumn = 0;
@@ -237,16 +409,127 @@ LayoutConfig parseTomlEnvironment(const QString& path)
     return config;
 }
 
-LayoutConfig parseWebscpEnvironment(const QString& path)
+LayoutConfig parseWebscpEnvironment(const QString& path, QString* error)
 {
-    const auto map = readKeyValueFile(path);
     LayoutConfig config;
     config.filePath = path;
-    const int cols = std::max(1, parseInt(map, "cols", 1));
+    const auto invalidConfig = [&] {
+        LayoutConfig invalid;
+        invalid.filePath = path;
+        return invalid;
+    };
+
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return parseFailure(path,
+                            0,
+                            QStringLiteral("cannot open file: %1").arg(file.errorString()),
+                            error);
+    }
+
+    QHash<QString, QString> map;
+    QHash<QString, qsizetype> keyLines;
+    qsizetype lineNumber = 0;
+    while (!file.atEnd()) {
+        ++lineNumber;
+        const QString line = QString::fromUtf8(file.readLine()).trimmed();
+        if (line.isEmpty() || line.startsWith('#')) {
+            continue;
+        }
+        qsizetype separator = line.indexOf(':');
+        const qsizetype equals = line.indexOf('=');
+        if (equals >= 0 && (separator < 0 || equals < separator)) {
+            separator = equals;
+        }
+        if (separator < 0) {
+            return parseFailure(path,
+                                lineNumber,
+                                QStringLiteral("expected a key/value assignment"),
+                                error);
+        }
+        const QString key = line.left(separator).trimmed();
+        if (key.isEmpty()) {
+            return parseFailure(path, lineNumber, QStringLiteral("empty key"), error);
+        }
+        map.insert(key, javaUnescape(line.mid(separator + 1).trimmed()));
+        keyLines.insert(key, lineNumber);
+    }
+    if (map.isEmpty()) {
+        return parseFailure(path,
+                            0,
+                            QStringLiteral("configuration contains no key/value entries"),
+                            error);
+    }
+
+    auto readInteger = [&](const QString& key,
+                           int fallback,
+                           int minimum,
+                           int* parsed) {
+        if (!map.contains(key)) {
+            *parsed = fallback;
+            return true;
+        }
+        bool ok = false;
+        const int value = map.value(key).trimmed().toInt(&ok);
+        if (!ok || value < minimum) {
+            parseFailure(path,
+                         keyLines.value(key),
+                         QStringLiteral("'%1' must be an integer of at least %2, got '%3'")
+                             .arg(key)
+                             .arg(minimum)
+                             .arg(map.value(key)),
+                         error);
+            return false;
+        }
+        *parsed = value;
+        return true;
+    };
+    auto readRangeValue = [&](const QString& key,
+                              const QString& fallbackKey,
+                              double* parsed) {
+        const QString sourceKey = map.contains(key) ? key : fallbackKey;
+        const QString text = map.value(sourceKey).trimmed();
+        if (text.isEmpty()) {
+            *parsed = qQNaN();
+            return true;
+        }
+        bool ok = false;
+        const double value = text.toDouble(&ok);
+        if (!ok || !std::isfinite(value)) {
+            parseFailure(path,
+                         keyLines.value(sourceKey),
+                         QStringLiteral("'%1' must be a finite number, got '%2'")
+                             .arg(sourceKey, text),
+                         error);
+            return false;
+        }
+        *parsed = value;
+        return true;
+    };
+
+    if (!map.contains("cols")) {
+        return parseFailure(path, 0, QStringLiteral("missing required key 'cols'"), error);
+    }
+    int cols = 0;
+    if (!readInteger("cols", 0, 1, &cols)) {
+        return invalidConfig();
+    }
     config.columns.resize(cols);
+    int panelCount = 0;
 
     for (int c = 1; c <= cols; ++c) {
-        const int rows = std::max(0, parseInt(map, QString::number(c) + ".rows", 0));
+        const QString rowsKey = QString::number(c) + ".rows";
+        if (!map.contains(rowsKey)) {
+            return parseFailure(path,
+                                0,
+                                QStringLiteral("missing required key '%1'").arg(rowsKey),
+                                error);
+        }
+        int rows = 0;
+        if (!readInteger(rowsKey, 0, 0, &rows)) {
+            return invalidConfig();
+        }
+        panelCount += rows;
         config.columns[c - 1].reserve(rows);
         for (int r = 1; r <= rows; ++r) {
             const QString prefix = QString("%1_%2.").arg(c).arg(r);
@@ -255,16 +538,42 @@ LayoutConfig parseWebscpEnvironment(const QString& path)
             plot.title = trimQuotes(map.value(prefix + "title"));
             plot.xLabel = trimQuotes(map.value(prefix + "xlabel"));
             plot.yLabel = trimQuotes(map.value(prefix + "ylabel"));
-            plot.extractionPoints = parseInt(map, prefix + "extraction_points", parseInt(map, "Extraction_points", 2000));
-            plot.grid = parseInt(map, prefix + "grid_mode", parseInt(map, "Grid_Mode", 1)) != 0;
-            plot.customXRange = parseInt(map, prefix + "xseting_mode", 1) == 0;
-            plot.customYRange = parseInt(map, prefix + "yseting_mode", 1) == 0;
-            plot.xmin = plot.customXRange ? parseDouble(map.value(prefix + "xmin_custom", map.value("xmin"))) : qQNaN();
-            plot.xmax = plot.customXRange ? parseDouble(map.value(prefix + "xmax_custom", map.value("xmax"))) : qQNaN();
-            plot.ymin = plot.customYRange ? parseDouble(map.value(prefix + "ymin_custom", map.value("ymin"))) : qQNaN();
-            plot.ymax = plot.customYRange ? parseDouble(map.value(prefix + "ymax_custom", map.value("ymax"))) : qQNaN();
+            int defaultExtractionPoints = 2000;
+            if (!readInteger("Extraction_points", 2000, 1, &defaultExtractionPoints)
+                || !readInteger(prefix + "extraction_points",
+                                defaultExtractionPoints,
+                                1,
+                                &plot.extractionPoints)) {
+                return invalidConfig();
+            }
+            int gridMode = 1;
+            int defaultGridMode = 1;
+            int xSettingMode = 1;
+            int ySettingMode = 1;
+            if (!readInteger("Grid_Mode", 1, 0, &defaultGridMode)
+                || !readInteger(prefix + "grid_mode", defaultGridMode, 0, &gridMode)
+                || !readInteger(prefix + "xseting_mode", 1, 0, &xSettingMode)
+                || !readInteger(prefix + "yseting_mode", 1, 0, &ySettingMode)) {
+                return invalidConfig();
+            }
+            plot.grid = gridMode != 0;
+            plot.customXRange = xSettingMode == 0;
+            plot.customYRange = ySettingMode == 0;
+            if (plot.customXRange
+                && (!readRangeValue(prefix + "xmin_custom", "xmin", &plot.xmin)
+                    || !readRangeValue(prefix + "xmax_custom", "xmax", &plot.xmax))) {
+                return invalidConfig();
+            }
+            if (plot.customYRange
+                && (!readRangeValue(prefix + "ymin_custom", "ymin", &plot.ymin)
+                    || !readRangeValue(prefix + "ymax_custom", "ymax", &plot.ymax))) {
+                return invalidConfig();
+            }
 
-            const int signalCount = std::max(1, parseInt(map, prefix + "num_sig", 1));
+            int signalCount = 1;
+            if (!readInteger(prefix + "num_sig", 1, 0, &signalCount)) {
+                return invalidConfig();
+            }
             plot.signalSpecs.reserve(signalCount);
             for (int s = 1; s <= signalCount; ++s) {
                 SignalSpec sig;
@@ -274,7 +583,14 @@ LayoutConfig parseWebscpEnvironment(const QString& path)
                 sig.experiment = trimQuotes(map.value(prefix + QString("experiment_%1").arg(s)));
                 sig.serverIp = trimQuotes(map.value(prefix + QString("server_ip_%1").arg(s)));
                 const QString colorName = trimQuotes(map.value(prefix + QString("color_name_%1").arg(s)));
-                sig.manualColor = parseInt(map, prefix + QString("color_manual_%1").arg(s), 0) != 0;
+                int manualColor = 0;
+                if (!readInteger(prefix + QString("color_manual_%1").arg(s),
+                                 0,
+                                 0,
+                                 &manualColor)) {
+                    return invalidConfig();
+                }
+                sig.manualColor = manualColor != 0;
                 if (sig.manualColor && !colorName.isEmpty()) {
                     sig.colorName = colorName;
                 } else {
@@ -289,23 +605,30 @@ LayoutConfig parseWebscpEnvironment(const QString& path)
             config.columns[c - 1].push_back(plot);
         }
     }
+    if (panelCount == 0) {
+        return parseFailure(path, 0, QStringLiteral("configuration contains no panels"), error);
+    }
     return config;
 }
 
-LayoutConfig parseEnvironment(const QString& path)
+LayoutConfig parseEnvironment(const QString& path, QString* error)
 {
-    if (path.endsWith(".toml", Qt::CaseInsensitive)) {
-        return parseTomlEnvironment(path);
+    if (error) {
+        error->clear();
     }
-    return parseWebscpEnvironment(path);
+    if (path.endsWith(".toml", Qt::CaseInsensitive)) {
+        return parseTomlEnvironment(path, error);
+    }
+    return parseWebscpEnvironment(path, error);
 }
 
 bool writeEnvironmentToml(const LayoutConfig& config, const QString& path, QString* error)
 {
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         if (error) {
-            *error = "Cannot write " + path;
+            *error = QStringLiteral("Cannot write %1: %2")
+                         .arg(path, file.errorString());
         }
         return false;
     }
@@ -383,6 +706,22 @@ bool writeEnvironmentToml(const LayoutConfig& config, const QString& path, QStri
                 out << '\n';
             }
         }
+    }
+    out.flush();
+    if (out.status() != QTextStream::Ok) {
+        if (error) {
+            *error = QStringLiteral("Cannot write %1: %2")
+                         .arg(path, file.errorString());
+        }
+        file.cancelWriting();
+        return false;
+    }
+    if (!file.commit()) {
+        if (error) {
+            *error = QStringLiteral("Cannot replace %1: %2")
+                         .arg(path, file.errorString());
+        }
+        return false;
     }
     return true;
 }

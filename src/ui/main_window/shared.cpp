@@ -2,6 +2,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "shared.hpp"
+#include "core/mdsscope_internal.hpp"
+
+#include <QApplication>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QLabel>
+#include <QPainter>
+#include <QPainterPath>
+#include <QSaveFile>
+#include <QTextStream>
+
+#include <algorithm>
+#include <cmath>
 
 void setLabelTextIfChanged(QLabel* label, const QString& text)
 {
@@ -264,14 +277,34 @@ bool writeSeriesDataFile(const QString& path,
                          double xmax,
                          QString* error)
 {
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         if (error) {
-            *error = "Cannot write " + path;
+            *error = QStringLiteral("Cannot write %1: %2")
+                         .arg(path, file.errorString());
         }
         return false;
     }
     QTextStream out(&file);
+    const auto commitOutput = [&out, &file, &path, error] {
+        out.flush();
+        if (out.status() != QTextStream::Ok) {
+            if (error) {
+                *error = QStringLiteral("Cannot write %1: %2")
+                             .arg(path, file.errorString());
+            }
+            file.cancelWriting();
+            return false;
+        }
+        if (!file.commit()) {
+            if (error) {
+                *error = QStringLiteral("Cannot replace %1: %2")
+                             .arg(path, file.errorString());
+            }
+            return false;
+        }
+        return true;
+    };
     if (format == ExportFormat::Json) {
         out << "{\n";
         if (!series.error.isEmpty()) {
@@ -301,7 +334,7 @@ bool writeSeriesDataFile(const QString& path,
             }
         }
         out << "\n  ]\n}\n";
-        return true;
+        return commitOutput();
     }
 
     if (format == ExportFormat::Csv) {
@@ -343,7 +376,7 @@ bool writeSeriesDataFile(const QString& path,
             }
         }
     }
-    return true;
+    return commitOutput();
 }
 
 QIcon infoIcon()

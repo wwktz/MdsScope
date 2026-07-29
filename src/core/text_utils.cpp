@@ -51,8 +51,8 @@ QHash<QString, QString> readKeyValueFile(const QString& path)
         if (line.isEmpty() || line.startsWith('#')) {
             continue;
         }
-        int pos = line.indexOf(':');
-        const int eq = line.indexOf('=');
+        qsizetype pos = line.indexOf(':');
+        const qsizetype eq = line.indexOf('=');
         if (eq >= 0 && (pos < 0 || eq < pos)) {
             pos = eq;
         }
@@ -65,4 +65,3 @@ QHash<QString, QString> readKeyValueFile(const QString& path)
     }
     return out;
 }
-

@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "mdsscope_internal.hpp"
+#include "ssh/ssh_settings.hpp"
 
 #include <QDialog>
 

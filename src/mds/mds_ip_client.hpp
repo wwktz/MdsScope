@@ -3,8 +3,20 @@
 
 #pragma once
 
-#include "mdsscope_internal.hpp"
+#include "core/mds_support.hpp"
 #include "mds_client.hpp"
+
+#include <QByteArray>
+#include <QHash>
+#include <QSemaphore>
+#include <QString>
+#include <QTcpSocket>
+#include <QVector>
+
+#include <atomic>
+#include <functional>
+#include <memory>
+#include <vector>
 
 namespace mds_client_internal {
 
@@ -193,7 +205,7 @@ private:
 
     static QString serverHost(QString server);
 
-    static int serverPort(const QString& server);
+    static quint16 serverPort(const QString& server);
 
     static QString serverKey(const SignalSpec& sig);
 

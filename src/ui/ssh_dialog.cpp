@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "ssh_dialog.hpp"
+#include "core/mdsscope_internal.hpp"
 #include "ssh_tunnel_manager.hpp"
 
 #include <QComboBox>

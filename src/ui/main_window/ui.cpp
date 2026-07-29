@@ -7,6 +7,8 @@
 #include "ui/plot/plot_widget.hpp"
 #include "shared.hpp"
 #include "theme.hpp"
+#include "user_preferences.hpp"
+#include "core/shot_metadata_client.hpp"
 #include "ssh_tunnel_manager.hpp"
 
 #include <QFontMetrics>
@@ -436,8 +438,8 @@ void MainWindow::schedulePointSync(PlotWidget* source, double x)
         if (!(pointButton_ && pointButton_->isChecked()) || !std::isfinite(pendingPointX_)) {
             return;
         }
-        PlotWidget* source = pointSyncSource_;
-        const double x = pendingPointX_;
+        PlotWidget* queuedSource = pointSyncSource_;
+        const double queuedX = pendingPointX_;
         QRect visibleArea = gridHost_->rect();
         if (scrollArea_ && scrollArea_->viewport()) {
             visibleArea = QRect(gridHost_->mapFrom(scrollArea_->viewport(), QPoint(0, 0)),
@@ -452,9 +454,10 @@ void MainWindow::schedulePointSync(PlotWidget* source, double x)
                 if (!visibleArea.intersects(plotGeometry)) {
                     continue;
                 }
-                const int seriesIndex = plot == source ? plot->activePointSeriesIndex() : 0;
-                const bool interpolate = plot != source && !singlePanelMaximized_;
-                plot->setSyncedPointX(x, seriesIndex, interpolate);
+                const int seriesIndex =
+                    plot == queuedSource ? plot->activePointSeriesIndex() : 0;
+                const bool interpolate = plot != queuedSource && !singlePanelMaximized_;
+                plot->setSyncedPointX(queuedX, seriesIndex, interpolate);
             }
         }
     });
@@ -642,9 +645,7 @@ void MainWindow::buildUi()
     auto setStartupDefault = [this, updateRateToolTip](DataReadMode mode,
                                                        const QString& label) {
         defaultRateMode_ = mode;
-        QSettings settings(uiSettingsPath(rootPath_), QSettings::IniFormat);
-        settings.setValue("rate/default_mode",
-                          static_cast<int>(defaultRateMode_));
+        preferences_->setDefaultReadMode(defaultRateMode_);
         updateRateToolTip();
         setStatus(QString("Startup default Rate: %1").arg(label));
     };
@@ -1731,7 +1732,9 @@ void MainWindow::scheduleTopInfoUpdate(const QString& shot)
         QString pulse;
         QString it;
         QString shotTime;
-        const bool ok = loadShotSummaryFromApi(trimmedShot, &ip, &pulse, &it, &shotTime, apiUrl);
+        const bool ok =
+            shotMetadata_->loadSummary(
+                trimmedShot, &ip, &pulse, &it, &shotTime, apiUrl);
         QMetaObject::invokeMethod(this, [this, trimmedShot, generation, ok, ip, pulse, it, shotTime] {
             if (generation != topSummaryGeneration_ || pendingTopSummaryShot_ != trimmedShot) {
                 return;

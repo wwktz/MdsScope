@@ -85,7 +85,7 @@ bool SshTunnelManager::splitEndpoint(const QString& endpoint, QString* host, int
     }
     *port = 8000;
     if (value.startsWith('[')) {
-        const int close = value.indexOf(']');
+        const qsizetype close = value.indexOf(']');
         if (close <= 1) {
             return false;
         }
@@ -100,7 +100,7 @@ bool SshTunnelManager::splitEndpoint(const QString& endpoint, QString* host, int
         }
         return true;
     }
-    const int colon = value.lastIndexOf(':');
+    const qsizetype colon = value.lastIndexOf(':');
     if (colon > 0 && value.indexOf(':') == colon) {
         bool ok = false;
         const int parsed = value.mid(colon + 1).toInt(&ok);

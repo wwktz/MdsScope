@@ -404,7 +404,7 @@ void RefreshCoordinator::queuePanel(PanelRefreshRequest request)
     }
 
     if (request.signalIndices.isEmpty()) {
-        for (int i = panel_.pending.size() - 1; i >= 0; --i) {
+        for (qsizetype i = panel_.pending.size(); i-- > 0;) {
             if (panel_.pending[i].column == request.column
                 && panel_.pending[i].row == request.row) {
                 panel_.pending.removeAt(i);
@@ -423,7 +423,7 @@ void RefreshCoordinator::queuePanel(PanelRefreshRequest request)
                 return;
             }
         }
-        for (int i = panel_.pending.size() - 1; i >= 0; --i) {
+        for (qsizetype i = panel_.pending.size(); i-- > 0;) {
             const PanelRefreshRequest& pending = panel_.pending[i];
             if (pending.column == request.column
                 && pending.row == request.row

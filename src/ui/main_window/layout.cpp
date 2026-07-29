@@ -237,8 +237,9 @@ void MainWindow::openLayoutSetupDialog()
         config_.columns.resize(1);
     }
 
-    LayoutSetupDialog dialog(config_, this);
-    if (dialog.exec() != QDialog::Accepted) {
+    const std::optional<QVector<QVector<LayoutCanvas::Item>>> edited =
+        editLayoutSetup(config_, this);
+    if (!edited) {
         return;
     }
 
@@ -258,7 +259,7 @@ void MainWindow::openLayoutSetupDialog()
         return plot;
     };
 
-    const QVector<QVector<LayoutCanvas::Item>> layout = dialog.layoutItems();
+    const QVector<QVector<LayoutCanvas::Item>>& layout = *edited;
     if (layoutItemsMatchConfig(layout, config_)) {
         setStatus("Layout unchanged");
         return;
@@ -280,8 +281,8 @@ void MainWindow::openLayoutSetupDialog()
             if (item.isNew) {
                 nextColumn.push_back(makePanel());
                 if (!selectedNewPanel) {
-                    selectColumn = next.columns.size();
-                    selectRow = nextColumn.size() - 1;
+                    selectColumn = static_cast<int>(next.columns.size());
+                    selectRow = static_cast<int>(nextColumn.size()) - 1;
                     selectedNewPanel = true;
                 }
                 ++newPanels;
@@ -294,15 +295,15 @@ void MainWindow::openLayoutSetupDialog()
                 if (!selectedNewPanel
                     && item.originalColumn == selectedColumn_
                     && item.originalRow == selectedRow_) {
-                    selectColumn = next.columns.size();
-                    selectRow = nextColumn.size();
+                    selectColumn = static_cast<int>(next.columns.size());
+                    selectRow = static_cast<int>(nextColumn.size());
                 }
                 if (item.originalColumn < plotWidgets_.size()
                     && item.originalRow < plotWidgets_[item.originalColumn].size()
                     && plotWidgets_[item.originalColumn][item.originalRow]) {
                     PreservedPanelData preserved;
-                    preserved.column = next.columns.size();
-                    preserved.row = nextColumn.size();
+                    preserved.column = static_cast<int>(next.columns.size());
+                    preserved.row = static_cast<int>(nextColumn.size());
                     preserved.series = plotWidgets_[item.originalColumn][item.originalRow]->seriesSnapshot();
                     preserved.hasView = plotWidgets_[item.originalColumn][item.originalRow]->hasView();
                     if (preserved.hasView) {
@@ -403,12 +404,12 @@ void MainWindow::panelSetupForCurrentPanel()
     }
 
     PlotSpec& plot = config_.columns[selectedColumn_][selectedRow_];
-    PanelSetupDialog dialog(plot, this);
-    if (dialog.exec() != QDialog::Accepted) {
+    const std::optional<PlotSpec> edited = editPanelSetup(plot, this);
+    if (!edited) {
         return;
     }
 
-    dialog.applyTo(&plot);
+    plot = *edited;
     displayConfig_ = expandedShotLayout(config_);
     plotWidgets_[selectedColumn_][selectedRow_]->setSpec(displayConfig_.columns[selectedColumn_][selectedRow_]);
     plotWidgets_[selectedColumn_][selectedRow_]->resetScale();
@@ -428,16 +429,17 @@ void MainWindow::dataSourceSetupForCurrentPanel()
 
     PlotSpec& plot = config_.columns[selectedColumn_][selectedRow_];
     const QString currentShot = shotEdit_ ? shotEdit_->text().trimmed() : plot.shot;
-    DataSourceDialog dialog(plot,
-                            currentShot,
-                            appSourceIndexDir(rootPath_),
-                            globalRateMode_,
-                            this);
-    if (dialog.exec() != QDialog::Accepted) {
+    const std::optional<QVector<SignalSpec>> edited =
+        editDataSources(plot,
+                        currentShot,
+                        appSourceIndexDir(rootPath_),
+                        globalRateMode_,
+                        this);
+    if (!edited) {
         return;
     }
 
-    QVector<SignalSpec> specs = dialog.signalSpecs();
+    QVector<SignalSpec> specs = *edited;
     if (specs.isEmpty()) {
         QMessageBox::warning(this, "Data Source Setup", "At least one signal is required.");
         return;

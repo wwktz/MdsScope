@@ -3,7 +3,17 @@
 
 #pragma once
 
-#include "mdsscope_internal.hpp"
+#include "core/app_types.hpp"
+
+#include <QPair>
+#include <QPointF>
+#include <QString>
+#include <QVector>
+
+#include <algorithm>
+#include <cmath>
+#include <iterator>
+#include <limits>
 
 inline constexpr int kMinMaxBlockSize = 256;
 
@@ -87,7 +97,7 @@ inline QString effectiveYLabel(const PlotSpec& spec, const QVector<SignalSeries>
 
 inline void rebuildMinMaxIndex(SignalSeries& series)
 {
-    const int n = series.hasUniformData() ? series.uniformY.size() : series.points.size();
+    const int n = series.pointCount();
     series.minYBlocks.clear();
     series.maxYBlocks.clear();
     series.minMaxBlockSize = 0;

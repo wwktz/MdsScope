@@ -3,6 +3,8 @@
 
 #include "mdsscope_internal.hpp"
 #include "main_window.hpp"
+#include "user_preferences.hpp"
+#include "core/shot_metadata_client.hpp"
 #include "refresh_coordinator.hpp"
 #include "about_dialog.hpp"
 #include "shared.hpp"
@@ -41,7 +43,8 @@ void MainWindow::applyShot()
     shotEditSessionActive_ = false;
     pendingShotEditExitKeys_.clear();
     shotEditExitTimer_.stop();
-    rememberShotExpression(shot);
+    preferences_->rememberShotExpression(shot);
+    refreshShotHistory();
     ++latestShotGeneration_;
     setAllPlotShots(shot);
     scheduleShotRefresh();
@@ -140,8 +143,7 @@ void MainWindow::openLoginDialog()
 
 void MainWindow::openAboutDialog()
 {
-    AboutDialog dialog(this);
-    dialog.exec();
+    showAboutDialog(this);
 }
 
 void MainWindow::applyLoginSuccessStatus(const QString& statusText)
@@ -223,7 +225,7 @@ void MainWindow::fetchLatestShotAsync(bool applyLatest)
         return;
     }
     QThreadPool::globalInstance()->start([this, generation, apiUrl] {
-        const QString latest = latestShotFromApi(apiUrl);
+        const QString latest = shotMetadata_->latestShot(apiUrl);
         QMetaObject::invokeMethod(this, [this, latest, generation] {
             if (generation != latestShotGeneration_) {
                 latestShotFetchRunning_ = false;
@@ -250,7 +252,8 @@ void MainWindow::fetchLatestShotAsync(bool applyLatest)
                 shotEdit_->setText(latestShot_);
             }
             if (refresh_->initialRefreshDeferred()) {
-                rememberShotExpression(latestShot_);
+                preferences_->rememberShotExpression(latestShot_);
+                refreshShotHistory();
                 setAllPlotShots(latestShot_);
                 setStatus(QString("Preparing MDS connections for shot %1...").arg(latestShot_));
                 if (prewarmConnections()) {
@@ -311,158 +314,4 @@ QString MainWindow::maxShotInConfig() const
         }
     }
     return bestText;
-}
-
-QString MainWindow::latestShotFromApi(const QString& apiOverride) const
-{
-    const auto properties = readApiSettings(rootPath_);
-    const QString api = apiOverride.trimmed().isEmpty() ? properties.value("ApiUrl") : apiOverride.trimmed();
-    const QString token = properties.value("Token");
-    const QString prefix = properties.value("Authorization_Prefix", properties.value("Init_Prefix", "Bearer"));
-    const QString charset = properties.value("Charset", "UTF-8");
-    if (api.isEmpty() || token.isEmpty()) {
-        return {};
-    }
-
-    QNetworkAccessManager manager;
-    QNetworkRequest request(QUrl(api + "/treeShot"));
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json; charset=" + charset);
-    request.setRawHeader("Authorization", (prefix + " " + token).toUtf8());
-    request.setRawHeader("User-Agent", "MdsScope/0.1");
-    request.setTransferTimeout(4000);
-
-    QEventLoop loop;
-    QTimer timer;
-    timer.setSingleShot(true);
-    QNetworkReply* reply = manager.post(request, QByteArray("{}"));
-    connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-    connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
-    timer.start(4000);
-    loop.exec();
-
-    if (!timer.isActive()) {
-        reply->abort();
-        reply->deleteLater();
-        return {};
-    }
-
-    const QByteArray body = reply->readAll();
-    const auto error = reply->error();
-    reply->deleteLater();
-    if (error != QNetworkReply::NoError || body.isEmpty()) {
-        return {};
-    }
-
-    const QJsonDocument doc = QJsonDocument::fromJson(body);
-    if (doc.isObject()) {
-        const QJsonObject obj = doc.object();
-        QString shot = firstShotFromJsonValue(obj.value("data"));
-        if (!shot.isEmpty()) {
-            return shot;
-        }
-        shot = firstShotFromJsonValue(obj);
-        if (!shot.isEmpty()) {
-            return shot;
-        }
-    } else if (doc.isArray()) {
-        const QString shot = firstShotFromJsonValue(doc.array());
-        if (!shot.isEmpty()) {
-            return shot;
-        }
-    }
-    return firstShotLikeText(QString::fromUtf8(body));
-}
-
-bool MainWindow::loadShotSummaryFromApi(const QString& shot,
-                                        QString* ip,
-                                        QString* pulse,
-                                        QString* it,
-                                        QString* time,
-                                        const QString& apiOverride) const
-{
-    const auto properties = readApiSettings(rootPath_);
-    const QString api = apiOverride.trimmed().isEmpty() ? properties.value("ApiUrl") : apiOverride.trimmed();
-    const QString token = properties.value("Token");
-    const QString prefix = properties.value("Authorization_Prefix", properties.value("Init_Prefix", "Bearer"));
-    const QString charset = properties.value("Charset", "UTF-8");
-    if (api.isEmpty() || token.isEmpty() || shot.trimmed().isEmpty()) {
-        return false;
-    }
-
-    bool shotOk = false;
-    const int shotNumber = shot.trimmed().toInt(&shotOk);
-    if (!shotOk) {
-        return false;
-    }
-
-    QNetworkAccessManager manager;
-    QNetworkRequest request(QUrl(api + "/pcsEastTree"));
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json; charset=" + charset);
-    request.setRawHeader("Authorization", (prefix + " " + token).toUtf8());
-    request.setRawHeader("User-Agent", "MdsScope/0.1");
-    request.setTransferTimeout(2500);
-
-    QJsonObject payload;
-    payload.insert("treeshot", shotNumber);
-
-    QEventLoop loop;
-    QTimer timer;
-    timer.setSingleShot(true);
-    QNetworkReply* reply = manager.post(request, QJsonDocument(payload).toJson(QJsonDocument::Compact));
-    connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-    connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
-    timer.start(2500);
-    loop.exec();
-
-    if (!timer.isActive()) {
-        reply->abort();
-        reply->deleteLater();
-        return false;
-    }
-
-    const QByteArray body = reply->readAll();
-    const auto error = reply->error();
-    reply->deleteLater();
-    if (error != QNetworkReply::NoError || body.isEmpty()) {
-        return false;
-    }
-
-    const QJsonObject root = QJsonDocument::fromJson(body).object();
-    const QString code = root.value("code").isString()
-        ? root.value("code").toString()
-        : QString::number(root.value("code").toInt());
-    if (code != "20000") {
-        return false;
-    }
-    const QJsonObject data = root.value("data").toObject();
-    if (data.isEmpty()) {
-        return false;
-    }
-
-    auto scalarText = [](const QJsonValue& value) {
-        if (value.isString()) {
-            return value.toString().trimmed();
-        }
-        if (value.isDouble()) {
-            return QString::number(value.toDouble(), 'g', 8);
-        }
-        if (value.isBool()) {
-            return value.toBool() ? QStringLiteral("true") : QStringLiteral("false");
-        }
-        return QString();
-    };
-
-    if (ip) {
-        *ip = scalarText(data.value("pcrl01"));
-    }
-    if (pulse) {
-        *pulse = scalarText(data.value("shot_len"));
-    }
-    if (it) {
-        *it = scalarText(data.value("iv"));
-    }
-    if (time) {
-        *time = scalarText(data.value("curr_time"));
-    }
-    return true;
 }

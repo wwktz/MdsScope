@@ -3,6 +3,7 @@
 
 #include "mdsscope_internal.hpp"
 #include "main_window.hpp"
+#include "user_preferences.hpp"
 
 #include <QDialogButtonBox>
 #include <QSignalBlocker>
@@ -299,53 +300,29 @@ bool selectWebAddressToRemove(QWidget* parent,
     return dialog.exec() == QDialog::Accepted;
 }
 
-}
-
-QVector<InternalWebBookmark> MainWindow::savedInternalWebPages() const
+QVector<InternalWebBookmark> cleanedWebBookmarks(
+    const UserPreferences& preferences)
 {
-    QSettings settings(uiSettingsPath(rootPath_), QSettings::IniFormat);
     QVector<InternalWebBookmark> cleaned;
-    const int count = settings.beginReadArray(QStringLiteral("web/bookmarks"));
-    for (int i = 0; i < count; ++i) {
-        settings.setArrayIndex(i);
-        const QString url = normalizedWebUrl(settings.value(QStringLiteral("url")).toString());
-        QString alias = settings.value(QStringLiteral("alias")).toString().trimmed();
+    for (const InternalWebBookmark& stored : preferences.webBookmarks()) {
+        const QString url = normalizedWebUrl(stored.url);
+        QString alias = stored.alias.trimmed();
         if (alias.isEmpty()) {
             alias = defaultWebAlias(url);
         }
-        const bool duplicate = std::any_of(cleaned.cbegin(), cleaned.cend(), [&url](const auto& bookmark) {
+        const bool duplicate =
+            std::any_of(cleaned.cbegin(),
+                        cleaned.cend(),
+                        [&url](const auto& bookmark) {
             return bookmark.url == url;
         });
         if (!url.isEmpty() && !duplicate) {
             cleaned.push_back({alias, url});
         }
     }
-    settings.endArray();
-
-    if (cleaned.isEmpty()) {
-        const QStringList legacy = settings.value(QStringLiteral("web/urls")).toStringList();
-        for (const QString& entry : legacy) {
-            const QString url = normalizedWebUrl(entry);
-            if (!url.isEmpty()) {
-                cleaned.push_back({defaultWebAlias(url), url});
-            }
-        }
-    }
     return cleaned;
 }
 
-void MainWindow::saveInternalWebPages(const QVector<InternalWebBookmark>& bookmarks) const
-{
-    QSettings settings(uiSettingsPath(rootPath_), QSettings::IniFormat);
-    settings.remove(QStringLiteral("web/bookmarks"));
-    settings.beginWriteArray(QStringLiteral("web/bookmarks"), bookmarks.size());
-    for (int i = 0; i < bookmarks.size(); ++i) {
-        settings.setArrayIndex(i);
-        settings.setValue(QStringLiteral("alias"), bookmarks.at(i).alias);
-        settings.setValue(QStringLiteral("url"), bookmarks.at(i).url);
-    }
-    settings.endArray();
-    settings.remove(QStringLiteral("web/urls"));
 }
 
 void MainWindow::addInternalWebPage()
@@ -354,30 +331,33 @@ void MainWindow::addInternalWebPage()
     if (!editWebAddress(this, QStringLiteral("Add Web Address"), {}, &added)) {
         return;
     }
-    QVector<InternalWebBookmark> pages = savedInternalWebPages();
-    for (int i = pages.size() - 1; i >= 0; --i) {
+    QVector<InternalWebBookmark> pages =
+        cleanedWebBookmarks(*preferences_);
+    for (qsizetype i = pages.size(); i-- > 0;) {
         if (pages.at(i).url == added.url) {
             pages.removeAt(i);
         }
     }
     pages.prepend(added);
-    saveInternalWebPages(pages);
+    preferences_->setWebBookmarks(pages);
     refreshInternalWebMenu();
 }
 
 void MainWindow::editInternalWebPage()
 {
-    QVector<InternalWebBookmark> pages = savedInternalWebPages();
+    QVector<InternalWebBookmark> pages =
+        cleanedWebBookmarks(*preferences_);
     if (pages.isEmpty() || !editSavedWebAddresses(this, &pages)) {
         return;
     }
-    saveInternalWebPages(pages);
+    preferences_->setWebBookmarks(pages);
     refreshInternalWebMenu();
 }
 
 void MainWindow::removeInternalWebPage()
 {
-    QVector<InternalWebBookmark> pages = savedInternalWebPages();
+    QVector<InternalWebBookmark> pages =
+        cleanedWebBookmarks(*preferences_);
     if (pages.isEmpty()) {
         return;
     }
@@ -389,7 +369,7 @@ void MainWindow::removeInternalWebPage()
     for (const int index : std::as_const(indexes)) {
         pages.removeAt(index);
     }
-    saveInternalWebPages(pages);
+    preferences_->setWebBookmarks(pages);
     refreshInternalWebMenu();
 }
 
@@ -399,7 +379,8 @@ void MainWindow::refreshInternalWebMenu()
         return;
     }
     internalWebMenu_->clear();
-    const QVector<InternalWebBookmark> pages = savedInternalWebPages();
+    const QVector<InternalWebBookmark> pages =
+        cleanedWebBookmarks(*preferences_);
     if (pages.isEmpty()) {
         QAction* empty = internalWebMenu_->addAction(QStringLiteral("No Saved Web Addresses"));
         empty->setEnabled(false);

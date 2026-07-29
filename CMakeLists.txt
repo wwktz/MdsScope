@@ -97,6 +97,7 @@ add_executable(MdsScope
     src/core/app_paths.cpp
     src/core/visuals.cpp
     src/core/text_utils.cpp
+    src/core/shot_metadata_client.cpp
     src/mds/mds_client.cpp
     src/mds/mds_ip_client.cpp
     src/mds/mds_ip_east.cpp
@@ -113,19 +114,25 @@ add_executable(MdsScope
     src/ui/plot/render.cpp
     src/ui/plot/state.cpp
     src/ui/plot/view.cpp
+    src/ui/main_window/about_dialog.cpp
     src/ui/main_window/window.cpp
     src/ui/main_window/data.cpp
     src/ui/main_window/environment.cpp
     src/ui/main_window/export.cpp
+    src/ui/main_window/export_dialog.cpp
     src/ui/main_window/layout.cpp
+    src/ui/main_window/layout_dialog.cpp
     src/ui/main_window/refresh_coordinator.cpp
     src/ui/main_window/scale.cpp
     src/ui/main_window/shortcut_dialog.cpp
     src/ui/main_window/shortcut_settings.cpp
+    src/ui/main_window/signal_dialogs.cpp
+    src/ui/main_window/user_preferences.cpp
     src/ui/main_window/shortcuts.cpp
     src/ui/main_window/shared.cpp
     src/ui/main_window/shot.cpp
     src/ui/main_window/ssh.cpp
+    src/ui/main_window/theme.cpp
     src/ui/main_window/web_access.cpp
     src/ui/main_window/web_bookmarks.cpp
     src/ui/main_window/ui.cpp
@@ -133,7 +140,9 @@ add_executable(MdsScope
     src/core/app_runtime.hpp
     src/core/app_types.hpp
     src/core/mdsscope_internal.hpp
+    src/core/mds_support.hpp
     src/core/text_utils.hpp
+    src/core/shot_metadata_client.hpp
     src/mds/mds_client.hpp
     src/mds/mds_ip_client.hpp
     src/ssh/ssh_tunnel_manager.hpp
@@ -147,6 +156,7 @@ add_executable(MdsScope
     src/ui/main_window/layout_dialog.hpp
     src/ui/main_window/shortcut_dialog.hpp
     src/ui/main_window/shortcut_settings.hpp
+    src/ui/main_window/user_preferences.hpp
     src/ui/main_window/signal_dialogs.hpp
     src/ui/main_window/shared.hpp
     src/ui/main_window/theme.hpp

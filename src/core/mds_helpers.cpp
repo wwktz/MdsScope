@@ -250,7 +250,7 @@ LayoutConfig expandedShotLayout(const LayoutConfig& config)
                     SignalSpec copy = sig;
                     copy.shot = shot;
                     copy.manualColor = false;
-                    copy.colorName = colorForIndex(expandedSignals.size());
+                    copy.colorName = colorForIndex(static_cast<int>(expandedSignals.size()));
                     expandedSignals.push_back(std::move(copy));
                 }
             }

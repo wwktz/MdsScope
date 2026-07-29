@@ -5,6 +5,7 @@
 #include "main_window.hpp"
 #include "refresh_coordinator.hpp"
 #include "shared.hpp"
+#include "user_preferences.hpp"
 
 namespace {
 void alignLayoutRatesToMinimum(LayoutConfig* config, DataReadMode minimum)
@@ -49,79 +50,29 @@ void MainWindow::loadEnvironmentList(bool useLatestWhenNoCurrentShot)
     setStatus("No environment files found");
 }
 
-QString MainWindow::rememberedFileDialogDir() const
-{
-    QSettings settings(uiSettingsPath(rootPath_), QSettings::IniFormat);
-    const QString savedPath = settings.value("files/last_dir").toString().trimmed();
-    return !savedPath.isEmpty() && QDir(savedPath).exists()
-               ? QDir(savedPath).absolutePath()
-               : environmentPath_;
-}
-
-void MainWindow::rememberFileDialogDir(const QString& path)
-{
-    QFileInfo info(path);
-    const QString dirPath = info.isDir() ? info.absoluteFilePath() : info.absolutePath();
-    if (dirPath.isEmpty()) {
-        return;
-    }
-    const QString selectedPath = QDir(dirPath).absolutePath();
-    QSettings settings(uiSettingsPath(rootPath_), QSettings::IniFormat);
-    settings.setValue("files/last_dir", selectedPath);
-}
-
-QStringList MainWindow::recentEnvironmentFiles() const
-{
-    QSettings settings(uiSettingsPath(rootPath_), QSettings::IniFormat);
-    QStringList files = settings.value("files/recent").toStringList();
-    QStringList cleaned;
-    for (const QString& file : files) {
-        const QString path = QFileInfo(file).absoluteFilePath();
-        if (!path.isEmpty() && QFileInfo::exists(path) && !cleaned.contains(path)) {
-            cleaned.push_back(path);
-        }
-        if (cleaned.size() >= 10) {
-            break;
-        }
-    }
-    return cleaned;
-}
-
-void MainWindow::rememberRecentEnvironmentFile(const QString& path)
-{
-    const QString filePath = QFileInfo(path).absoluteFilePath();
-    if (filePath.isEmpty()) {
-        return;
-    }
-    QStringList files = recentEnvironmentFiles();
-    files.removeAll(filePath);
-    files.prepend(filePath);
-    while (files.size() > 10) {
-        files.removeLast();
-    }
-    QSettings settings(uiSettingsPath(rootPath_), QSettings::IniFormat);
-    settings.setValue("files/recent", files);
-}
-
 void MainWindow::clearRecentEnvironmentFiles()
 {
-    QSettings settings(uiSettingsPath(rootPath_), QSettings::IniFormat);
-    settings.remove("files/recent");
+    preferences_->clearRecentEnvironmentFiles();
     refreshRecentEnvironmentMenu();
 }
 
 void MainWindow::openEnvironmentFile()
 {
-    QSettings settings(uiSettingsPath(rootPath_), QSettings::IniFormat);
     const QString allFilter = "All MdsScope Config (*.toml *.webscp)";
     const QString tomlFilter = "MdsScope TOML (*.toml)";
     const QString webscpFilter = "Legacy WebScope Config (*.webscp)";
     const QString filters = allFilter + ";;" + tomlFilter + ";;" + webscpFilter + ";;All Files (*)";
-    QString selectedFilter = settings.value("files/open_filter", allFilter).toString();
-    const QString path = QFileDialog::getOpenFileName(this, "Open MdsScope Config", rememberedFileDialogDir(), filters, &selectedFilter);
+    QString selectedFilter = preferences_->openFileFilter(allFilter);
+    const QString path =
+        QFileDialog::getOpenFileName(
+            this,
+            "Open MdsScope Config",
+            preferences_->rememberedFileDialogDir(environmentPath_),
+            filters,
+            &selectedFilter);
     if (!path.isEmpty()) {
-        settings.setValue("files/open_filter", selectedFilter);
-        rememberFileDialogDir(path);
+        preferences_->setOpenFileFilter(selectedFilter);
+        preferences_->rememberFileDialogDir(path);
         loadEnvironmentFile(path);
     }
 }
@@ -133,7 +84,7 @@ void MainWindow::openRecentEnvironmentFile(const QString& path)
         refreshRecentEnvironmentMenu();
         return;
     }
-    rememberFileDialogDir(path);
+    preferences_->rememberFileDialogDir(path);
     loadEnvironmentFile(path);
 }
 
@@ -143,7 +94,7 @@ void MainWindow::refreshRecentEnvironmentMenu()
         return;
     }
     recentEnvironmentMenu_->clear();
-    const QStringList files = recentEnvironmentFiles();
+    const QStringList files = preferences_->recentEnvironmentFiles();
     if (files.isEmpty()) {
         QAction* empty = recentEnvironmentMenu_->addAction("No Recent Files");
         empty->setEnabled(false);
@@ -177,40 +128,6 @@ void MainWindow::showRecentEnvironmentMenu()
     recentEnvironmentMenu_->popup(openButton_->mapToGlobal(QPoint(0, openButton_->height())));
 }
 
-QStringList MainWindow::recentShotExpressions() const
-{
-    QSettings settings(uiSettingsPath(rootPath_), QSettings::IniFormat);
-    QStringList shots = settings.value("shot/recent").toStringList();
-    QStringList cleaned;
-    for (const QString& shot : shots) {
-        const QString value = shot.trimmed();
-        if (!value.isEmpty() && !cleaned.contains(value)) {
-            cleaned.push_back(value);
-        }
-        if (cleaned.size() >= 10) {
-            break;
-        }
-    }
-    return cleaned;
-}
-
-void MainWindow::rememberShotExpression(const QString& shot)
-{
-    const QString value = shot.trimmed();
-    if (value.isEmpty()) {
-        return;
-    }
-    QStringList shots = recentShotExpressions();
-    shots.removeAll(value);
-    shots.prepend(value);
-    while (shots.size() > 10) {
-        shots.removeLast();
-    }
-    QSettings settings(uiSettingsPath(rootPath_), QSettings::IniFormat);
-    settings.setValue("shot/recent", shots);
-    refreshShotHistory();
-}
-
 void MainWindow::refreshShotHistory()
 {
     if (!shotCombo_ || !shotEdit_) {
@@ -221,7 +138,8 @@ void MainWindow::refreshShotHistory()
     QSignalBlocker editBlocker(shotEdit_);
     shotCombo_->clear();
     const QFontMetrics fm(shotCombo_->font());
-    for (const QString& shot : recentShotExpressions()) {
+    for (const QString& shot :
+         preferences_->recentShotExpressions()) {
         shotCombo_->addItem(fm.elidedText(shot, Qt::ElideMiddle, 300), shot);
         shotCombo_->setItemData(shotCombo_->count() - 1, shot, Qt::ToolTipRole);
     }
@@ -235,6 +153,16 @@ bool MainWindow::loadEnvironmentFile(const QString& path,
 {
     const QString previousShot = shotEdit_ ? shotEdit_->text().trimmed() : QString();
     const bool shouldFetchLatest = useLatestWhenNoCurrentShot && previousShot.isEmpty();
+    QString parseError;
+    LayoutConfig loadedConfig = parseEnvironment(path, &parseError);
+    if (!parseError.isEmpty()) {
+        setStatus(QStringLiteral("Cannot load %1").arg(QFileInfo(path).fileName()));
+        QMessageBox::warning(this,
+                             QStringLiteral("Open MdsScope Config"),
+                             QStringLiteral("Cannot load configuration:\n%1").arg(parseError));
+        return false;
+    }
+
     refresh_->cancelDeferredInitialRefresh();
     clearDataPause();
     cancelDataFetch();
@@ -245,7 +173,7 @@ bool MainWindow::loadEnvironmentFile(const QString& path,
     // connections this new configuration will need. Let it finish instead of
     // discarding that work, so the first fetch reuses the warm sockets.
     refresh_->resetForEnvironmentLoad();
-    config_ = parseEnvironment(path);
+    config_ = std::move(loadedConfig);
     globalRateMode_ = defaultRateMode_;
     // Apply the startup default as a non-persistent minimum. Higher TOML
     // panel/source rates remain unchanged; lower or omitted rates are raised
@@ -268,7 +196,7 @@ bool MainWindow::loadEnvironmentFile(const QString& path,
     }
     setStatus(QString("Loaded %1").arg(QFileInfo(path).fileName()));
     if (rememberRecent) {
-        rememberRecentEnvironmentFile(path);
+        preferences_->rememberRecentEnvironmentFile(path);
     }
     if (prewarmBeforeRefresh && !shouldFetchLatest) {
         refresh_->deferInitialRefresh();
@@ -309,14 +237,19 @@ void MainWindow::saveCurrentEnvironment()
 
 void MainWindow::saveCurrentEnvironmentAs()
 {
-    const QString path = QFileDialog::getSaveFileName(this, "Save MdsScope Config", rememberedFileDialogDir(), "MdsScope Config (*.toml)");
+    const QString path =
+        QFileDialog::getSaveFileName(
+            this,
+            "Save MdsScope Config",
+            preferences_->rememberedFileDialogDir(environmentPath_),
+            "MdsScope Config (*.toml)");
     if (path.isEmpty()) {
         return;
     }
     if (saveEnvironmentFile(path)) {
         const QFileInfo info(path);
         config_.filePath = info.suffix().isEmpty() ? path + ".toml" : path;
-        rememberFileDialogDir(config_.filePath);
+        preferences_->rememberFileDialogDir(config_.filePath);
         loadEnvironmentFile(config_.filePath);
         setStatus("Saved " + QFileInfo(config_.filePath).fileName());
     }
@@ -358,9 +291,12 @@ bool MainWindow::saveEnvironmentFile(const QString& path)
 
 bool MainWindow::saveWebscpEnvironmentFile(const QString& path) const
 {
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
-        QMessageBox::warning(nullptr, "Save", "Cannot write " + path);
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QMessageBox::warning(nullptr,
+                             "Save",
+                             QStringLiteral("Cannot write %1: %2")
+                                 .arg(path, file.errorString()));
         return false;
     }
     QTextStream out(&file);
@@ -423,6 +359,14 @@ bool MainWindow::saveWebscpEnvironmentFile(const QString& path) const
                 writeLine(out, p + QString("server_ip_%1").arg(s + 1), sig.serverIp);
             }
         }
+    }
+    out.flush();
+    if (out.status() != QTextStream::Ok || !file.commit()) {
+        QMessageBox::warning(nullptr,
+                             "Save",
+                             QStringLiteral("Cannot replace %1: %2")
+                                 .arg(path, file.errorString()));
+        return false;
     }
     return true;
 }

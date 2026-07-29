@@ -31,7 +31,13 @@ bool convertOne(const QString& inputPath, const QString& outputDir, QTextStream&
         return false;
     }
 
-    LayoutConfig config = parseEnvironment(inputInfo.absoluteFilePath());
+    QString parseError;
+    LayoutConfig config =
+        parseEnvironment(inputInfo.absoluteFilePath(), &parseError);
+    if (!parseError.isEmpty()) {
+        err << "failed: " << parseError << Qt::endl;
+        return false;
+    }
     const QString outputPath = outputPathFor(inputInfo.absoluteFilePath(), outputDir);
     QString error;
     if (!writeEnvironmentToml(config, outputPath, &error)) {

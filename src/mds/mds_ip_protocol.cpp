@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "mds_ip_client.hpp"
+#include "core/mdsscope_internal.hpp"
 
 namespace mds_client_internal {
 

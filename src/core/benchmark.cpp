@@ -32,7 +32,12 @@ int runMdsScopeBenchmark(const QString& configPath,
     QFile::remove(tracePath);
     qputenv("MDSSCOPE_MDS_TRACE", "1");
 
-    LayoutConfig config = parseEnvironment(configPath);
+    QString parseError;
+    LayoutConfig config = parseEnvironment(configPath, &parseError);
+    if (!parseError.isEmpty()) {
+        err << "Cannot load benchmark config: " << parseError << Qt::endl;
+        return 2;
+    }
     // The benchmark mode has the same one-time startup-floor semantics as the
     // GUI. Fetching itself then uses each signal's resolved current Rate.
     for (QVector<PlotSpec>& column : config.columns) {
@@ -57,7 +62,7 @@ int runMdsScopeBenchmark(const QString& configPath,
     int signalCount = 0;
     QSet<QString> groups;
     for (const auto& column : config.columns) {
-        plotCount += column.size();
+        plotCount += static_cast<int>(column.size());
         for (const PlotSpec& plot : column) {
             for (const SignalSpec& sig : plot.signalSpecs) {
                 if (sig.hidden) {

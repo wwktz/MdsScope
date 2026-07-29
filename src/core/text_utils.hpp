@@ -3,7 +3,8 @@
 
 #pragma once
 
-#include "mdsscope_internal.hpp"
+#include <QHash>
+#include <QString>
 
 QString trimQuotes(QString value);
 double parseDouble(const QString& value);

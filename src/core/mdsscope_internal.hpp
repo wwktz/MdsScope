@@ -4,6 +4,7 @@
 #pragma once
 
 #include "app_types.hpp"
+#include "mds_support.hpp"
 #include "ssh_settings.hpp"
 
 #include <QtConcurrent>
@@ -99,13 +100,6 @@
 #include <thread>
 #include <vector>
 
-constexpr int kMdsPort = 8000;
-#if defined(Q_OS_MACOS) || defined(Q_OS_MAC)
-constexpr int kNetworkTimeoutMs = 8000;
-#else
-constexpr int kNetworkTimeoutMs = 2500;
-#endif
-
 #ifndef MDSSCOPE_VERSION
 #define MDSSCOPE_VERSION "unknown"
 #endif
@@ -143,7 +137,6 @@ struct CachedAuth {
     SshSettings ssh;
 };
 
-void traceMdsLine(const QString& line);
 QString appConfigDir();
 QString appCacheDir();
 QString appEnvironmentDir(const QString& rootPath);
@@ -186,13 +179,7 @@ QIcon loginIcon(bool loggedIn);
 QIcon sshIcon(int state);
 QIcon browserIcon();
 QIcon modeIcon(InteractionMode mode, bool active);
-LayoutConfig parseEnvironment(const QString& path);
+LayoutConfig parseEnvironment(const QString& path, QString* error = nullptr);
 bool writeEnvironmentToml(const LayoutConfig& config, const QString& path, QString* error = nullptr);
 void writeLine(QTextStream& out, const QString& key, const QString& value);
 QString escapedMdsExpr(QString expr);
-QString normalizedMdsSignal(QString expr);
-QStringList sourceIndexSignalNames(const QString& expression);
-QString scaledSiUnit(QString unit, double numericScale);
-QString effectiveSignalShot(const PlotSpec& plot, const SignalSpec& sig);
-DataReadMode higherDataReadMode(DataReadMode lhs, DataReadMode rhs);
-DataReadMode effectiveSignalReadMode(DataReadMode globalMode, const SignalSpec& sig);

@@ -112,15 +112,15 @@ QByteArray cryptAuthPayload(const QByteArray& data, const QByteArray& salt)
     const QByteArray key = localAuthKey();
     QByteArray out;
     out.resize(data.size());
-    int offset = 0;
+    qsizetype offset = 0;
     quint64 counter = 0;
     while (offset < data.size()) {
         QByteArray counterBytes;
         counterBytes.resize(static_cast<int>(sizeof(counter)));
         qToLittleEndian(counter, reinterpret_cast<uchar*>(counterBytes.data()));
         const QByteArray stream = QCryptographicHash::hash(key + salt + counterBytes, QCryptographicHash::Sha256);
-        const int n = std::min(stream.size(), data.size() - offset);
-        for (int i = 0; i < n; ++i) {
+        const qsizetype n = std::min(stream.size(), data.size() - offset);
+        for (qsizetype i = 0; i < n; ++i) {
             out[offset + i] = data[offset + i] ^ stream[i];
         }
         offset += n;
@@ -190,14 +190,19 @@ bool saveCachedAuth(const CachedAuth& auth)
     wrapper.insert("salt", QString::fromLatin1(salt.toBase64()));
     wrapper.insert("payload", QString::fromLatin1(encrypted.toBase64()));
 
-    QFile file(authCachePath());
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+    QSaveFile file(authCachePath());
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         return false;
     }
-    file.write(QJsonDocument(wrapper).toJson(QJsonDocument::Compact));
-    file.write("\n");
-    file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
-    return true;
+    const QByteArray contents =
+        QJsonDocument(wrapper).toJson(QJsonDocument::Compact) + '\n';
+    if (file.write(contents) != contents.size()
+        || !file.setPermissions(QFileDevice::ReadOwner
+                                | QFileDevice::WriteOwner)) {
+        file.cancelWriting();
+        return false;
+    }
+    return file.commit();
 }
 
 bool clearCachedApiAuth()
