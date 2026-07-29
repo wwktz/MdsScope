@@ -15,6 +15,9 @@ configuration, MDSIP defaults, login flow, and HTTP metadata API target EAST.
 - Three sampling quality modes: **thin** (saved EAST preview when available), **medium** (0.1 ms server-side average), and **full** (complete data).
 - Apply single-shot or batch-shot expressions globally.
 - Use EAST HTTP metadata for latest shot and top-bar shot summary.
+- Tunnel remote data through OpenSSH and store credentials in the operating
+  system's native credential service.
+- Export plotted data as text, CSV, TSV, or JSON.
 - Run on Linux, macOS, and Windows.
 
 ### Sampling Quality Modes
@@ -56,6 +59,7 @@ files do not store Rate settings.
 - A C++23 compiler
 - Qt 6.4 or newer with Core, Widgets, Network, and Concurrent
 - Qt 6 DBus on Linux
+- libsecret development files on Linux
 
 ### Dependency Installation
 
@@ -63,7 +67,7 @@ Ubuntu:
 
 ```bash
 sudo apt update
-sudo apt install build-essential cmake qt6-base-dev qt6-base-dev-tools
+sudo apt install build-essential cmake qt6-base-dev qt6-base-dev-tools libsecret-1-dev
 ```
 
 macOS:
@@ -205,10 +209,7 @@ macOS:   ~/Library/Application Support/mdsscope/
 Windows: %LOCALAPPDATA%\MdsScope\
 ```
 
-`auth.cache` does not store credentials in plaintext. Its contents are
-obfuscated and bound to the current machine/user to reduce accidental
-disclosure. It is not designed to protect credentials from software running
-with the same user privileges.
+### Configuration Formats
 
 MdsScope uses TOML as its native configuration format and also supports legacy
 WebScope-compatible `.webscp` files. Saving from the GUI writes same-named TOML
@@ -268,6 +269,20 @@ On Windows source builds, use the executable under `build\Release`:
 .\build\Release\transfer.exe --recursive --out-dir ".\converted" ".\resources\environment"
 ```
 
+## Connectivity
+
+### Credential Storage
+
+MdsScope stores API credentials and SSH settings in the operating system's
+native credential service: Linux Secret Service, macOS Keychain, or Windows
+Credential Manager.
+
+Existing `auth.cache` data is migrated and removed only after a successful
+native-store commit; new installations do not create it.
+
+SSH private keys remain managed by OpenSSH—MdsScope stores only the selected
+identity-file path.
+
 ### EAST HTTP Metadata API
 
 The EAST HTTP metadata endpoint is stored in `resources/APIurl`. It is used for
@@ -283,21 +298,23 @@ any platform, but it must allow TCP forwarding and reach the required internal
 services.
 
 Authentication supports a password, a selected identity file, or the default
-OpenSSH configuration and `ssh-agent` when both are left empty. Saved SSH
-settings are stored in the machine-bound encrypted user cache.
+OpenSSH configuration and `ssh-agent` when both are left empty.
 
 SSH access is slower than a direct internal-network connection because of
 unavoidable network, encryption, and compression overhead. Users are responsible
 for using only trusted, authorized SSH hosts and for complying with applicable
 network and security policies.
 
+### Web Bookmarks
+
 The browser button next to SSH lets users save named HTTP or HTTPS addresses,
-edit them, and open them in the system default browser. No target addresses are included by default.
+edit them, and open them in the system default browser. No target addresses
+are included by default.
 When an SSH data tunnel is already connected, saved web addresses use the same
 SSH forwarding path; otherwise they open normally. URLs with explicit ports are
 supported.
 
-### Data Export
+## Data Export
 
 Data export supports text, CSV, TSV, and JSON formats. By default, exported
 files are written under:

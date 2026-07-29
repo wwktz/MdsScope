@@ -71,10 +71,16 @@ include(GNUInstallDirs)
 find_package(Qt6 6.4 REQUIRED COMPONENTS Core Widgets Network Concurrent)
 if(UNIX AND NOT APPLE)
     find_package(Qt6 6.4 REQUIRED COMPONENTS DBus)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(LIBSECRET REQUIRED IMPORTED_TARGET libsecret-1)
 endif()
 
 option(MDS_SCOPE_DEPLOY_RUNTIME "Deploy Qt runtime dependencies during installation" OFF)
 option(MDS_SCOPE_BUILD_TESTS "Build MdsScope internal tests" OFF)
+option(MDS_SCOPE_NATIVE_CREDENTIAL_TESTS
+    "Run isolated native credential-store integration tests"
+    OFF
+)
 option(MDS_SCOPE_STRICT_COMPILE "Treat project compiler warnings as errors" OFF)
 set(MDS_SCOPE_RPM_RELEASE "1" CACHE STRING "RPM release suffix")
 
@@ -113,8 +119,28 @@ add_custom_target(uninstall
 
 set(MDSSCOPE_INCLUDE_DIR "${PROJECT_SOURCE_DIR}/src")
 
+set(MDSSCOPE_CREDENTIAL_STORE_SOURCE
+    src/core/credential_store_unavailable.cpp
+)
+if(WIN32)
+    set(MDSSCOPE_CREDENTIAL_STORE_SOURCE
+        src/core/credential_store_windows.cpp
+    )
+elseif(APPLE)
+    set(MDSSCOPE_CREDENTIAL_STORE_SOURCE
+        src/core/credential_store_macos.cpp
+    )
+elseif(UNIX)
+    set(MDSSCOPE_CREDENTIAL_STORE_SOURCE
+        src/core/credential_store_linux.cpp
+    )
+endif()
+
 add_library(mdsscope_core STATIC
     src/core/api_auth.cpp
+    src/core/internal/auth_payload.cpp
+    src/core/internal/legacy_auth_store.cpp
+    ${MDSSCOPE_CREDENTIAL_STORE_SOURCE}
     src/core/environment_io.cpp
     src/core/mds_helpers.cpp
     src/core/app_paths.cpp
@@ -131,6 +157,23 @@ target_link_libraries(mdsscope_core PUBLIC
     Qt6::Gui
     Qt6::Network
 )
+if(WIN32)
+    target_link_libraries(mdsscope_core PRIVATE Advapi32)
+elseif(APPLE)
+    find_library(MDS_SCOPE_SECURITY_FRAMEWORK Security)
+    if(NOT MDS_SCOPE_SECURITY_FRAMEWORK)
+        message(FATAL_ERROR
+            "The macOS Security framework was not found"
+        )
+    endif()
+    target_link_libraries(mdsscope_core PRIVATE
+        "${MDS_SCOPE_SECURITY_FRAMEWORK}"
+    )
+elseif(UNIX)
+    target_link_libraries(mdsscope_core PRIVATE
+        PkgConfig::LIBSECRET
+    )
+endif()
 
 add_library(mdsscope_mds STATIC
     src/mds/mds_client.cpp
@@ -435,6 +478,50 @@ if(MDS_SCOPE_BUILD_TESTS)
         Qt6::Core
     )
     add_test(NAME shot_workflow COMMAND shot_workflow_test)
+
+    add_executable(auth_payload_test
+        tests/auth_payload_test.cpp
+    )
+    mdsscope_configure_target(auth_payload_test)
+    set_target_properties(auth_payload_test PROPERTIES
+        AUTOMOC OFF
+    )
+    target_include_directories(auth_payload_test PRIVATE src)
+    target_link_libraries(auth_payload_test PRIVATE
+        mdsscope_core
+        Qt6::Core
+    )
+    add_test(NAME auth_payload COMMAND auth_payload_test)
+
+    if(MDS_SCOPE_NATIVE_CREDENTIAL_TESTS)
+        add_executable(credential_store_integration_test
+            tests/credential_store_integration_test.cpp
+        )
+        mdsscope_configure_target(
+            credential_store_integration_test
+        )
+        set_target_properties(
+            credential_store_integration_test
+            PROPERTIES AUTOMOC OFF
+        )
+        target_include_directories(
+            credential_store_integration_test
+            PRIVATE src
+        )
+        target_link_libraries(
+            credential_store_integration_test
+            PRIVATE mdsscope_core Qt6::Core
+        )
+        add_test(
+            NAME credential_store_integration
+            COMMAND credential_store_integration_test
+        )
+        set_tests_properties(
+            credential_store_integration
+            PROPERTIES ENVIRONMENT
+                "MDSSCOPE_CREDENTIAL_PROFILE=mdsscope-test-native-credential-store"
+        )
+    endif()
 endif()
 
 if(UNIX AND NOT APPLE)

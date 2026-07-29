@@ -51,8 +51,11 @@ There are no dependency cycles.
 - Code outside `src/mds` must not include `mds/internal` headers.
 - Headers declare interfaces; substantial implementations stay in `.cpp`
   files. Private widget implementations use owning RAII pointers.
-- Configuration and credential replacement uses `QSaveFile` and commits only
-  after the complete stream/write status has been checked.
+- Configuration replacement and legacy credential migration use `QSaveFile`
+  and commit only after the complete stream/write status has been checked.
+- Credentials are serialized behind the `CachedAuth` boundary and stored in
+  Linux Secret Service, macOS Keychain, or Windows Credential Manager. The
+  legacy local cache is removed only after a successful native-store commit.
 - Theme objects are owned by `QApplication`; font settings are values owned by
   `MainWindow` and passed explicitly to plots and dialogs. Neither uses a
   process-wide mutable pointer or settings singleton.
@@ -77,6 +80,11 @@ ctest --test-dir build-strict --output-on-failure
 
 On a multi-config generator such as Visual Studio, add `--config Release` to
 the build command and `-C Release` to the `ctest` command.
+
+The optional `MDS_SCOPE_NATIVE_CREDENTIAL_TESTS=ON` check performs an isolated
+write/read/replace/remove cycle against the operating system credential store.
+It uses a dedicated `mdsscope-test-*` profile and refuses to run against the
+normal application profile.
 
 `MDS_SCOPE_STRICT_COMPILE` enables the following warning gate for GCC and
 Clang:

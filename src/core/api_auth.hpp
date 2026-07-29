@@ -26,9 +26,10 @@ QString apiUrlPath(const QString& rootPath);
 QString readApiUrl(const QString& rootPath);
 QHash<QString, QString> readApiSettings(const QString& rootPath);
 bool tokenExpiresSoon(const QString& token);
-QString authCachePath();
 bool loadCachedAuth(CachedAuth* auth);
-bool saveCachedAuth(const CachedAuth& auth);
+bool saveCachedAuth(
+    const CachedAuth& auth,
+    QString* error = nullptr);
 bool clearCachedApiAuth();
 ApiLoginResult requestApiToken(const QString& api,
                                const QString& charset,

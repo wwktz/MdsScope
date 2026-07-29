@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "api_auth.hpp"
-#include "app_paths.hpp"
+#include "credential_store.hpp"
+#include "internal/auth_payload.hpp"
+#include "internal/legacy_auth_store.hpp"
 #include "text_utils.hpp"
 
-#include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
 #include <QEventLoop>
@@ -17,14 +18,8 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
-#include <QRandomGenerator>
-#include <QSaveFile>
-#include <QSysInfo>
 #include <QTimer>
 #include <QUrl>
-#include <QtEndian>
-
-#include <algorithm>
 
 QHash<QString, QString> defaultApiProperties()
 {
@@ -96,150 +91,84 @@ bool tokenExpiresSoon(const QString& token)
     return exp <= QDateTime::currentSecsSinceEpoch() + 300;
 }
 
-QString authCachePath()
-{
-    QDir().mkpath(appCacheDir());
-    return QDir(appCacheDir()).filePath("auth.cache");
-}
-
-QByteArray localAuthKey()
-{
-    QByteArray material;
-#ifdef Q_OS_WIN
-    material += qgetenv("COMPUTERNAME");
-    material += '|';
-    material += qgetenv("USERNAME");
-#elif defined(Q_OS_MACOS) || defined(Q_OS_MAC)
-    material += QSysInfo::machineUniqueId();
-    material += '|';
-    material += QSysInfo::machineHostName().toUtf8();
-    material += '|';
-    material += qgetenv("USER");
-#else
-    QFile machineId("/etc/machine-id");
-    if (machineId.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        material += machineId.readAll().trimmed();
-    }
-    material += '|';
-    material += qgetenv("USER");
-#endif
-    material += '|';
-    material += QDir::homePath().toUtf8();
-    material += "|MdsScope EAST auth cache";
-    return QCryptographicHash::hash(material, QCryptographicHash::Sha256);
-}
-
-QByteArray cryptAuthPayload(const QByteArray& data, const QByteArray& salt)
-{
-    const QByteArray key = localAuthKey();
-    QByteArray out;
-    out.resize(data.size());
-    qsizetype offset = 0;
-    quint64 counter = 0;
-    while (offset < data.size()) {
-        QByteArray counterBytes;
-        counterBytes.resize(static_cast<int>(sizeof(counter)));
-        qToLittleEndian(counter, reinterpret_cast<uchar*>(counterBytes.data()));
-        const QByteArray stream = QCryptographicHash::hash(key + salt + counterBytes, QCryptographicHash::Sha256);
-        const qsizetype n = std::min(stream.size(), data.size() - offset);
-        for (qsizetype i = 0; i < n; ++i) {
-            out[offset + i] = data[offset + i] ^ stream[i];
-        }
-        offset += n;
-        ++counter;
-    }
-    return out;
-}
-
 bool loadCachedAuth(CachedAuth* auth)
 {
     if (!auth) {
         return false;
     }
-    QFile file(authCachePath());
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+
+    QByteArray payload;
+    if (readNativeCredential(&payload)
+            == CredentialStoreReadResult::Found
+        && deserializeAuthPayload(payload, auth)) {
+        return true;
+    }
+
+    if (!readLegacyAuthPayload(&payload)
+        || !deserializeAuthPayload(payload, auth)) {
         return false;
     }
-    const QJsonObject wrapper = QJsonDocument::fromJson(file.readAll()).object();
-    if (wrapper.value("version").toInt() != 1) {
-        return false;
+
+    if (writeNativeCredential(
+            serializeAuthPayload(*auth))) {
+        removeLegacyAuthPayload();
     }
-    const QByteArray salt = QByteArray::fromBase64(wrapper.value("salt").toString().toUtf8());
-    const QByteArray encrypted = QByteArray::fromBase64(wrapper.value("payload").toString().toUtf8());
-    if (salt.isEmpty() || encrypted.isEmpty()) {
-        return false;
-    }
-    const QJsonObject obj = QJsonDocument::fromJson(cryptAuthPayload(encrypted, salt)).object();
-    auth->userName = obj.value("userName").toString();
-    auth->password = obj.value("password").toString();
-    auth->token = obj.value("token").toString();
-    const QJsonObject ssh = obj.value("ssh").toObject();
-    auth->ssh.mode = static_cast<SshMode>(std::clamp(ssh.value("mode").toInt(), 0, 2));
-    auth->ssh.host = ssh.value("host").toString();
-    auth->ssh.port = std::clamp(ssh.value("port").toInt(22), 1, 65535);
-    auth->ssh.user = ssh.value("user").toString();
-    auth->ssh.password = ssh.value("password").toString();
-    auth->ssh.identityFile = ssh.value("identityFile").toString();
-    return !auth->token.isEmpty() || !auth->userName.isEmpty() || !auth->password.isEmpty()
-           || !auth->ssh.host.isEmpty();
+    return true;
 }
 
-bool saveCachedAuth(const CachedAuth& auth)
+bool saveCachedAuth(
+    const CachedAuth& auth,
+    QString* error)
 {
-    QJsonObject obj;
-    obj.insert("userName", auth.userName);
-    obj.insert("password", auth.password);
-    obj.insert("token", auth.token);
-    QJsonObject ssh;
-    ssh.insert("mode", static_cast<int>(auth.ssh.mode));
-    ssh.insert("host", auth.ssh.host);
-    ssh.insert("port", auth.ssh.port);
-    ssh.insert("user", auth.ssh.user);
-    ssh.insert("password", auth.ssh.password);
-    ssh.insert("identityFile", auth.ssh.identityFile);
-    obj.insert("ssh", ssh);
-
-    QByteArray salt;
-    salt.resize(16);
-    for (char& ch : salt) {
-        ch = static_cast<char>(QRandomGenerator::global()->generate() & 0xff);
+    const QByteArray payload = serializeAuthPayload(auth);
+    QString nativeError;
+    if (writeNativeCredential(payload, &nativeError)) {
+        removeLegacyAuthPayload();
+        return true;
     }
-    const QByteArray plain = QJsonDocument(obj).toJson(QJsonDocument::Compact);
-    const QByteArray encrypted = cryptAuthPayload(plain, salt);
-
-    QJsonObject wrapper;
-    wrapper.insert("version", 1);
-    wrapper.insert("salt", QString::fromLatin1(salt.toBase64()));
-    wrapper.insert("payload", QString::fromLatin1(encrypted.toBase64()));
-
-    QSaveFile file(authCachePath());
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        return false;
+    if (legacyAuthCacheExists()
+        && writeLegacyAuthPayload(payload)) {
+        return true;
     }
-    const QByteArray contents =
-        QJsonDocument(wrapper).toJson(QJsonDocument::Compact) + '\n';
-    if (file.write(contents) != contents.size()
-        || !file.setPermissions(QFileDevice::ReadOwner
-                                | QFileDevice::WriteOwner)) {
-        file.cancelWriting();
-        return false;
+    if (error) {
+        *error = nativeError.isEmpty()
+                     ? QStringLiteral(
+                           "The system credential store "
+                           "rejected the update")
+                     : nativeError;
     }
-    return file.commit();
+    return false;
 }
 
 bool clearCachedApiAuth()
 {
-    if (!QFileInfo::exists(authCachePath())) {
-        return true;
-    }
-
     CachedAuth auth;
     if (!loadCachedAuth(&auth)) {
-        return false;
+        QByteArray payload;
+        const CredentialStoreReadResult nativeResult =
+            readNativeCredential(&payload);
+        const bool nativeRemoved =
+            nativeResult == CredentialStoreReadResult::NotFound
+            || (nativeResult
+                    == CredentialStoreReadResult::Found
+                && removeNativeCredential());
+        const bool legacyRemoved =
+            removeLegacyAuthPayload();
+        return nativeRemoved && legacyRemoved;
     }
     auth.userName.clear();
     auth.password.clear();
     auth.token.clear();
+    if (auth.ssh.host.isEmpty()
+        && auth.ssh.user.isEmpty()
+        && auth.ssh.password.isEmpty()
+        && auth.ssh.identityFile.isEmpty()) {
+        const bool nativeRemoved =
+            removeNativeCredential();
+        const bool legacyRemoved =
+            removeLegacyAuthPayload();
+        return nativeRemoved && legacyRemoved;
+    }
     return saveCachedAuth(auth);
 }
 

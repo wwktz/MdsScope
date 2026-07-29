@@ -3,6 +3,7 @@
 
 #include "ssh_dialog.hpp"
 #include "core/api_auth.hpp"
+#include "core/credential_store.hpp"
 #include "ssh/ssh_tunnel_manager.hpp"
 
 #include <QComboBox>
@@ -149,8 +150,16 @@ bool SshDialog::saveSettings(const SshSettings& settings)
     CachedAuth auth;
     loadCachedAuth(&auth);
     auth.ssh = settings;
-    if (!saveCachedAuth(auth)) {
-        QMessageBox::warning(this, QStringLiteral("SSH Remote Access"), QStringLiteral("Could not save the encrypted SSH settings."));
+    QString saveError;
+    if (!saveCachedAuth(auth, &saveError)) {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("SSH Remote Access"),
+            QStringLiteral(
+                "Could not save SSH settings to %1: %2")
+                .arg(
+                    credentialStoreName(),
+                    saveError));
         return false;
     }
     manager_->disconnectAll();

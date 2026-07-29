@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "core/api_auth.hpp"
+#include "core/credential_store.hpp"
 #include "login_dialog.hpp"
 
 #include <QtConcurrent>
@@ -231,7 +232,18 @@ void LoginDialog::tryLogin()
             auth.userName = userName;
             auth.password = rememberPassword ? password : QString();
             auth.token = result.token;
-            saveCachedAuth(auth);
+            QString saveError;
+            if (!saveCachedAuth(auth, &saveError)) {
+                statusLabel_->setText(
+                    QStringLiteral(
+                        "Signed in, but credentials could not "
+                        "be saved to %1: %2")
+                        .arg(
+                            credentialStoreName(),
+                            saveError));
+                statusLabel_->show();
+                return;
+            }
             accept();
             return;
         }

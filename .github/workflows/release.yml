@@ -124,7 +124,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y build-essential cmake ninja-build dpkg-dev qt6-base-dev qt6-base-dev-tools
+          sudo apt install -y build-essential cmake ninja-build dpkg-dev qt6-base-dev qt6-base-dev-tools libsecret-1-dev
 
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -169,7 +169,7 @@ jobs:
           dnf config-manager --set-enabled crb
 
       - name: Install dependencies
-        run: dnf install -y git gcc-c++ cmake ninja-build rpm-build qt6-qtbase-devel
+        run: dnf install -y git gcc-c++ cmake ninja-build rpm-build qt6-qtbase-devel libsecret-devel
 
       - name: Checkout
         uses: actions/checkout@v7
@@ -219,7 +219,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y build-essential cmake ninja-build zip
+          sudo apt install -y build-essential cmake ninja-build zip libsecret-1-dev
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4.3.1
@@ -267,9 +267,16 @@ jobs:
           cmake -S . -B build -G Ninja
           -DCMAKE_BUILD_TYPE=Release
           -DMDS_SCOPE_DEPLOY_RUNTIME=ON
+          -DMDS_SCOPE_BUILD_TESTS=ON
+          -DMDS_SCOPE_NATIVE_CREDENTIAL_TESTS=ON
 
       - name: Build
         run: cmake --build build
+
+      - name: Verify credential storage
+        run: >
+          ctest --test-dir build --output-on-failure
+          -R "auth_payload|credential_store_integration"
 
       - name: Install and deploy app
         run: |
@@ -327,10 +334,18 @@ jobs:
           arch: win64_msvc2022_64
 
       - name: Configure
-        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+        run: >
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          -DMDS_SCOPE_BUILD_TESTS=ON
+          -DMDS_SCOPE_NATIVE_CREDENTIAL_TESTS=ON
 
       - name: Build
         run: cmake --build build --config Release
+
+      - name: Verify credential storage
+        run: >
+          ctest --test-dir build -C Release --output-on-failure
+          -R "auth_payload|credential_store_integration"
 
       - name: Verify executable icon
         shell: pwsh
