@@ -746,7 +746,9 @@ private:
             return;
         }
         row->signalCompleter->setCompletionPrefix(needle);
-        row->signalCompleter->complete();
+        if (!row->signalCompleter->popup()->isVisible()) {
+            row->signalCompleter->complete();
+        }
     }
 
     void updateSignalCompleter(Row* row)
