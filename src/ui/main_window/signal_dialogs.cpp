@@ -259,6 +259,7 @@ private:
             });
             return;
         }
+        row->signalCompletionPending = false;
         updateTreeCompleter(row, true);
     }
 
@@ -344,6 +345,18 @@ private:
         connect(row->signal, &QLineEdit::textChanged, this, [this, row] {
             refreshSignalSuggestions(row);
             updateTreeCompleter(row, true);
+        });
+        connect(row->signalCompleter,
+                qOverload<const QString&>(&QCompleter::activated),
+                this,
+                [this, row](const QString&) {
+            row->signalCompletionPending = false;
+            QTimer::singleShot(0, this, [this, row] {
+                showReverseTreePopupAfterMouseRelease(row);
+            });
+        });
+        connect(row->signal, &QLineEdit::editingFinished, this, [row] {
+            row->signalCompletionPending = false;
         });
         connect(row->deleteButton, &QPushButton::clicked, this, [row] {
             row->deleted = true;
@@ -713,15 +726,10 @@ private:
         const bool uniqueExactMatch =
             !exactCandidate.isEmpty()
             && exactCandidate.compare(signalText, Qt::CaseInsensitive) == 0;
-        QString normalizedCandidate = exactCandidate.toLower();
-        if (normalizedCandidate.startsWith('\\')
-            || normalizedCandidate.startsWith('/')) {
-            normalizedCandidate.remove(0, 1);
-        }
         row->signalCompletionPending =
-            !uniqueExactMatch
-            && !normalizedCandidate.isEmpty()
-            && normalizedCandidate == needle;
+            row->signal->hasFocus()
+            && !uniqueExactMatch
+            && !suggestions.isEmpty();
         if (uniqueExactMatch) {
             if (row->signalCompleter && row->signalCompleter->popup()) {
                 row->signalCompleter->popup()->hide();
@@ -738,9 +746,7 @@ private:
             return;
         }
         row->signalCompleter->setCompletionPrefix(needle);
-        if (!row->signalCompleter->popup()->isVisible()) {
-            row->signalCompleter->complete();
-        }
+        row->signalCompleter->complete();
     }
 
     void updateSignalCompleter(Row* row)
