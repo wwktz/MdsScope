@@ -1020,6 +1020,11 @@ void MainWindow::showPanelContextMenu(PlotWidget* plot, int column, int row, con
             "QMenu::item:disabled {"
             "  color: %6;"
             "}"
+            "QMenu::separator {"
+            "  height: 1px;"
+            "  background: %3;"
+            "  margin: 4px 8px;"
+            "}"
             "QMenu::right-arrow {"
             "  margin-right: 7px;"
             "}")
