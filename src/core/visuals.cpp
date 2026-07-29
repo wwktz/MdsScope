@@ -333,6 +333,46 @@ QIcon exportDataIcon()
     return QIcon(pixmap);
 }
 
+static QPixmap refreshIconPixmap(const QColor& color)
+{
+    QPixmap pixmap(32, 32);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.scale(32.0 / 24.0, 32.0 / 24.0);
+
+    painter.setPen(
+        QPen(color, 2.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    painter.setBrush(Qt::NoBrush);
+    painter.drawArc(QRectF(3.5, 3.5, 17.0, 17.0),
+                    28 * 16,
+                    304 * 16);
+
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(color);
+    QPainterPath arrow;
+    arrow.moveTo(23.0, 10.5);
+    arrow.lineTo(18.4, 1.8);
+    arrow.lineTo(13.8, 7.6);
+    arrow.closeSubpath();
+    painter.drawPath(arrow);
+    return pixmap;
+}
+
+QIcon refreshIcon()
+{
+    const QPalette palette = QApplication::palette();
+    QIcon icon;
+    icon.addPixmap(
+        refreshIconPixmap(palette.color(QPalette::Highlight)),
+        QIcon::Normal);
+    icon.addPixmap(
+        refreshIconPixmap(
+            palette.color(QPalette::Disabled, QPalette::ButtonText)),
+        QIcon::Disabled);
+    return icon;
+}
+
 QIcon loginIcon(bool loggedIn)
 {
     QPixmap pixmap(32, 32);

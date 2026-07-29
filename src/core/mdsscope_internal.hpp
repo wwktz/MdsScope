@@ -181,6 +181,7 @@ QIcon appearanceIcon();
 QIcon openFileIcon();
 QIcon saveIcon();
 QIcon exportDataIcon();
+QIcon refreshIcon();
 QIcon loginIcon(bool loggedIn);
 QIcon sshIcon(int state);
 QIcon browserIcon();

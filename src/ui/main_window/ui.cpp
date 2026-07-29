@@ -192,6 +192,21 @@ QPixmap panelMenuPixmap(PanelMenuGlyph glyph, const QColor& color)
             painter.drawLine(end, end + QPointF(2.2, -2.6));
         }
     };
+    auto drawResetArrow = [&painter, &color] {
+        painter.setPen(
+            QPen(color, 2.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawArc(QRectF(3.5, 3.5, 17.0, 17.0),
+                        28 * 16,
+                        304 * 16);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(color);
+        painter.drawPolygon(QPolygonF{
+            QPointF(23.0, 10.5),
+            QPointF(18.4, 1.8),
+            QPointF(13.8, 7.6),
+        });
+    };
 
     switch (glyph) {
     case PanelMenuGlyph::Maximize:
@@ -213,28 +228,11 @@ QPixmap panelMenuPixmap(PanelMenuGlyph glyph, const QColor& color)
         }
         break;
     case PanelMenuGlyph::ResetCurrent: {
-        painter.setPen(
-            QPen(color, 2.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-        painter.drawArc(QRectF(3.5, 3.5, 17.0, 17.0),
-                        35 * 16,
-                        285 * 16);
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(color);
-        painter.drawPolygon(QPolygonF{
-            QPointF(17.7, 3.0),
-            QPointF(21.5, 5.3),
-            QPointF(18.0, 7.7),
-        });
+        drawResetArrow();
         break;
     }
     case PanelMenuGlyph::ResetAll: {
-        painter.setPen(
-            QPen(color, 2.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-        painter.drawArc(QRectF(3.5, 3.5, 17.0, 17.0),
-                        35 * 16,
-                        285 * 16);
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(color);
+        drawResetArrow();
         for (const QPointF& center :
              {QPointF(10.0, 10.0),
               QPointF(14.0, 10.0),
@@ -242,11 +240,6 @@ QPixmap panelMenuPixmap(PanelMenuGlyph glyph, const QColor& color)
               QPointF(14.0, 14.0)}) {
             painter.drawEllipse(center, 1.1, 1.1);
         }
-        painter.drawPolygon(QPolygonF{
-            QPointF(17.7, 3.0),
-            QPointF(21.5, 5.3),
-            QPointF(18.0, 7.7),
-        });
         break;
     }
     case PanelMenuGlyph::SameX:
@@ -365,6 +358,9 @@ void MainWindow::changeEvent(QEvent* event)
         }
         if (recentEnvironmentButton_) {
             recentEnvironmentButton_->setIcon(recentArrowIcon());
+        }
+        if (refreshAction_) {
+            refreshAction_->setIcon(refreshIcon());
         }
         if (layoutAction_) {
             layoutAction_->setIcon(layoutIcon());
@@ -548,6 +544,11 @@ void MainWindow::buildUi()
         "Export data",
         this,
         &MainWindow::openExportDataDialog);
+    refreshAction_ = toolbar->addAction(
+        refreshIcon(),
+        "Refresh data",
+        this,
+        &MainWindow::refreshData);
     loginAction_ = toolbar->addAction(loginIcon(false), "Login", this, &MainWindow::openLoginDialog);
     updateLoginActionIcon();
     sshAction_ = toolbar->addAction(sshIcon(0), "SSH remote access", this, &MainWindow::openSshDialog);

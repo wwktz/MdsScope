@@ -216,6 +216,7 @@ private:
     QAction* loginAction_ = nullptr;
     QAction* sshAction_ = nullptr;
     QAction* saveAction_ = nullptr;
+    QAction* refreshAction_ = nullptr;
     QAction* layoutAction_ = nullptr;
     QAction* appearanceAction_ = nullptr;
     QAction* keyboardShortcutsAction_ = nullptr;
