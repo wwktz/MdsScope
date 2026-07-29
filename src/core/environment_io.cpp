@@ -206,6 +206,7 @@ LayoutConfig parseTomlEnvironment(const QString& path, QString* error)
     SignalSpec* currentSignal = nullptr;
     QString section;
     qsizetype lineNumber = 0;
+    bool sawSupportedVersion = false;
 
     while (!file.atEnd()) {
         ++lineNumber;
@@ -275,6 +276,7 @@ LayoutConfig parseTomlEnvironment(const QString& path, QString* error)
                                         QStringLiteral("unsupported configuration version %1").arg(version),
                                         error);
                 }
+                sawSupportedVersion = true;
             }
             continue;
         }
@@ -384,10 +386,10 @@ LayoutConfig parseTomlEnvironment(const QString& path, QString* error)
         }
     }
 
-    if (panels.isEmpty()) {
+    if (panels.isEmpty() && !sawSupportedVersion) {
         return parseFailure(path,
                             0,
-                            QStringLiteral("configuration contains no [[panels]] entries"),
+                            QStringLiteral("configuration contains neither a version nor any [[panels]] entries"),
                             error);
     }
 
@@ -515,7 +517,6 @@ LayoutConfig parseWebscpEnvironment(const QString& path, QString* error)
         return invalidConfig();
     }
     config.columns.resize(cols);
-    int panelCount = 0;
 
     for (int c = 1; c <= cols; ++c) {
         const QString rowsKey = QString::number(c) + ".rows";
@@ -529,7 +530,6 @@ LayoutConfig parseWebscpEnvironment(const QString& path, QString* error)
         if (!readInteger(rowsKey, 0, 0, &rows)) {
             return invalidConfig();
         }
-        panelCount += rows;
         config.columns[c - 1].reserve(rows);
         for (int r = 1; r <= rows; ++r) {
             const QString prefix = QString("%1_%2.").arg(c).arg(r);
@@ -604,9 +604,6 @@ LayoutConfig parseWebscpEnvironment(const QString& path, QString* error)
             normalizePresetColors(plot.signalSpecs);
             config.columns[c - 1].push_back(plot);
         }
-    }
-    if (panelCount == 0) {
-        return parseFailure(path, 0, QStringLiteral("configuration contains no panels"), error);
     }
     return config;
 }
