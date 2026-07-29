@@ -126,6 +126,7 @@ add_executable(MdsScope
     src/ui/main_window/scale.cpp
     src/ui/main_window/shortcut_dialog.cpp
     src/ui/main_window/shortcut_settings.cpp
+    src/ui/main_window/signal_dialogs.cpp
     src/ui/main_window/user_preferences.cpp
     src/ui/main_window/shortcuts.cpp
     src/ui/main_window/shared.cpp
