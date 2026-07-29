@@ -285,15 +285,15 @@ LayoutConfig parseTomlEnvironment(const QString& path, QString* error)
             PlotSpec& plot = currentPanel->plot;
             if (key == "column" || key == "row" || key == "extraction_points") {
                 int parsed = 0;
-                if (!parseTomlInt(value, &parsed) || parsed <= 0) {
+                if (!parseTomlInt(value, &parsed)) {
                     return parseFailure(
                         path,
                         lineNumber,
-                        QStringLiteral("'%1' must be a positive integer, got %2").arg(key, value),
+                        QStringLiteral("'%1' must be an integer, got %2").arg(key, value),
                         error);
                 }
-                if (key == "column") currentPanel->column = parsed;
-                else if (key == "row") currentPanel->row = parsed;
+                if (key == "column") currentPanel->column = std::max(1, parsed);
+                else if (key == "row") currentPanel->row = std::max(1, parsed);
                 else plot.extractionPoints = parsed;
             } else if (key == "shot" || key == "title" || key == "x_label" || key == "y_label") {
                 QString parsed;
@@ -486,6 +486,24 @@ LayoutConfig parseWebscpEnvironment(const QString& path, QString* error)
         *parsed = value;
         return true;
     };
+    auto readAnyInteger = [&](const QString& key, int fallback, int* parsed) {
+        if (!map.contains(key)) {
+            *parsed = fallback;
+            return true;
+        }
+        bool ok = false;
+        const int value = map.value(key).trimmed().toInt(&ok);
+        if (!ok) {
+            parseFailure(path,
+                         keyLines.value(key),
+                         QStringLiteral("'%1' must be an integer, got '%2'")
+                             .arg(key, map.value(key)),
+                         error);
+            return false;
+        }
+        *parsed = value;
+        return true;
+    };
     auto readRangeValue = [&](const QString& key,
                               const QString& fallbackKey,
                               double* parsed) {
@@ -539,11 +557,10 @@ LayoutConfig parseWebscpEnvironment(const QString& path, QString* error)
             plot.xLabel = trimQuotes(map.value(prefix + "xlabel"));
             plot.yLabel = trimQuotes(map.value(prefix + "ylabel"));
             int defaultExtractionPoints = 2000;
-            if (!readInteger("Extraction_points", 2000, 1, &defaultExtractionPoints)
-                || !readInteger(prefix + "extraction_points",
-                                defaultExtractionPoints,
-                                1,
-                                &plot.extractionPoints)) {
+            if (!readAnyInteger("Extraction_points", 2000, &defaultExtractionPoints)
+                || !readAnyInteger(prefix + "extraction_points",
+                                   defaultExtractionPoints,
+                                   &plot.extractionPoints)) {
                 return invalidConfig();
             }
             int gridMode = 1;
