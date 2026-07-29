@@ -16,7 +16,6 @@
 #include <QDir>
 #include <QFile>
 #include <QGridLayout>
-#include <QKeyEvent>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QRegularExpression>
@@ -166,34 +165,12 @@ private:
         bool reverseTreeCompletionActive = false;
         bool deferReverseTreeCompletion = false;
         bool signalCompletionPending = false;
-        bool suppressSignalPopupUntilKeyRelease = false;
         DataReadMode originalReadMode = DataReadMode::Thin;
         bool readModeTouched = false;
     };
 
     bool eventFilter(QObject* watched, QEvent* event) override
     {
-        if (event && (event->type() == QEvent::KeyPress
-                      || event->type() == QEvent::KeyRelease)) {
-            auto* keyEvent = static_cast<QKeyEvent*>(event);
-            if (keyEvent->key() == Qt::Key_Backspace
-                || keyEvent->key() == Qt::Key_Delete) {
-                for (Row* row : std::as_const(rows_)) {
-                    if (!row || watched != row->signal) {
-                        continue;
-                    }
-                    if (event->type() == QEvent::KeyPress) {
-                        row->suppressSignalPopupUntilKeyRelease = true;
-                    } else if (!keyEvent->isAutoRepeat()) {
-                        row->suppressSignalPopupUntilKeyRelease = false;
-                        QTimer::singleShot(0, this, [this, row] {
-                            refreshSignalSuggestions(row);
-                        });
-                    }
-                    break;
-                }
-            }
-        }
         if (event && event->type() == QEvent::MouseButtonPress) {
             auto* mouseEvent = static_cast<QMouseEvent*>(event);
             if (mouseEvent->button() == Qt::LeftButton) {
@@ -321,7 +298,6 @@ private:
         row->tree->setCompleter(row->treeCompleter);
         row->signal->setCompleter(row->signalCompleter);
         row->tree->installEventFilter(this);
-        row->signal->installEventFilter(this);
         row->treeCompleter->popup()->viewport()->installEventFilter(this);
         row->signalCompleter->popup()->viewport()->installEventFilter(this);
         updateTreeCompleter(row, false);
@@ -381,7 +357,6 @@ private:
         });
         connect(row->signal, &QLineEdit::editingFinished, this, [row] {
             row->signalCompletionPending = false;
-            row->suppressSignalPopupUntilKeyRelease = false;
         });
         connect(row->deleteButton, &QPushButton::clicked, this, [row] {
             row->deleted = true;
@@ -768,9 +743,6 @@ private:
             if (row->signalCompleter->popup()) {
                 row->signalCompleter->popup()->hide();
             }
-            return;
-        }
-        if (row->suppressSignalPopupUntilKeyRelease) {
             return;
         }
         row->signalCompleter->setCompletionPrefix(needle);
