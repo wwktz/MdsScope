@@ -429,17 +429,16 @@ void MainWindow::dataSourceSetupForCurrentPanel()
 
     PlotSpec& plot = config_.columns[selectedColumn_][selectedRow_];
     const QString currentShot = shotEdit_ ? shotEdit_->text().trimmed() : plot.shot;
-    const std::optional<QVector<SignalSpec>> edited =
-        editDataSources(plot,
-                        currentShot,
-                        appSourceIndexDir(rootPath_),
-                        globalRateMode_,
-                        this);
-    if (!edited) {
+    DataSourceDialog dialog(plot,
+                            currentShot,
+                            appSourceIndexDir(rootPath_),
+                            globalRateMode_,
+                            this);
+    if (dialog.exec() != QDialog::Accepted) {
         return;
     }
 
-    QVector<SignalSpec> specs = *edited;
+    QVector<SignalSpec> specs = dialog.signalSpecs();
     if (specs.isEmpty()) {
         QMessageBox::warning(this, "Data Source Setup", "At least one signal is required.");
         return;
