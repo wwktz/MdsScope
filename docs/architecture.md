@@ -63,8 +63,23 @@ boundaries.
 
 ## Build profiles
 
-The normal build keeps the compiler's default warning policy. Configure with
-`-DMDS_SCOPE_STRICT_COMPILE=ON` to enable the project warning gate:
+The normal build keeps the compiler's default warning policy. The complete
+strict configure, build, and check sequence is:
+
+```bash
+cmake -S . -B build-strict \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DMDS_SCOPE_STRICT_COMPILE=ON \
+  -DMDS_SCOPE_BUILD_TESTS=ON
+cmake --build build-strict --parallel
+ctest --test-dir build-strict --output-on-failure
+```
+
+On a multi-config generator such as Visual Studio, add `--config Release` to
+the build command and `-C Release` to the `ctest` command.
+
+`MDS_SCOPE_STRICT_COMPILE` enables the following warning gate for GCC and
+Clang:
 
 ```text
 -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Werror

@@ -321,6 +321,17 @@ MdsScope includes a simple benchmark mode for MDS data loading:
 The module dependency graph, responsibility boundaries, and strict build
 profile are documented in [docs/architecture.md](docs/architecture.md).
 
+Run the strict build and its checks with:
+
+```bash
+cmake -S . -B build-strict \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DMDS_SCOPE_STRICT_COMPILE=ON \
+  -DMDS_SCOPE_BUILD_TESTS=ON
+cmake --build build-strict --parallel
+ctest --test-dir build-strict --output-on-failure
+```
+
 ## Repository Hygiene
 
 Do not commit:
