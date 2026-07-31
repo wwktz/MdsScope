@@ -17,6 +17,8 @@
 #include <QTextEdit>
 #include <QToolButton>
 
+#include <utility>
+
 namespace {
 bool isModifierKey(int key)
 {
@@ -69,7 +71,8 @@ bool isGlobalShortcutAllowedWhileEditing(ShortcutCommand command)
            || command == ShortcutCommand::Save
            || command == ShortcutCommand::GlobalRate
            || command == ShortcutCommand::GlobalLayout
-           || command == ShortcutCommand::GlobalExport;
+           || command == ShortcutCommand::GlobalExport
+           || command == ShortcutCommand::RefreshData;
 }
 
 QKeySequence keySequenceFrom(
@@ -209,6 +212,7 @@ bool MainWindow::handleShortcutKey(QKeyEvent* event,
                          ShortcutCommand* exactCommand,
                          bool* partialMatch) {
         *partialMatch = false;
+        bool exactMatch = false;
         for (const ShortcutBinding& binding :
              std::as_const(shortcutBindings_)) {
             if (!shortcutCommandEnabled(binding.command)) {
@@ -233,8 +237,11 @@ bool MainWindow::handleShortcutKey(QKeyEvent* event,
             for (const QKeySequence& sequence :
                  assignedSequences(binding)) {
                 if (candidate == sequence) {
-                    *exactCommand = binding.command;
-                    return true;
+                    if (!exactMatch) {
+                        *exactCommand = binding.command;
+                        exactMatch = true;
+                    }
+                    continue;
                 }
                 if (candidate.count() < sequence.count()
                     && sequenceStartsWith(sequence, candidate)) {
@@ -242,7 +249,7 @@ bool MainWindow::handleShortcutKey(QKeyEvent* event,
                 }
             }
         }
-        return false;
+        return exactMatch;
     };
 
     auto tryKeys = [&](QList<QKeyCombination> keys) {
@@ -250,8 +257,17 @@ bool MainWindow::handleShortcutKey(QKeyEvent* event,
             keySequenceFrom(keys);
         ShortcutCommand command = ShortcutCommand::Save;
         bool partial = false;
-        if (findMatch(candidate, &command, &partial)) {
+        const bool exact =
+            findMatch(candidate, &command, &partial);
+        if (exact && partial) {
+            pendingShortcutKeys_ = std::move(keys);
+            pendingExactShortcut_ = command;
+            shortcutSequenceTimer_.start();
+            return 1;
+        }
+        if (exact) {
             pendingShortcutKeys_.clear();
+            pendingExactShortcut_.reset();
             shortcutSequenceTimer_.stop();
             const bool repeatable =
                 command == ShortcutCommand::PanelLeft
@@ -269,6 +285,7 @@ bool MainWindow::handleShortcutKey(QKeyEvent* event,
         }
         if (partial) {
             pendingShortcutKeys_ = std::move(keys);
+            pendingExactShortcut_.reset();
             shortcutSequenceTimer_.start();
             return 1;
         }
@@ -279,12 +296,18 @@ bool MainWindow::handleShortcutKey(QKeyEvent* event,
     keys.push_back(key);
     int result = tryKeys(keys);
     if (result == 0 && !pendingShortcutKeys_.isEmpty()) {
+        const std::optional<ShortcutCommand> delayed =
+            std::exchange(pendingExactShortcut_, std::nullopt);
         pendingShortcutKeys_.clear();
         shortcutSequenceTimer_.stop();
+        if (delayed && shortcutCommandEnabled(*delayed)) {
+            triggerShortcutCommand(*delayed);
+        }
         result = tryKeys({key});
     }
     if (result == 0) {
         pendingShortcutKeys_.clear();
+        pendingExactShortcut_.reset();
         shortcutSequenceTimer_.stop();
     }
     return result != 0;
@@ -360,6 +383,9 @@ bool MainWindow::triggerShortcutCommand(
             shotEdit_->setFocus(Qt::ShortcutFocusReason);
             shotEdit_->selectAll();
         }
+        break;
+    case ShortcutCommand::RefreshData:
+        refreshData();
         break;
     case ShortcutCommand::ToggleRefresh:
         onStopOrContinue();
@@ -580,6 +606,7 @@ void MainWindow::cancelShotEditSession()
     pendingShotEditExitKeys_.clear();
     shotEditExitTimer_.stop();
     pendingShortcutKeys_.clear();
+    pendingExactShortcut_.reset();
     shortcutSequenceTimer_.stop();
     focusSelectedPlot();
 }
@@ -700,6 +727,7 @@ void MainWindow::rebuildShotInputShortcuts()
 void MainWindow::openShortcutDialog()
 {
     pendingShortcutKeys_.clear();
+    pendingExactShortcut_.reset();
     shortcutSequenceTimer_.stop();
     ShortcutDialog dialog(shortcutBindings_, this);
     if (dialog.exec() != QDialog::Accepted) {
@@ -754,6 +782,11 @@ void MainWindow::updateShortcutToolTips()
         saveAction_->setToolTip(
             withShortcut(QStringLiteral("Save"),
                          ShortcutCommand::Save));
+    }
+    if (refreshAction_) {
+        refreshAction_->setToolTip(
+            withShortcut(QStringLiteral("Refresh data"),
+                         ShortcutCommand::RefreshData));
     }
     if (exportAction_) {
         exportAction_->setToolTip(

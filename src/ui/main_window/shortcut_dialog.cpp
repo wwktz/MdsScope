@@ -50,20 +50,6 @@ bool contextsAreExclusive(ShortcutCommand first, ShortcutCommand second)
                && isPanelNavigation(first));
 }
 
-bool isStrictPrefix(const QKeySequence& prefix,
-                    const QKeySequence& sequence)
-{
-    if (prefix.isEmpty()
-        || prefix.count() >= sequence.count()) {
-        return false;
-    }
-    for (uint i = 0; i < static_cast<uint>(prefix.count()); ++i) {
-        if (prefix[i] != sequence[i]) {
-            return false;
-        }
-    }
-    return true;
-}
 }
 
 ShortcutDialog::ShortcutDialog(QVector<ShortcutBinding> bindings,
@@ -227,10 +213,7 @@ bool ShortcutDialog::validateShortcuts() const
                 continue;
             }
             const bool same = first.sequence == second.sequence;
-            const bool prefix =
-                isStrictPrefix(first.sequence, second.sequence)
-                || isStrictPrefix(second.sequence, first.sequence);
-            if (!same && !prefix) {
+            if (!same) {
                 continue;
             }
             QMessageBox::warning(
@@ -239,12 +222,7 @@ bool ShortcutDialog::validateShortcuts() const
                 QStringLiteral("%1 and %2 conflict on %3.")
                     .arg(first.label,
                          second.label,
-                         nativeShortcutText(
-                             same ? first.sequence
-                                  : (first.sequence.count()
-                                             < second.sequence.count()
-                                         ? first.sequence
-                                         : second.sequence))));
+                         nativeShortcutText(first.sequence)));
             return false;
         }
     }

@@ -13,6 +13,7 @@
 #include <QTimer>
 
 #include <memory>
+#include <optional>
 
 class QAction;
 class QComboBox;
@@ -238,6 +239,7 @@ private:
     QVector<QVector<PlotWidget*>> plotWidgets_;
     QVector<ShortcutBinding> shortcutBindings_;
     QList<QKeyCombination> pendingShortcutKeys_;
+    std::optional<ShortcutCommand> pendingExactShortcut_;
     QTimer shortcutSequenceTimer_;
     QTimer shotEditExitTimer_;
     QList<QKeyCombination> pendingShotEditExitKeys_;

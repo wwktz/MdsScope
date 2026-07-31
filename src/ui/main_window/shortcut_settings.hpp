@@ -18,6 +18,7 @@ enum class ShortcutCommand {
     PointMode,
     ZoomMode,
     FocusShot,
+    RefreshData,
     ToggleRefresh,
     MaximizePanel,
     ResetCurrentScale,

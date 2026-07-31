@@ -74,11 +74,12 @@ QVector<ShortcutBinding> defaultShortcutBindings()
         {ShortcutCommand::PointMode, "point_mode", "General", "Point mode", shortcut("Ctrl+P"), {}},
         {ShortcutCommand::ZoomMode, "zoom_mode", "General", "Zoom / Move mode", shortcut("Ctrl+Z"), {}},
         {ShortcutCommand::FocusShot, "focus_shot", "General", "Focus shot input", shortcut("I"), {}},
+        {ShortcutCommand::RefreshData, "refresh_data", "General", "Refresh data", shortcut("Ctrl+Shift+R"), {}},
         {ShortcutCommand::ToggleRefresh, "toggle_refresh", "General", "Stop / Continue", shortcut("Space"), {}},
 
         {ShortcutCommand::MaximizePanel, "maximize_panel", "Panel", "Maximize panel", maximizePanel, {}},
         {ShortcutCommand::ResetCurrentScale, "reset_current_scale", "Panel", "Reset current scale", shortcut("Ctrl+R"), {}},
-        {ShortcutCommand::ResetAllScales, "reset_all_scales", "Panel", "Reset all scales", shortcut("Ctrl+Shift+R"), {}},
+        {ShortcutCommand::ResetAllScales, "reset_all_scales", "Panel", "Reset all scales", shortcut("Ctrl+A, R"), {}},
         {ShortcutCommand::ShowAllPanels, "show_all_panels", "Panel", "Show all panels", shortcut("Ctrl+A"), {}},
         {ShortcutCommand::SameXScale, "same_x_scale", "Panel", "All same X scale", shortcut("Ctrl+X"), {}},
         {ShortcutCommand::SameYScale, "same_y_scale", "Panel", "All same Y scale", shortcut("Ctrl+Y"), {}},
@@ -114,13 +115,25 @@ QVector<ShortcutBinding> loadShortcutBindings(const QString& rootPath)
     QVector<ShortcutBinding> bindings = defaultShortcutBindings();
     QSettings settings(uiSettingsPath(rootPath), QSettings::IniFormat);
     settings.beginGroup(shortcutSettingsGroup());
+    const bool hasRefreshBinding =
+        settings.contains(QStringLiteral("refresh_data"));
     for (ShortcutBinding& binding : bindings) {
         if (!settings.contains(binding.id)) {
             continue;
         }
-        binding.sequence = QKeySequence::fromString(
+        const QKeySequence storedSequence = QKeySequence::fromString(
             settings.value(binding.id).toString(),
             QKeySequence::PortableText);
+        // Before Refresh had its own command, Ctrl+Shift+R was the default
+        // Reset All binding. Move that legacy default to the new layout while
+        // preserving every other customized binding.
+        const bool legacyResetDefault =
+            binding.command == ShortcutCommand::ResetAllScales
+            && !hasRefreshBinding
+            && storedSequence == shortcut("Ctrl+Shift+R");
+        if (!legacyResetDefault) {
+            binding.sequence = storedSequence;
+        }
         binding.alternative = QKeySequence::fromString(
             settings.value(binding.id + QStringLiteral("_alternative"))
                 .toString(),

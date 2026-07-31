@@ -12,6 +12,8 @@
 
 #include <QApplication>
 
+#include <utility>
+
 MainWindow::MainWindow(QString rootPath, QWidget* parent)
     : QMainWindow(parent)
     , rootPath_(std::move(rootPath))
@@ -40,7 +42,14 @@ MainWindow::MainWindow(QString rootPath, QWidget* parent)
     connect(&shortcutSequenceTimer_,
             &QTimer::timeout,
             this,
-            [this] { pendingShortcutKeys_.clear(); });
+            [this] {
+        pendingShortcutKeys_.clear();
+        const std::optional<ShortcutCommand> command =
+            std::exchange(pendingExactShortcut_, std::nullopt);
+        if (command && shortcutCommandEnabled(*command)) {
+            triggerShortcutCommand(*command);
+        }
+    });
     shotEditExitTimer_.setSingleShot(true);
     shotEditExitTimer_.setInterval(1000);
     connect(&shotEditExitTimer_,
