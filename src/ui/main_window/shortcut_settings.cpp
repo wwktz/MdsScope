@@ -34,6 +34,10 @@ QVector<ShortcutBinding> defaultShortcutBindings()
     const QKeySequence panelUp = shortcut("K");
     const QKeySequence panelRight = shortcut("L");
     const QKeySequence exitPoint = shortcut("J, K");
+    const QKeySequence menuLeft = shortcut("H");
+    const QKeySequence menuDown = shortcut("J");
+    const QKeySequence menuUp = shortcut("K");
+    const QKeySequence menuRight = shortcut("L");
 #else
     const QKeySequence previousShot = shortcut("Ctrl+Left");
     const QKeySequence nextShot = shortcut("Ctrl+Right");
@@ -45,6 +49,10 @@ QVector<ShortcutBinding> defaultShortcutBindings()
     const QKeySequence panelUp = shortcut("Up");
     const QKeySequence panelRight = shortcut("Right");
     const QKeySequence exitPoint = shortcut("Esc");
+    const QKeySequence menuLeft = shortcut("Left");
+    const QKeySequence menuDown = shortcut("Down");
+    const QKeySequence menuUp = shortcut("Up");
+    const QKeySequence menuRight = shortcut("Right");
 #endif
 
 #if defined(Q_OS_MACOS) || defined(Q_OS_MAC)
@@ -56,7 +64,13 @@ QVector<ShortcutBinding> defaultShortcutBindings()
 #endif
 
     return {
+        {ShortcutCommand::OpenFile, "open_file", "General", "Open file", shortcut("Ctrl+O"), {}},
+        {ShortcutCommand::OpenRecentFiles, "open_recent_files", "General", "Open recent files", shortcut("Ctrl+Shift+O"), {}},
+        {ShortcutCommand::OpenWebMenu, "open_web_menu", "General", "Open web menu", shortcut("Ctrl+W"), {}},
         {ShortcutCommand::Save, "save", "General", "Save", shortcut("Ctrl+S"), {}},
+        {ShortcutCommand::GlobalRate, "global_rate", "Global", "Global Rate", shortcut("Ctrl+G, R"), {}},
+        {ShortcutCommand::GlobalLayout, "global_layout", "Global", "Layout setup", shortcut("Ctrl+G, L"), {}},
+        {ShortcutCommand::GlobalExport, "global_export", "Global", "Export data", shortcut("Ctrl+E"), {}},
         {ShortcutCommand::PointMode, "point_mode", "General", "Point mode", shortcut("Ctrl+P"), {}},
         {ShortcutCommand::ZoomMode, "zoom_mode", "General", "Zoom / Move mode", shortcut("Ctrl+Z"), {}},
         {ShortcutCommand::FocusShot, "focus_shot", "General", "Focus shot input", shortcut("I"), {}},
@@ -81,6 +95,17 @@ QVector<ShortcutBinding> defaultShortcutBindings()
         {ShortcutCommand::PanelDown, "panel_down", "Panel navigation", "Select panel down", panelDown, {}},
         {ShortcutCommand::PanelUp, "panel_up", "Panel navigation", "Select panel up", panelUp, {}},
         {ShortcutCommand::PanelRight, "panel_right", "Panel navigation", "Select panel right", panelRight, {}},
+
+        {ShortcutCommand::PanelRate, "panel_rate", "Current panel", "Rate", shortcut("Ctrl+T, R"), {}},
+        {ShortcutCommand::PanelSourceSetup, "panel_source_setup", "Current panel", "Source setup", shortcut("Ctrl+T, S"), {}},
+        {ShortcutCommand::PanelExport, "panel_export", "Current panel", "Export", shortcut("Ctrl+T, E"), {}},
+        {ShortcutCommand::PanelSetup, "panel_setup", "Current panel", "Panel setup", shortcut("Ctrl+T, P"), {}},
+
+        {ShortcutCommand::MenuLeft, "menu_left", "Popup menu navigation", "Move left / close submenu", menuLeft, {}},
+        {ShortcutCommand::MenuDown, "menu_down", "Popup menu navigation", "Move down", menuDown, {}},
+        {ShortcutCommand::MenuUp, "menu_up", "Popup menu navigation", "Move up", menuUp, {}},
+        {ShortcutCommand::MenuRight, "menu_right", "Popup menu navigation", "Move right / open submenu", menuRight, {}},
+        {ShortcutCommand::MenuActivate, "menu_activate", "Popup menu navigation", "Activate selected item", shortcut("Enter"), {}},
     };
 }
 
@@ -142,7 +167,7 @@ QString shortcutPlatformDescription()
         "macOS defaults use native Command shortcuts, arrow keys, and Esc. You can optionally add one alternative shortcut per action.");
 #else
     return QStringLiteral(
-        "Linux defaults use Vim-style H/J/K/L navigation and J, K to exit Point tracking. You can optionally add one alternative shortcut per action.");
+        "Linux defaults use Vim-style H/J/K/L navigation, including in popup menus, and J, K to exit Point tracking. You can optionally add one alternative shortcut per action.");
 #endif
 }
 

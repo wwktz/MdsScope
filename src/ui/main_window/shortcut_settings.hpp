@@ -8,7 +8,13 @@
 #include <QVector>
 
 enum class ShortcutCommand {
+    OpenFile,
+    OpenRecentFiles,
+    OpenWebMenu,
     Save,
+    GlobalRate,
+    GlobalLayout,
+    GlobalExport,
     PointMode,
     ZoomMode,
     FocusShot,
@@ -28,7 +34,16 @@ enum class ShortcutCommand {
     PanelDown,
     PanelUp,
     PanelRight,
+    PanelRate,
+    PanelSourceSetup,
+    PanelExport,
+    PanelSetup,
     ExitPoint,
+    MenuLeft,
+    MenuDown,
+    MenuUp,
+    MenuRight,
+    MenuActivate,
 };
 
 struct ShortcutBinding {

@@ -571,7 +571,7 @@ void MainWindow::buildUi()
         "Save",
         this,
         &MainWindow::saveCurrentEnvironment);
-    toolbar->addAction(
+    exportAction_ = toolbar->addAction(
         exportDataIcon(),
         "Export data",
         this,
@@ -591,14 +591,14 @@ void MainWindow::buildUi()
     });
     updateSshActionIcon();
     QAction* internalWebAction = toolbar->addAction(browserIcon(), "Internal web pages");
-    if (auto* internalWebButton = qobject_cast<QToolButton*>(toolbar->widgetForAction(internalWebAction))) {
-        internalWebButton->setObjectName(QStringLiteral("internalWebButton"));
-        internalWebButton->setStyleSheet(
+    if ((internalWebButton_ = qobject_cast<QToolButton*>(toolbar->widgetForAction(internalWebAction)))) {
+        internalWebButton_->setObjectName(QStringLiteral("internalWebButton"));
+        internalWebButton_->setStyleSheet(
             QStringLiteral("QToolButton#internalWebButton::menu-indicator { image: none; width: 0px; }"));
-        internalWebMenu_ = new QMenu(internalWebButton);
+        internalWebMenu_ = new QMenu(internalWebButton_);
         connect(internalWebMenu_, &QMenu::aboutToShow, this, &MainWindow::refreshInternalWebMenu);
-        internalWebButton->setMenu(internalWebMenu_);
-        internalWebButton->setPopupMode(QToolButton::InstantPopup);
+        internalWebButton_->setMenu(internalWebMenu_);
+        internalWebButton_->setPopupMode(QToolButton::InstantPopup);
         refreshInternalWebMenu();
     }
     layoutAction_ = toolbar->addAction(
@@ -665,11 +665,16 @@ void MainWindow::buildUi()
     auto updateRateToolTip = [this] {
         const int defaultIndex =
             dataModeCombo_->findData(static_cast<int>(defaultRateMode_));
-        dataModeCombo_->setToolTip(
+        QString toolTip =
             QString("Startup default: %1\nRight-click to set the current Rate as default")
                 .arg(defaultIndex >= 0
                          ? dataModeCombo_->itemText(defaultIndex)
-                         : QStringLiteral("Thin")));
+                         : QStringLiteral("Thin"));
+        const QString keys = shortcutText(ShortcutCommand::GlobalRate);
+        if (!keys.isEmpty()) {
+            toolTip += QStringLiteral(" (%1)").arg(keys);
+        }
+        dataModeCombo_->setToolTip(toolTip);
     };
     auto setStartupDefault = [this, updateRateToolTip](DataReadMode mode,
                                                        const QString& label) {
@@ -1017,7 +1022,20 @@ void MainWindow::updateGlobalRateControl()
     dataModeCombo_->setCurrentIndex(index >= 0 ? index : 0);
 }
 
-void MainWindow::showPanelContextMenu(PlotWidget* plot, int column, int row, const QPoint& pos)
+void MainWindow::openGlobalRateMenu()
+{
+    if (!dataModeCombo_) {
+        return;
+    }
+    dataModeCombo_->setFocus(Qt::ShortcutFocusReason);
+    dataModeCombo_->showPopup();
+}
+
+void MainWindow::showPanelContextMenu(PlotWidget* plot,
+                                      int column,
+                                      int row,
+                                      const QPoint& pos,
+                                      bool openRateSubmenu)
 {
     if (!plot) {
         return;
@@ -1106,7 +1124,8 @@ void MainWindow::showPanelContextMenu(PlotWidget* plot, int column, int row, con
     menu.addSeparator();
     QMenu* rateMenu = menu.addMenu(
         panelMenuIcon(PanelMenuGlyph::Rate),
-        "Rate");
+        actionText(QStringLiteral("Rate"),
+                   ShortcutCommand::PanelRate));
     connect(&menu, &QMenu::hovered, &menu, [rateMenu](QAction* action) {
         if (!rateMenu->isVisible()
             || action == rateMenu->menuAction()
@@ -1146,16 +1165,38 @@ void MainWindow::showPanelContextMenu(PlotWidget* plot, int column, int row, con
     }
     QAction* exportDataAction = menu.addAction(
         panelMenuIcon(PanelMenuGlyph::Export),
-        "Export Data");
+        actionText(QStringLiteral("Export Data"),
+                   ShortcutCommand::PanelExport));
 
     menu.addSeparator();
     QAction* dataSourceAction = menu.addAction(
         panelMenuIcon(PanelMenuGlyph::DataSource),
-        "Data Source Setup");
+        actionText(QStringLiteral("Data Source Setup"),
+                   ShortcutCommand::PanelSourceSetup));
     QAction* panelSetupAction = menu.addAction(
         panelMenuIcon(PanelMenuGlyph::PanelSetup),
-        "Panel Setup");
+        actionText(QStringLiteral("Panel Setup"),
+                   ShortcutCommand::PanelSetup));
 
+    if (openRateSubmenu && rateMenu->isEnabled()) {
+        QTimer::singleShot(0, &menu, [&menu, rateMenu] {
+            menu.setActiveAction(rateMenu->menuAction());
+            const QRect actionRect =
+                menu.actionGeometry(rateMenu->menuAction());
+            rateMenu->popup(
+                menu.mapToGlobal(
+                    QPoint(menu.width() - 4, actionRect.top())));
+            const QList<QAction*> actions = rateMenu->actions();
+            const auto checked = std::find_if(
+                actions.cbegin(),
+                actions.cend(),
+                [](QAction* action) { return action->isChecked(); });
+            rateMenu->setActiveAction(
+                checked != actions.cend()
+                    ? *checked
+                    : actions.value(0));
+        });
+    }
     const QAction* chosen = menu.exec(plot->mapToGlobal(pos));
     if (!chosen) {
         return;

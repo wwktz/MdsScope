@@ -21,6 +21,7 @@
 #include <QPen>
 #include <QPushButton>
 #include <QSignalBlocker>
+#include <QToolButton>
 #include <QUrl>
 #include <QVBoxLayout>
 
@@ -427,4 +428,15 @@ void MainWindow::refreshInternalWebMenu()
     });
     edit->setEnabled(!pages.isEmpty());
     remove->setEnabled(!pages.isEmpty());
+}
+
+void MainWindow::showInternalWebMenu()
+{
+    if (!internalWebButton_ || !internalWebMenu_) {
+        return;
+    }
+    refreshInternalWebMenu();
+    internalWebMenu_->popup(
+        internalWebButton_->mapToGlobal(
+            QPoint(0, internalWebButton_->height())));
 }

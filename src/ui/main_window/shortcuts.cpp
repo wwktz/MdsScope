@@ -11,6 +11,7 @@
 #include <QApplication>
 #include <QComboBox>
 #include <QLineEdit>
+#include <QMenu>
 #include <QPlainTextEdit>
 #include <QShortcut>
 #include <QTextEdit>
@@ -49,6 +50,26 @@ bool isShotInputWidget(QWidget* widget,
                || widget == shotCombo
                || (shotCombo
                    && shotCombo->isAncestorOf(widget)));
+}
+
+bool isPopupMenuNavigation(ShortcutCommand command)
+{
+    return command == ShortcutCommand::MenuLeft
+           || command == ShortcutCommand::MenuDown
+           || command == ShortcutCommand::MenuUp
+           || command == ShortcutCommand::MenuRight
+           || command == ShortcutCommand::MenuActivate;
+}
+
+bool isGlobalShortcutAllowedWhileEditing(ShortcutCommand command)
+{
+    return command == ShortcutCommand::OpenFile
+           || command == ShortcutCommand::OpenRecentFiles
+           || command == ShortcutCommand::OpenWebMenu
+           || command == ShortcutCommand::Save
+           || command == ShortcutCommand::GlobalRate
+           || command == ShortcutCommand::GlobalLayout
+           || command == ShortcutCommand::GlobalExport;
 }
 
 QKeySequence keySequenceFrom(
@@ -121,10 +142,16 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
             return true;
         }
     }
+    if (QApplication::activePopupWidget()) {
+        if (handleShortcutKey(keyEvent, target)) {
+            keyEvent->accept();
+            return true;
+        }
+        return QMainWindow::eventFilter(watched, event);
+    }
     if (!target
         || target->window() != this
-        || QApplication::activeModalWidget()
-        || QApplication::activePopupWidget()) {
+        || QApplication::activeModalWidget()) {
         return QMainWindow::eventFilter(watched, event);
     }
 
@@ -134,15 +161,14 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
     }
 
     if (isInputWidget(target)) {
-        pendingShortcutKeys_.clear();
-        shortcutSequenceTimer_.stop();
         const Qt::KeyboardModifiers modifiers =
             keyEvent->modifiers()
             & ~Qt::KeypadModifier;
         if (!(modifiers
               & (Qt::ControlModifier
                  | Qt::AltModifier
-                 | Qt::MetaModifier))) {
+                 | Qt::MetaModifier))
+            && pendingShortcutKeys_.isEmpty()) {
             return QMainWindow::eventFilter(watched, event);
         }
     }
@@ -189,11 +215,12 @@ bool MainWindow::handleShortcutKey(QKeyEvent* event,
                 continue;
             }
             // Editing widgets retain their native Select All, Cut, Undo,
-            // cursor movement, and text entry behavior. Save and shot
-            // navigation are the only workspace commands allowed through;
-            // shot navigation first discards any uncommitted shot draft.
+            // cursor movement, and text entry behavior. Explicit global
+            // commands and shot navigation are allowed through; shot
+            // navigation first discards any uncommitted shot draft.
             if (editingText
-                && binding.command != ShortcutCommand::Save
+                && !isGlobalShortcutAllowedWhileEditing(
+                    binding.command)
                 && !(editingShot
                      && (binding.command
                              == ShortcutCommand::PreviousShot
@@ -230,7 +257,11 @@ bool MainWindow::handleShortcutKey(QKeyEvent* event,
                 command == ShortcutCommand::PanelLeft
                 || command == ShortcutCommand::PanelDown
                 || command == ShortcutCommand::PanelUp
-                || command == ShortcutCommand::PanelRight;
+                || command == ShortcutCommand::PanelRight
+                || command == ShortcutCommand::MenuLeft
+                || command == ShortcutCommand::MenuDown
+                || command == ShortcutCommand::MenuUp
+                || command == ShortcutCommand::MenuRight;
             if (!event->isAutoRepeat() || repeatable) {
                 triggerShortcutCommand(command);
             }
@@ -262,6 +293,14 @@ bool MainWindow::handleShortcutKey(QKeyEvent* event,
 bool MainWindow::shortcutCommandEnabled(
     ShortcutCommand command) const
 {
+    const bool popupActive =
+        QApplication::activePopupWidget() != nullptr;
+    if (isPopupMenuNavigation(command)) {
+        return popupActive && !dispatchingPopupMenuKey_;
+    }
+    if (popupActive) {
+        return false;
+    }
     switch (command) {
     case ShortcutCommand::PanelLeft:
     case ShortcutCommand::PanelDown:
@@ -274,6 +313,11 @@ bool MainWindow::shortcutCommandEnabled(
     case ShortcutCommand::ExitPoint:
         return activePointPlot_
                && activePointPlot_->pointTrackingActive();
+    case ShortcutCommand::PanelRate:
+    case ShortcutCommand::PanelSourceSetup:
+    case ShortcutCommand::PanelExport:
+    case ShortcutCommand::PanelSetup:
+        return currentPlotWidget() != nullptr;
     default:
         return true;
     }
@@ -283,8 +327,26 @@ bool MainWindow::triggerShortcutCommand(
     ShortcutCommand command)
 {
     switch (command) {
+    case ShortcutCommand::OpenFile:
+        openEnvironmentFile();
+        break;
+    case ShortcutCommand::OpenRecentFiles:
+        showRecentEnvironmentMenu();
+        break;
+    case ShortcutCommand::OpenWebMenu:
+        showInternalWebMenu();
+        break;
     case ShortcutCommand::Save:
         saveCurrentEnvironment();
+        break;
+    case ShortcutCommand::GlobalRate:
+        openGlobalRateMenu();
+        break;
+    case ShortcutCommand::GlobalLayout:
+        openLayoutSetupDialog();
+        break;
+    case ShortcutCommand::GlobalExport:
+        openExportDataDialog();
         break;
     case ShortcutCommand::PointMode:
         setInteractionMode(InteractionMode::Point);
@@ -351,11 +413,64 @@ bool MainWindow::triggerShortcutCommand(
     case ShortcutCommand::PanelRight:
         movePanelSelection(1, 0);
         break;
+    case ShortcutCommand::PanelRate:
+        if (PlotWidget* plot = currentPlotWidget()) {
+            showPanelContextMenu(
+                plot,
+                selectedColumn_,
+                selectedRow_,
+                plot->rect().center(),
+                true);
+        }
+        break;
+    case ShortcutCommand::PanelSourceSetup:
+        dataSourceSetupForCurrentPanel();
+        break;
+    case ShortcutCommand::PanelExport:
+        exportCurrentPanelData();
+        break;
+    case ShortcutCommand::PanelSetup:
+        panelSetupForCurrentPanel();
+        break;
     case ShortcutCommand::ExitPoint:
         stopActivePointTracking();
         break;
+    case ShortcutCommand::MenuLeft:
+        dispatchPopupMenuKey(Qt::Key_Left);
+        break;
+    case ShortcutCommand::MenuDown:
+        dispatchPopupMenuKey(Qt::Key_Down);
+        break;
+    case ShortcutCommand::MenuUp:
+        dispatchPopupMenuKey(Qt::Key_Up);
+        break;
+    case ShortcutCommand::MenuRight:
+        dispatchPopupMenuKey(Qt::Key_Right);
+        break;
+    case ShortcutCommand::MenuActivate:
+        dispatchPopupMenuKey(Qt::Key_Return);
+        break;
     }
     return true;
+}
+
+void MainWindow::dispatchPopupMenuKey(Qt::Key key)
+{
+    QWidget* popup = QApplication::activePopupWidget();
+    if (!popup) {
+        return;
+    }
+    QWidget* receiver = qobject_cast<QMenu*>(popup)
+                            ? popup
+                            : QApplication::focusWidget();
+    if (!receiver) {
+        receiver = popup;
+    }
+
+    dispatchingPopupMenuKey_ = true;
+    QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier);
+    QApplication::sendEvent(receiver, &press);
+    dispatchingPopupMenuKey_ = false;
 }
 
 void MainWindow::movePanelSelection(int columnDelta,
@@ -639,6 +754,43 @@ void MainWindow::updateShortcutToolTips()
         saveAction_->setToolTip(
             withShortcut(QStringLiteral("Save"),
                          ShortcutCommand::Save));
+    }
+    if (exportAction_) {
+        exportAction_->setToolTip(
+            withShortcut(QStringLiteral("Export data"),
+                         ShortcutCommand::GlobalExport));
+    }
+    if (layoutAction_) {
+        layoutAction_->setToolTip(
+            withShortcut(QStringLiteral("Layout setup"),
+                         ShortcutCommand::GlobalLayout));
+    }
+    if (openButton_) {
+        openButton_->setToolTip(
+            withShortcut(QStringLiteral("Open configure file"),
+                         ShortcutCommand::OpenFile));
+    }
+    if (recentEnvironmentButton_) {
+        recentEnvironmentButton_->setToolTip(
+            withShortcut(QStringLiteral("Recent configure files"),
+                         ShortcutCommand::OpenRecentFiles));
+    }
+    if (internalWebButton_) {
+        internalWebButton_->setToolTip(
+            withShortcut(QStringLiteral("Internal web pages"),
+                         ShortcutCommand::OpenWebMenu));
+    }
+    if (dataModeCombo_) {
+        const int defaultIndex = dataModeCombo_->findData(
+            static_cast<int>(defaultRateMode_));
+        dataModeCombo_->setToolTip(
+            withShortcut(
+                QStringLiteral(
+                    "Startup default: %1\nRight-click to set the current Rate as default")
+                    .arg(defaultIndex >= 0
+                             ? dataModeCombo_->itemText(defaultIndex)
+                             : QStringLiteral("Thin")),
+                ShortcutCommand::GlobalRate));
     }
     if (zoomButton_) {
         zoomButton_->setToolTip(

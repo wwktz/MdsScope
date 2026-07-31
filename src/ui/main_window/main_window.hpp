@@ -71,6 +71,7 @@ private:
     void openLoginDialog();
     void openSshDialog();
     void openInternalWebPage(const QString& source);
+    void showInternalWebMenu();
     void addInternalWebPage();
     void editInternalWebPage();
     void removeInternalWebPage();
@@ -144,7 +145,9 @@ private:
     void showPanelContextMenu(PlotWidget* plot,
                               int column,
                               int row,
-                              const QPoint& pos);
+                              const QPoint& pos,
+                              bool openRateSubmenu = false);
+    void openGlobalRateMenu();
     void updateGlobalRateControl();
     void openLayoutSetupDialog();
     void openCustomizeDialog();
@@ -167,6 +170,7 @@ private:
     bool handleShortcutKey(QKeyEvent* event, QWidget* target);
     bool triggerShortcutCommand(ShortcutCommand command);
     bool shortcutCommandEnabled(ShortcutCommand command) const;
+    void dispatchPopupMenuKey(Qt::Key key);
     void movePanelSelection(int columnDelta, int rowDelta);
     void stopActivePointTracking();
     void focusSelectedPlot();
@@ -205,6 +209,7 @@ private:
     QAction* loginAction_ = nullptr;
     QAction* sshAction_ = nullptr;
     QAction* saveAction_ = nullptr;
+    QAction* exportAction_ = nullptr;
     QAction* refreshAction_ = nullptr;
     QAction* layoutAction_ = nullptr;
     QAction* appearanceAction_ = nullptr;
@@ -221,6 +226,7 @@ private:
     QHBoxLayout* bottomControlsLayout_ = nullptr;
     QToolButton* openButton_ = nullptr;
     QToolButton* recentEnvironmentButton_ = nullptr;
+    QToolButton* internalWebButton_ = nullptr;
     QToolButton* aboutButton_ = nullptr;
     QToolButton* zoomButton_ = nullptr;
     QToolButton* pointButton_ = nullptr;
@@ -236,6 +242,7 @@ private:
     QTimer shotEditExitTimer_;
     QList<QKeyCombination> pendingShotEditExitKeys_;
     QVector<QShortcut*> shotInputShortcuts_;
+    bool dispatchingPopupMenuKey_ = false;
     QString shotEditSessionText_;
     bool shotEditSessionActive_ = false;
     std::unique_ptr<RefreshCoordinator> refresh_;

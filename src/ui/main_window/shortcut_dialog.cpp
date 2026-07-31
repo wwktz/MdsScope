@@ -29,8 +29,21 @@ bool isPointTrackingCommand(ShortcutCommand command)
            || command == ShortcutCommand::ExitPoint;
 }
 
+bool isPopupMenuNavigation(ShortcutCommand command)
+{
+    return command == ShortcutCommand::MenuLeft
+           || command == ShortcutCommand::MenuDown
+           || command == ShortcutCommand::MenuUp
+           || command == ShortcutCommand::MenuRight
+           || command == ShortcutCommand::MenuActivate;
+}
+
 bool contextsAreExclusive(ShortcutCommand first, ShortcutCommand second)
 {
+    if (isPopupMenuNavigation(first)
+        != isPopupMenuNavigation(second)) {
+        return true;
+    }
     return (isPointTrackingCommand(first)
             && isPanelNavigation(second))
            || (isPointTrackingCommand(second)

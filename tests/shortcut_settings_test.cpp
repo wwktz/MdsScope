@@ -44,7 +44,7 @@ int main(int argc, char** argv)
     QVector<ShortcutBinding> bindings =
         defaultShortcutBindings();
     bool ok = true;
-    ok &= expect(bindings.size() == 21,
+    ok &= expect(bindings.size() == 36,
                  "unexpected shortcut count");
     for (const ShortcutBinding& binding : std::as_const(bindings)) {
         ok &= expect(!binding.sequence.isEmpty(),
@@ -61,10 +61,29 @@ int main(int argc, char** argv)
         bindingFor(bindings, ShortcutCommand::PreviousShot);
     const ShortcutBinding* pointPrevious =
         bindingFor(bindings, ShortcutCommand::PointPrevious);
+    const ShortcutBinding* globalRate =
+        bindingFor(bindings, ShortcutCommand::GlobalRate);
+    const ShortcutBinding* panelRate =
+        bindingFor(bindings, ShortcutCommand::PanelRate);
+    const ShortcutBinding* menuDown =
+        bindingFor(bindings, ShortcutCommand::MenuDown);
     ok &= expect(panelLeft && exitPoint && previousShot
-                     && pointPrevious,
+                     && pointPrevious && globalRate && panelRate
+                     && menuDown,
                  "missing platform shortcut");
+    ok &= expect(
+        globalRate->sequence.toString(QKeySequence::PortableText)
+            == QStringLiteral("Ctrl+G, R"),
+        "global Rate shortcut should use the global prefix");
+    ok &= expect(
+        panelRate->sequence.toString(QKeySequence::PortableText)
+            == QStringLiteral("Ctrl+T, R"),
+        "panel Rate shortcut should use the current-panel prefix");
 #ifdef Q_OS_LINUX
+    ok &= expect(
+        menuDown->sequence.toString(QKeySequence::PortableText)
+            == QStringLiteral("J"),
+        "Linux should default to J popup-menu navigation");
     ok &= expect(
         panelLeft->sequence.toString(QKeySequence::PortableText)
             == QStringLiteral("H"),
