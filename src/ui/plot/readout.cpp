@@ -457,6 +457,56 @@ bool PlotWidget::updateHoverForSeriesX(int seriesIndex, double dataX, bool lockS
     return changed;
 }
 
+bool PlotWidget::activatePointAtViewCenter(int seriesIndex)
+{
+    if (interactionMode_ != InteractionMode::Point) {
+        return false;
+    }
+    if (seriesIndex < 0) {
+        seriesIndex = firstVisibleSeriesWithData();
+    } else if (seriesIndex >= series_.size()
+               || !signalVisible(spec_, seriesIndex)
+               || !series_[seriesIndex].hasData()) {
+        return false;
+    }
+    if (seriesIndex < 0) {
+        return false;
+    }
+
+    const QRectF view = effectiveView();
+    const double centerX =
+        view.left() + view.width() * 0.5;
+    updateHoverForSeriesX(seriesIndex, centerX, true);
+    if (hoverText_.isEmpty()) {
+        return false;
+    }
+    pointTrackingActive_ = true;
+    setSyncedPointX(hoverData_.x(), hoverSeriesIndex_);
+    emit pointXChanged(hoverData_.x());
+    update();
+    return true;
+}
+
+bool PlotWidget::activatePointAtViewCenterForDataSeries(int ordinal)
+{
+    if (ordinal < 0) {
+        return false;
+    }
+    int dataOrdinal = 0;
+    for (int seriesIndex : std::as_const(legendSeriesIndexes_)) {
+        if (seriesIndex < 0 || seriesIndex >= series_.size()
+            || !signalVisible(spec_, seriesIndex)
+            || !series_[seriesIndex].hasData()) {
+            continue;
+        }
+        if (dataOrdinal == ordinal) {
+            return activatePointAtViewCenter(seriesIndex);
+        }
+        ++dataOrdinal;
+    }
+    return false;
+}
+
 bool PlotWidget::stepActivePoint(int delta)
 {
     if (interactionMode_ != InteractionMode::Point || delta == 0 || hoverText_.isEmpty()) {

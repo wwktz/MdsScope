@@ -39,7 +39,7 @@ enum class ShortcutCommand {
     PanelSourceSetup,
     PanelExport,
     PanelSetup,
-    ExitPoint,
+    Escape,
     MenuLeft,
     MenuDown,
     MenuUp,

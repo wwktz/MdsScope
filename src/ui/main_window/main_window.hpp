@@ -36,6 +36,7 @@ class SshTunnelManager;
 class ShotWorkflow;
 class ThemeModeButton;
 class UserPreferences;
+class ShortcutDispatchTestAccess;
 
 class MainWindow final : public QMainWindow {
     Q_OBJECT
@@ -50,6 +51,8 @@ protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
+    friend class ShortcutDispatchTestAccess;
+
     void buildUi();
     void loadDefaultEnvironment(bool useLatestWhenNoCurrentShot = false);
     void loadEnvironmentList(bool useLatestWhenNoCurrentShot = false);
@@ -171,9 +174,14 @@ private:
     bool handleShortcutKey(QKeyEvent* event, QWidget* target);
     bool triggerShortcutCommand(ShortcutCommand command);
     bool shortcutCommandEnabled(ShortcutCommand command) const;
+    bool handleFixedPointKey(QKeyEvent* event, QWidget* target);
+    bool activatePointForCurrentPanel(int seriesIndex = -1);
+    bool resumePausedPoint();
+    void restorePendingPanelNavigation();
     void dispatchPopupMenuKey(Qt::Key key);
+    void dispatchEscapeKey();
     void movePanelSelection(int columnDelta, int rowDelta);
-    void stopActivePointTracking();
+    void pauseActivePointTracking();
     void focusSelectedPlot();
     void beginShotEditSession();
     void cancelShotEditSession();
@@ -240,11 +248,13 @@ private:
     QVector<ShortcutBinding> shortcutBindings_;
     QList<QKeyCombination> pendingShortcutKeys_;
     std::optional<ShortcutCommand> pendingExactShortcut_;
+    std::optional<PanelId> pendingPanelNavigationOrigin_;
     QTimer shortcutSequenceTimer_;
     QTimer shotEditExitTimer_;
     QList<QKeyCombination> pendingShotEditExitKeys_;
     QVector<QShortcut*> shotInputShortcuts_;
     bool dispatchingPopupMenuKey_ = false;
+    bool dispatchingEscapeKey_ = false;
     QString shotEditSessionText_;
     bool shotEditSessionActive_ = false;
     std::unique_ptr<RefreshCoordinator> refresh_;
@@ -256,6 +266,7 @@ private:
     InteractionMode currentInteractionMode_ = InteractionMode::Zoom;
     QSet<QString> rememberedSourceSignals_;
     PlotWidget* activePointPlot_ = nullptr;
+    PlotWidget* pausedPointPlot_ = nullptr;
     PlotWidget* pointSyncSource_ = nullptr;
     bool pointSyncQueued_ = false;
     int pointSyncGeneration_ = 0;

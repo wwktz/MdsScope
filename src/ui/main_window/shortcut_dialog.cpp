@@ -25,8 +25,7 @@ bool isPanelNavigation(ShortcutCommand command)
 bool isPointTrackingCommand(ShortcutCommand command)
 {
     return command == ShortcutCommand::PointPrevious
-           || command == ShortcutCommand::PointNext
-           || command == ShortcutCommand::ExitPoint;
+           || command == ShortcutCommand::PointNext;
 }
 
 bool isPopupMenuNavigation(ShortcutCommand command)
@@ -34,12 +33,17 @@ bool isPopupMenuNavigation(ShortcutCommand command)
     return command == ShortcutCommand::MenuLeft
            || command == ShortcutCommand::MenuDown
            || command == ShortcutCommand::MenuUp
-           || command == ShortcutCommand::MenuRight
-           || command == ShortcutCommand::MenuActivate;
+           || command == ShortcutCommand::MenuRight;
 }
 
 bool contextsAreExclusive(ShortcutCommand first, ShortcutCommand second)
 {
+    if (first == ShortcutCommand::Escape
+        || second == ShortcutCommand::Escape
+        || first == ShortcutCommand::MenuActivate
+        || second == ShortcutCommand::MenuActivate) {
+        return false;
+    }
     if (isPopupMenuNavigation(first)
         != isPopupMenuNavigation(second)) {
         return true;
@@ -48,6 +52,43 @@ bool contextsAreExclusive(ShortcutCommand first, ShortcutCommand second)
             && isPanelNavigation(second))
            || (isPointTrackingCommand(second)
                && isPanelNavigation(first));
+}
+
+bool isFixedPointNumber(const QKeySequence& sequence)
+{
+    if (sequence.count() != 1) {
+        return false;
+    }
+    const QKeyCombination key = sequence[0];
+    return key.keyboardModifiers() == Qt::NoModifier
+           && key.key() >= Qt::Key_1
+           && key.key() <= Qt::Key_9;
+}
+
+bool shortcutKeysEqual(const QKeySequence& first,
+                       const QKeySequence& second)
+{
+    if (first.count() != second.count()) {
+        return false;
+    }
+    for (uint i = 0;
+         i < static_cast<uint>(first.count());
+         ++i) {
+        const QKeyCombination firstKey = first[i];
+        const QKeyCombination secondKey = second[i];
+        const bool enterEquivalent =
+            (firstKey.key() == Qt::Key_Return
+             || firstKey.key() == Qt::Key_Enter)
+            && (secondKey.key() == Qt::Key_Return
+                || secondKey.key() == Qt::Key_Enter);
+        if (firstKey.keyboardModifiers()
+                != secondKey.keyboardModifiers()
+            || (!enterEquivalent
+                && firstKey.key() != secondKey.key())) {
+            return false;
+        }
+    }
+    return true;
 }
 
 }
@@ -205,6 +246,18 @@ bool ShortcutDialog::validateShortcuts() const
         }
     }
 
+    for (const AssignedShortcut& item : std::as_const(assigned)) {
+        if (isFixedPointNumber(item.sequence)) {
+            QMessageBox::warning(
+                const_cast<ShortcutDialog*>(this),
+                QStringLiteral("Shortcut conflict"),
+                QStringLiteral(
+                    "%1 conflicts with fixed Point curve selection (1–9).")
+                    .arg(item.label));
+            return false;
+        }
+    }
+
     for (int i = 0; i < assigned.size(); ++i) {
         for (int j = i + 1; j < assigned.size(); ++j) {
             const AssignedShortcut& first = assigned[i];
@@ -212,7 +265,8 @@ bool ShortcutDialog::validateShortcuts() const
             if (contextsAreExclusive(first.command, second.command)) {
                 continue;
             }
-            const bool same = first.sequence == second.sequence;
+            const bool same = shortcutKeysEqual(
+                first.sequence, second.sequence);
             if (!same) {
                 continue;
             }

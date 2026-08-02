@@ -16,6 +16,7 @@ class QPainter;
 class QPaintEvent;
 class QResizeEvent;
 class QWheelEvent;
+class ShortcutDispatchTestAccess;
 
 class PlotWidget final : public QWidget {
     Q_OBJECT
@@ -46,15 +47,19 @@ public:
     void setSyncedPointX(double x, int seriesIndex, bool interpolate = false);
     void clearSyncedPoint();
     void deactivatePointTracking();
-    bool stopPointTracking();
+    bool pausePointTracking();
+    bool resumePointTracking();
+    bool activatePointAtViewCenter(int seriesIndex = -1);
+    bool activatePointAtViewCenterForDataSeries(int ordinal);
     bool pointTrackingActive() const { return pointTrackingActive_; }
     bool stepActivePoint(int delta);
     int activePointSeriesIndex() const { return hoverSeriesIndex_; }
+    double activePointX() const { return hoverData_.x(); }
 
 signals:
     void selected();
     void pointXChanged(double x);
-    void pointTrackingStopped();
+    void pointTrackingPaused();
 
 protected:
     void paintEvent(QPaintEvent*) override;
@@ -67,6 +72,8 @@ protected:
     void leaveEvent(QEvent*) override;
 
 private:
+    friend class ShortcutDispatchTestAccess;
+
     QRectF plotRect() const;
     QRectF dataBounds() const;
     QRectF effectiveView() const;

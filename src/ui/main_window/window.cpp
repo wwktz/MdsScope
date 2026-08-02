@@ -44,6 +44,7 @@ MainWindow::MainWindow(QString rootPath, QWidget* parent)
             this,
             [this] {
         pendingShortcutKeys_.clear();
+        pendingPanelNavigationOrigin_.reset();
         const std::optional<ShortcutCommand> command =
             std::exchange(pendingExactShortcut_, std::nullopt);
         if (command && shortcutCommandEnabled(*command)) {

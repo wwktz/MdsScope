@@ -175,16 +175,31 @@ void PlotWidget::deactivatePointTracking()
     hoverSeriesLocked_ = false;
 }
 
-bool PlotWidget::stopPointTracking()
+bool PlotWidget::pausePointTracking()
 {
-    if (!pointTrackingActive_
-        && hoverText_.isEmpty()
-        && hoverSeriesIndex_ < 0) {
+    if (!pointTrackingActive_) {
         return false;
     }
-    deactivatePointTracking();
+    pointTrackingActive_ = false;
+    ++pointHoverGeneration_;
+    pointHoverQueued_ = false;
     update();
-    emit pointTrackingStopped();
+    emit pointTrackingPaused();
+    return true;
+}
+
+bool PlotWidget::resumePointTracking()
+{
+    if (interactionMode_ != InteractionMode::Point
+        || pointTrackingActive_
+        || hoverText_.isEmpty()
+        || hoverSeriesIndex_ < 0
+        || !hoverSeriesLocked_) {
+        return false;
+    }
+    pointTrackingActive_ = true;
+    emit pointXChanged(hoverData_.x());
+    update();
     return true;
 }
 

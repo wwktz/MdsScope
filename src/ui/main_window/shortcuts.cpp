@@ -59,8 +59,7 @@ bool isPopupMenuNavigation(ShortcutCommand command)
     return command == ShortcutCommand::MenuLeft
            || command == ShortcutCommand::MenuDown
            || command == ShortcutCommand::MenuUp
-           || command == ShortcutCommand::MenuRight
-           || command == ShortcutCommand::MenuActivate;
+           || command == ShortcutCommand::MenuRight;
 }
 
 bool isGlobalShortcutAllowedWhileEditing(ShortcutCommand command)
@@ -72,7 +71,8 @@ bool isGlobalShortcutAllowedWhileEditing(ShortcutCommand command)
            || command == ShortcutCommand::GlobalRate
            || command == ShortcutCommand::GlobalLayout
            || command == ShortcutCommand::GlobalExport
-           || command == ShortcutCommand::RefreshData;
+           || command == ShortcutCommand::RefreshData
+           || command == ShortcutCommand::Escape;
 }
 
 QKeySequence keySequenceFrom(
@@ -95,11 +95,28 @@ bool sequenceStartsWith(const QKeySequence& sequence,
         return false;
     }
     for (uint i = 0; i < static_cast<uint>(prefix.count()); ++i) {
-        if (sequence[i] != prefix[i]) {
+        const QKeyCombination sequenceKey = sequence[i];
+        const QKeyCombination prefixKey = prefix[i];
+        const bool enterEquivalent =
+            (sequenceKey.key() == Qt::Key_Return
+             || sequenceKey.key() == Qt::Key_Enter)
+            && (prefixKey.key() == Qt::Key_Return
+                || prefixKey.key() == Qt::Key_Enter);
+        if (sequenceKey.keyboardModifiers()
+                != prefixKey.keyboardModifiers()
+            || (!enterEquivalent
+                && sequenceKey.key() != prefixKey.key())) {
             return false;
         }
     }
     return true;
+}
+
+bool sequencesEqual(const QKeySequence& first,
+                    const QKeySequence& second)
+{
+    return first.count() == second.count()
+           && sequenceStartsWith(first, second);
 }
 
 QList<QKeySequence> assignedSequences(
@@ -132,6 +149,16 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
 
     auto* target = qobject_cast<QWidget*>(watched);
     auto* keyEvent = static_cast<QKeyEvent*>(event);
+    if (dispatchingPopupMenuKey_ || dispatchingEscapeKey_) {
+        return QMainWindow::eventFilter(watched, event);
+    }
+    if (QApplication::activePopupWidget()) {
+        if (handleShortcutKey(keyEvent, target)) {
+            keyEvent->accept();
+            return true;
+        }
+        return QMainWindow::eventFilter(watched, event);
+    }
     QWidget* focus = QApplication::focusWidget();
     const bool shotInputFocused =
         isShotInputWidget(
@@ -145,16 +172,14 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
             return true;
         }
     }
-    if (QApplication::activePopupWidget()) {
+    if (QApplication::activeModalWidget()) {
         if (handleShortcutKey(keyEvent, target)) {
             keyEvent->accept();
             return true;
         }
         return QMainWindow::eventFilter(watched, event);
     }
-    if (!target
-        || target->window() != this
-        || QApplication::activeModalWidget()) {
+    if (!target || target->window() != this) {
         return QMainWindow::eventFilter(watched, event);
     }
 
@@ -177,11 +202,21 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event)
     }
 
     if (qobject_cast<QAbstractButton*>(target)
-        && keyEvent->modifiers() == Qt::NoModifier
-        && (keyEvent->key() == Qt::Key_Space
-            || keyEvent->key() == Qt::Key_Return
-            || keyEvent->key() == Qt::Key_Enter)) {
-        return QMainWindow::eventFilter(watched, event);
+        && keyEvent->modifiers() == Qt::NoModifier) {
+        const bool activateKey =
+            keyEvent->key() == Qt::Key_Return
+            || keyEvent->key() == Qt::Key_Enter;
+        if (keyEvent->key() == Qt::Key_Space
+            || (activateKey
+                && !shortcutCommandEnabled(
+                    ShortcutCommand::MenuActivate))) {
+            return QMainWindow::eventFilter(watched, event);
+        }
+    }
+
+    if (handleFixedPointKey(keyEvent, target)) {
+        keyEvent->accept();
+        return true;
     }
 
     if (handleShortcutKey(keyEvent, target)) {
@@ -236,7 +271,7 @@ bool MainWindow::handleShortcutKey(QKeyEvent* event,
             }
             for (const QKeySequence& sequence :
                  assignedSequences(binding)) {
-                if (candidate == sequence) {
+                if (sequencesEqual(candidate, sequence)) {
                     if (!exactMatch) {
                         *exactCommand = binding.command;
                         exactMatch = true;
@@ -261,11 +296,39 @@ bool MainWindow::handleShortcutKey(QKeyEvent* event,
             findMatch(candidate, &command, &partial);
         if (exact && partial) {
             pendingShortcutKeys_ = std::move(keys);
-            pendingExactShortcut_ = command;
+            const bool panelNavigation =
+                command == ShortcutCommand::PanelLeft
+                || command == ShortcutCommand::PanelDown
+                || command == ShortcutCommand::PanelUp
+                || command == ShortcutCommand::PanelRight;
+            const bool menuNavigation =
+                command == ShortcutCommand::MenuLeft
+                || command == ShortcutCommand::MenuDown
+                || command == ShortcutCommand::MenuUp
+                || command == ShortcutCommand::MenuRight;
+            const bool navigateImmediately =
+                menuNavigation
+                || (panelNavigation && !pausedPointPlot_);
+            if (navigateImmediately) {
+                if (panelNavigation) {
+                    pendingPanelNavigationOrigin_ =
+                        PanelId {selectedColumn_, selectedRow_};
+                }
+                triggerShortcutCommand(command);
+                pendingExactShortcut_.reset();
+            } else {
+                pendingExactShortcut_ = command;
+            }
             shortcutSequenceTimer_.start();
             return 1;
         }
         if (exact) {
+            if (pendingPanelNavigationOrigin_
+                && keys.size() > 1) {
+                restorePendingPanelNavigation();
+            } else {
+                pendingPanelNavigationOrigin_.reset();
+            }
             pendingShortcutKeys_.clear();
             pendingExactShortcut_.reset();
             shortcutSequenceTimer_.stop();
@@ -286,6 +349,7 @@ bool MainWindow::handleShortcutKey(QKeyEvent* event,
         if (partial) {
             pendingShortcutKeys_ = std::move(keys);
             pendingExactShortcut_.reset();
+            pendingPanelNavigationOrigin_.reset();
             shortcutSequenceTimer_.start();
             return 1;
         }
@@ -298,6 +362,11 @@ bool MainWindow::handleShortcutKey(QKeyEvent* event,
     if (result == 0 && !pendingShortcutKeys_.isEmpty()) {
         const std::optional<ShortcutCommand> delayed =
             std::exchange(pendingExactShortcut_, std::nullopt);
+        if (key.key() == Qt::Key_Escape) {
+            restorePendingPanelNavigation();
+        } else {
+            pendingPanelNavigationOrigin_.reset();
+        }
         pendingShortcutKeys_.clear();
         shortcutSequenceTimer_.stop();
         if (delayed && shortcutCommandEnabled(*delayed)) {
@@ -308,6 +377,7 @@ bool MainWindow::handleShortcutKey(QKeyEvent* event,
     if (result == 0) {
         pendingShortcutKeys_.clear();
         pendingExactShortcut_.reset();
+        pendingPanelNavigationOrigin_.reset();
         shortcutSequenceTimer_.stop();
     }
     return result != 0;
@@ -318,10 +388,26 @@ bool MainWindow::shortcutCommandEnabled(
 {
     const bool popupActive =
         QApplication::activePopupWidget() != nullptr;
+    if (command == ShortcutCommand::Escape) {
+        return !dispatchingEscapeKey_;
+    }
+    if (command == ShortcutCommand::MenuActivate) {
+        return (popupActive && !dispatchingPopupMenuKey_)
+               || (!QApplication::activeModalWidget()
+                   && currentInteractionMode_
+                          == InteractionMode::Point
+                   && (!activePointPlot_
+                       || !activePointPlot_->pointTrackingActive())
+                   && (pausedPointPlot_ != nullptr
+                       || currentPlotWidget() != nullptr));
+    }
     if (isPopupMenuNavigation(command)) {
         return popupActive && !dispatchingPopupMenuKey_;
     }
     if (popupActive) {
+        return false;
+    }
+    if (QApplication::activeModalWidget()) {
         return false;
     }
     switch (command) {
@@ -333,7 +419,6 @@ bool MainWindow::shortcutCommandEnabled(
                || !activePointPlot_->pointTrackingActive();
     case ShortcutCommand::PointPrevious:
     case ShortcutCommand::PointNext:
-    case ShortcutCommand::ExitPoint:
         return activePointPlot_
                && activePointPlot_->pointTrackingActive();
     case ShortcutCommand::PanelRate:
@@ -373,6 +458,7 @@ bool MainWindow::triggerShortcutCommand(
         break;
     case ShortcutCommand::PointMode:
         setInteractionMode(InteractionMode::Point);
+        activatePointForCurrentPanel();
         break;
     case ShortcutCommand::ZoomMode:
         setInteractionMode(InteractionMode::Zoom);
@@ -458,8 +544,16 @@ bool MainWindow::triggerShortcutCommand(
     case ShortcutCommand::PanelSetup:
         panelSetupForCurrentPanel();
         break;
-    case ShortcutCommand::ExitPoint:
-        stopActivePointTracking();
+    case ShortcutCommand::Escape:
+        if (QApplication::activePopupWidget()
+            || QApplication::activeModalWidget()) {
+            dispatchEscapeKey();
+        } else if (activePointPlot_
+            && activePointPlot_->pointTrackingActive()) {
+            pauseActivePointTracking();
+        } else {
+            dispatchEscapeKey();
+        }
         break;
     case ShortcutCommand::MenuLeft:
         dispatchPopupMenuKey(Qt::Key_Left);
@@ -474,7 +568,11 @@ bool MainWindow::triggerShortcutCommand(
         dispatchPopupMenuKey(Qt::Key_Right);
         break;
     case ShortcutCommand::MenuActivate:
-        dispatchPopupMenuKey(Qt::Key_Return);
+        if (QApplication::activePopupWidget()) {
+            dispatchPopupMenuKey(Qt::Key_Return);
+        } else if (!resumePausedPoint()) {
+            activatePointForCurrentPanel();
+        }
         break;
     }
     return true;
@@ -497,6 +595,26 @@ void MainWindow::dispatchPopupMenuKey(Qt::Key key)
     QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier);
     QApplication::sendEvent(receiver, &press);
     dispatchingPopupMenuKey_ = false;
+}
+
+void MainWindow::dispatchEscapeKey()
+{
+    QWidget* receiver = QApplication::activePopupWidget();
+    if (!receiver) {
+        receiver = QApplication::activeModalWidget();
+    }
+    if (!receiver) {
+        receiver = QApplication::focusWidget();
+    }
+    if (!receiver) {
+        receiver = this;
+    }
+
+    dispatchingEscapeKey_ = true;
+    QKeyEvent press(
+        QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+    QApplication::sendEvent(receiver, &press);
+    dispatchingEscapeKey_ = false;
 }
 
 void MainWindow::movePanelSelection(int columnDelta,
@@ -561,13 +679,97 @@ void MainWindow::movePanelSelection(int columnDelta,
     focusSelectedPlot();
 }
 
-void MainWindow::stopActivePointTracking()
+void MainWindow::restorePendingPanelNavigation()
+{
+    const std::optional<PanelId> origin =
+        std::exchange(pendingPanelNavigationOrigin_, std::nullopt);
+    if (!origin || origin->column < 0 || origin->row < 0
+        || origin->column >= plotWidgets_.size()
+        || origin->row >= plotWidgets_[origin->column].size()) {
+        return;
+    }
+    selectPlot(origin->column, origin->row);
+    if (singlePanelMaximized_) {
+        maximizeCurrentPanel();
+    }
+    focusSelectedPlot();
+}
+
+bool MainWindow::handleFixedPointKey(QKeyEvent* event,
+                                     QWidget* target)
+{
+    if (!event || event->isAutoRepeat()
+        || isInputWidget(target)
+        || (event->modifiers() & ~Qt::KeypadModifier)
+               != Qt::NoModifier) {
+        return false;
+    }
+    if (!activePointPlot_
+        || !activePointPlot_->pointTrackingActive()
+        || event->key() < Qt::Key_1
+        || event->key() > Qt::Key_9) {
+        return false;
+    }
+    const int seriesIndex = event->key() - Qt::Key_1;
+    if (!activePointPlot_->activatePointAtViewCenterForDataSeries(
+            seriesIndex)) {
+        setStatus(QStringLiteral("Visible Point curve %1 is unavailable")
+                      .arg(seriesIndex + 1));
+    }
+    return true;
+}
+
+bool MainWindow::activatePointForCurrentPanel(int seriesIndex)
+{
+    PlotWidget* plot = currentPlotWidget();
+    if (!plot) {
+        movePanelSelection(0, 0);
+        plot = currentPlotWidget();
+    }
+    if (!plot) {
+        return false;
+    }
+    if (activePointPlot_ && activePointPlot_ != plot) {
+        activePointPlot_->deactivatePointTracking();
+    }
+    if (pausedPointPlot_ && pausedPointPlot_ != plot) {
+        pausedPointPlot_->deactivatePointTracking();
+    }
+    activePointPlot_ = plot;
+    pausedPointPlot_ = nullptr;
+    if (!plot->activatePointAtViewCenter(seriesIndex)) {
+        activePointPlot_ = nullptr;
+        setStatus(QStringLiteral("No point data is available in the current panel"));
+        return false;
+    }
+    plot->setFocus(Qt::ShortcutFocusReason);
+    return true;
+}
+
+bool MainWindow::resumePausedPoint()
+{
+    if (currentInteractionMode_ != InteractionMode::Point
+        || !pausedPointPlot_) {
+        return false;
+    }
+    PlotWidget* plot = pausedPointPlot_;
+    activePointPlot_ = plot;
+    pausedPointPlot_ = nullptr;
+    if (!plot->resumePointTracking()) {
+        activePointPlot_ = nullptr;
+        return false;
+    }
+    plot->setFocus(Qt::ShortcutFocusReason);
+    return true;
+}
+
+void MainWindow::pauseActivePointTracking()
 {
     PlotWidget* plot = activePointPlot_;
     if (!plot) {
         return;
     }
-    plot->stopPointTracking();
+    plot->pausePointTracking();
     plot->setFocus(Qt::ShortcutFocusReason);
 }
 
@@ -607,6 +809,7 @@ void MainWindow::cancelShotEditSession()
     shotEditExitTimer_.stop();
     pendingShortcutKeys_.clear();
     pendingExactShortcut_.reset();
+    pendingPanelNavigationOrigin_.reset();
     shortcutSequenceTimer_.stop();
     focusSelectedPlot();
 }
@@ -623,7 +826,7 @@ bool MainWindow::handleShotEditExitKey(QKeyEvent* event)
         shortcutBindings_.cend(),
         [](const ShortcutBinding& item) {
             return item.command
-                   == ShortcutCommand::ExitPoint;
+                   == ShortcutCommand::Escape;
         });
     if (binding == shortcutBindings_.cend()) {
         return false;
@@ -713,7 +916,7 @@ void MainWindow::rebuildShotInputShortcuts()
                     [this, command] {
                 beginShotEditSession();
                 if (command
-                    == ShortcutCommand::ExitPoint) {
+                    == ShortcutCommand::Escape) {
                     cancelShotEditSession();
                     return;
                 }
@@ -728,6 +931,7 @@ void MainWindow::openShortcutDialog()
 {
     pendingShortcutKeys_.clear();
     pendingExactShortcut_.reset();
+    pendingPanelNavigationOrigin_.reset();
     shortcutSequenceTimer_.stop();
     ShortcutDialog dialog(shortcutBindings_, this);
     if (dialog.exec() != QDialog::Accepted) {
@@ -848,8 +1052,12 @@ void MainWindow::updateShortcutToolTips()
                   .arg(pointMovement)
             + QStringLiteral("; ")
             + withShortcut(
-                QStringLiteral("exit tracking"),
-                ShortcutCommand::ExitPoint));
+                QStringLiteral("pause tracking"),
+                ShortcutCommand::Escape)
+            + QStringLiteral("; select curve (1–9); ")
+            + withShortcut(
+                QStringLiteral("resume tracking"),
+                ShortcutCommand::MenuActivate));
     }
     if (stopButton_) {
         const QString label =

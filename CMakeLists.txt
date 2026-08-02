@@ -449,6 +449,8 @@ if(MDS_SCOPE_BUILD_TESTS)
         mdsscope_plot
     )
     add_test(NAME plot_helpers COMMAND plot_helpers_test)
+    set_tests_properties(plot_helpers PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     add_executable(shortcut_settings_test
         tests/shortcut_settings_test.cpp
@@ -465,6 +467,26 @@ if(MDS_SCOPE_BUILD_TESTS)
         mdsscope_core
     )
     add_test(NAME shortcut_settings COMMAND shortcut_settings_test)
+
+    add_executable(shortcut_dispatch_test
+        tests/shortcut_dispatch_test.cpp
+        src/app/theme_runtime.cpp
+    )
+    mdsscope_configure_target(shortcut_dispatch_test)
+    target_include_directories(shortcut_dispatch_test PRIVATE src)
+    target_link_libraries(shortcut_dispatch_test PRIVATE
+        mdsscope_ui
+        mdsscope_plot
+        Qt6::Widgets
+        Qt6::Concurrent
+        Qt6::Network
+    )
+    if(UNIX AND NOT APPLE)
+        target_link_libraries(shortcut_dispatch_test PRIVATE Qt6::DBus)
+    endif()
+    add_test(NAME shortcut_dispatch COMMAND shortcut_dispatch_test)
+    set_tests_properties(shortcut_dispatch PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     add_executable(shot_workflow_test
         tests/shot_workflow_test.cpp

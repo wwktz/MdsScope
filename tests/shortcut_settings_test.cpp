@@ -49,18 +49,30 @@ int main(int argc, char** argv)
     for (const ShortcutBinding& binding : std::as_const(bindings)) {
         ok &= expect(!binding.sequence.isEmpty(),
                      "default shortcut is empty");
-        ok &= expect(binding.alternative.isEmpty(),
-                     "default alternative should be empty");
+        const bool expectedLinuxEscapeAlternative =
+#ifdef Q_OS_LINUX
+            binding.command == ShortcutCommand::Escape;
+#else
+            false;
+#endif
+        ok &= expect(expectedLinuxEscapeAlternative
+                         ? binding.alternative.toString(
+                               QKeySequence::PortableText)
+                               == QStringLiteral("Esc")
+                         : binding.alternative.isEmpty(),
+                     "unexpected default alternative shortcut");
     }
 
     const ShortcutBinding* panelLeft =
         bindingFor(bindings, ShortcutCommand::PanelLeft);
     const ShortcutBinding* exitPoint =
-        bindingFor(bindings, ShortcutCommand::ExitPoint);
+        bindingFor(bindings, ShortcutCommand::Escape);
     const ShortcutBinding* previousShot =
         bindingFor(bindings, ShortcutCommand::PreviousShot);
     const ShortcutBinding* pointPrevious =
         bindingFor(bindings, ShortcutCommand::PointPrevious);
+    const ShortcutBinding* menuActivate =
+        bindingFor(bindings, ShortcutCommand::MenuActivate);
     const ShortcutBinding* globalRate =
         bindingFor(bindings, ShortcutCommand::GlobalRate);
     const ShortcutBinding* panelRate =
@@ -71,18 +83,30 @@ int main(int argc, char** argv)
         bindingFor(bindings, ShortcutCommand::RefreshData);
     const ShortcutBinding* resetAll =
         bindingFor(bindings, ShortcutCommand::ResetAllScales);
+    const ShortcutBinding* resetCurrent =
+        bindingFor(bindings, ShortcutCommand::ResetCurrentScale);
     ok &= expect(panelLeft && exitPoint && previousShot
-                     && pointPrevious && globalRate && panelRate
-                     && menuDown && refreshData && resetAll,
+                     && pointPrevious && menuActivate
+                     && globalRate && panelRate
+                     && menuDown && refreshData && resetAll
+                     && resetCurrent,
                  "missing platform shortcut");
+    ok &= expect(
+        menuActivate->sequence.toString(QKeySequence::PortableText)
+            == QStringLiteral("Enter"),
+        "Enter / Activate should default to Enter");
+    ok &= expect(
+        resetCurrent->sequence.toString(QKeySequence::PortableText)
+            == QStringLiteral("Ctrl+R, C"),
+        "Reset Current should default to Ctrl+R, C");
     ok &= expect(
         refreshData->sequence.toString(QKeySequence::PortableText)
             == QStringLiteral("Ctrl+Shift+R"),
         "Refresh should default to Ctrl+Shift+R");
     ok &= expect(
         resetAll->sequence.toString(QKeySequence::PortableText)
-            == QStringLiteral("Ctrl+A, R"),
-        "Reset All should default to Ctrl+A, R");
+            == QStringLiteral("Ctrl+R, A"),
+        "Reset All should default to Ctrl+R, A");
     ok &= expect(
         globalRate->sequence.toString(QKeySequence::PortableText)
             == QStringLiteral("Ctrl+G, R"),
@@ -103,7 +127,7 @@ int main(int argc, char** argv)
     ok &= expect(
         exitPoint->sequence.toString(QKeySequence::PortableText)
             == QStringLiteral("J, K"),
-        "Linux should default to J, K Point exit");
+        "Linux should default to J, K Escape");
     ok &= expect(
         previousShot->sequence.toString(QKeySequence::PortableText)
             == QStringLiteral("Ctrl+H"),
@@ -135,12 +159,33 @@ int main(int argc, char** argv)
             QKeySequence::fromString(
                 QStringLiteral("Ctrl+Shift+S"),
                 QKeySequence::PortableText);
+        auto menuActivateIt = std::find_if(
+            bindings.begin(),
+            bindings.end(),
+            [](const ShortcutBinding& binding) {
+                return binding.command
+                       == ShortcutCommand::MenuActivate;
+            });
+        if (menuActivateIt != bindings.end()) {
+            menuActivateIt->alternative =
+                QKeySequence::fromString(
+                    QStringLiteral("A"),
+                    QKeySequence::PortableText);
+        }
         saveShortcutBindings(temporary.path(), bindings);
         const QVector<ShortcutBinding> loaded =
             loadShortcutBindings(temporary.path());
         ok &= expect(
             loaded[0].alternative == bindings[0].alternative,
             "alternative shortcut did not persist");
+        const ShortcutBinding* loadedMenuActivate =
+            bindingFor(loaded, ShortcutCommand::MenuActivate);
+        ok &= expect(
+            loadedMenuActivate
+                && loadedMenuActivate->alternative.toString(
+                       QKeySequence::PortableText)
+                       == QStringLiteral("A"),
+            "custom Enter / Activate alternative did not persist");
     }
 
     QTemporaryDir legacyTemporary;
@@ -170,6 +215,18 @@ int main(int argc, char** argv)
                 QStringLiteral("Ctrl+Shift+R"),
                 QKeySequence::PortableText);
         }
+        const auto legacyResetCurrent = std::find_if(
+            legacy.begin(),
+            legacy.end(),
+            [](const ShortcutBinding& binding) {
+                return binding.command
+                       == ShortcutCommand::ResetCurrentScale;
+            });
+        if (legacyResetCurrent != legacy.end()) {
+            legacyResetCurrent->sequence = QKeySequence::fromString(
+                QStringLiteral("Ctrl+R"),
+                QKeySequence::PortableText);
+        }
         saveShortcutBindings(legacyTemporary.path(), legacy);
         const QVector<ShortcutBinding> migrated =
             loadShortcutBindings(legacyTemporary.path());
@@ -177,15 +234,52 @@ int main(int argc, char** argv)
             bindingFor(migrated, ShortcutCommand::ResetAllScales);
         const ShortcutBinding* migratedRefresh =
             bindingFor(migrated, ShortcutCommand::RefreshData);
+        const ShortcutBinding* migratedResetCurrent =
+            bindingFor(migrated, ShortcutCommand::ResetCurrentScale);
         ok &= expect(
             migratedReset && migratedRefresh
+                && migratedResetCurrent
                 && migratedReset->sequence.toString(
                        QKeySequence::PortableText)
-                       == QStringLiteral("Ctrl+A, R")
+                       == QStringLiteral("Ctrl+R, A")
                 && migratedRefresh->sequence.toString(
                        QKeySequence::PortableText)
-                       == QStringLiteral("Ctrl+Shift+R"),
-            "legacy Reset All default was not migrated");
+                       == QStringLiteral("Ctrl+Shift+R")
+                && migratedResetCurrent->sequence.toString(
+                       QKeySequence::PortableText)
+                       == QStringLiteral("Ctrl+R, C"),
+            "legacy Reset defaults were not migrated");
+    }
+
+    QTemporaryDir recentTemporary;
+    ok &= expect(recentTemporary.isValid(),
+                 "could not create recent settings directory");
+    if (recentTemporary.isValid()) {
+        QVector<ShortcutBinding> recent =
+            defaultShortcutBindings();
+        const auto recentReset = std::find_if(
+            recent.begin(),
+            recent.end(),
+            [](const ShortcutBinding& binding) {
+                return binding.command
+                       == ShortcutCommand::ResetAllScales;
+            });
+        if (recentReset != recent.end()) {
+            recentReset->sequence = QKeySequence::fromString(
+                QStringLiteral("Ctrl+A, R"),
+                QKeySequence::PortableText);
+        }
+        saveShortcutBindings(recentTemporary.path(), recent);
+        const QVector<ShortcutBinding> migrated =
+            loadShortcutBindings(recentTemporary.path());
+        const ShortcutBinding* migratedReset =
+            bindingFor(migrated, ShortcutCommand::ResetAllScales);
+        ok &= expect(
+            migratedReset
+                && migratedReset->sequence.toString(
+                       QKeySequence::PortableText)
+                       == QStringLiteral("Ctrl+R, A"),
+            "recent Reset All default was not migrated");
     }
     return ok ? 0 : 1;
 }

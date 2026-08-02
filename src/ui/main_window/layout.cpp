@@ -69,6 +69,7 @@ void MainWindow::rebuildGrid()
         gridLayout_->setColumnStretch(c, 0);
     }
     activePointPlot_ = nullptr;
+    pausedPointPlot_ = nullptr;
     pointSyncSource_ = nullptr;
     pointSyncQueued_ = false;
     singlePanelMaximized_ = false;
@@ -101,18 +102,13 @@ void MainWindow::rebuildGrid()
             connect(plot, &QWidget::customContextMenuRequested, this, [this, plot, c, r](const QPoint& pos) {
                 showPanelContextMenu(plot, c, r, pos);
             });
-            connect(plot, &PlotWidget::selected, this, [this, plot, c, r] {
+            connect(plot, &PlotWidget::selected, this, [this, c, r] {
                 selectPlot(c, r);
-                if (pointButton_ && pointButton_->isChecked()) {
-                    if (activePointPlot_ && activePointPlot_ != plot) {
-                        activePointPlot_->deactivatePointTracking();
-                    }
-                    activePointPlot_ = plot;
-                }
             });
-            connect(plot, &PlotWidget::pointTrackingStopped, this, [this, plot] {
+            connect(plot, &PlotWidget::pointTrackingPaused, this, [this, plot] {
                 if (activePointPlot_ == plot) {
                     activePointPlot_ = nullptr;
+                    pausedPointPlot_ = plot;
                 }
                 pointSyncSource_ = nullptr;
                 pointSyncQueued_ = false;
@@ -123,11 +119,20 @@ void MainWindow::rebuildGrid()
                 if (!(pointButton_ && pointButton_->isChecked())) {
                     return;
                 }
-                // A plot keeps its local point-tracking state after another
-                // panel is selected. Ignore those stale senders so moving over
-                // a previously selected panel cannot take ownership back.
                 if (activePointPlot_ != plot) {
-                    return;
+                    // Mouse selection is emitted before the plot has resolved
+                    // a data point. Take ownership only once a valid tracking
+                    // point exists on the currently selected panel; merely
+                    // selecting a panel must not create a false active state.
+                    if (currentPlotWidget() != plot
+                        || !plot->pointTrackingActive()) {
+                        return;
+                    }
+                    if (activePointPlot_) {
+                        activePointPlot_->deactivatePointTracking();
+                    }
+                    activePointPlot_ = plot;
+                    pausedPointPlot_ = nullptr;
                 }
                 if (!std::isfinite(x)) {
                     if (activePointPlot_ == plot) {
@@ -230,6 +235,33 @@ void MainWindow::selectPlot(int column, int row)
     if (column < 0 || row < 0 || column >= plotWidgets_.size() || row >= plotWidgets_[column].size()) {
         return;
     }
+    PlotWidget* nextPlot = plotWidgets_[column][row];
+    bool clearedPoint = false;
+    if (activePointPlot_ && activePointPlot_ != nextPlot) {
+        activePointPlot_->deactivatePointTracking();
+        activePointPlot_ = nullptr;
+        clearedPoint = true;
+    }
+    if (pausedPointPlot_ && pausedPointPlot_ != nextPlot) {
+        // The paused marker is intentionally persistent. Changing panels only
+        // gives up the old resume target; it must not erase the static point
+        // and crosshair that J,K/Escape left behind.
+        pausedPointPlot_ = nullptr;
+    }
+    if (clearedPoint) {
+        pointSyncSource_ = nullptr;
+        pointSyncQueued_ = false;
+        pendingPointX_ = qQNaN();
+        ++pointSyncGeneration_;
+        for (const auto& plots : std::as_const(plotWidgets_)) {
+            for (PlotWidget* plot : plots) {
+                if (plot) {
+                    plot->clearSyncedPoint();
+                }
+            }
+        }
+    }
+
     selectedColumn_ = column;
     selectedRow_ = row;
     for (int c = 0; c < plotWidgets_.size(); ++c) {

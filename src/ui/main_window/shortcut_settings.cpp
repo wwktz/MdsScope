@@ -33,7 +33,8 @@ QVector<ShortcutBinding> defaultShortcutBindings()
     const QKeySequence panelDown = shortcut("J");
     const QKeySequence panelUp = shortcut("K");
     const QKeySequence panelRight = shortcut("L");
-    const QKeySequence exitPoint = shortcut("J, K");
+    const QKeySequence escape = shortcut("J, K");
+    const QKeySequence escapeAlternative = shortcut("Esc");
     const QKeySequence menuLeft = shortcut("H");
     const QKeySequence menuDown = shortcut("J");
     const QKeySequence menuUp = shortcut("K");
@@ -48,7 +49,8 @@ QVector<ShortcutBinding> defaultShortcutBindings()
     const QKeySequence panelDown = shortcut("Down");
     const QKeySequence panelUp = shortcut("Up");
     const QKeySequence panelRight = shortcut("Right");
-    const QKeySequence exitPoint = shortcut("Esc");
+    const QKeySequence escape = shortcut("Esc");
+    const QKeySequence escapeAlternative;
     const QKeySequence menuLeft = shortcut("Left");
     const QKeySequence menuDown = shortcut("Down");
     const QKeySequence menuUp = shortcut("Up");
@@ -76,10 +78,14 @@ QVector<ShortcutBinding> defaultShortcutBindings()
         {ShortcutCommand::FocusShot, "focus_shot", "General", "Focus shot input", shortcut("I"), {}},
         {ShortcutCommand::RefreshData, "refresh_data", "General", "Refresh data", shortcut("Ctrl+Shift+R"), {}},
         {ShortcutCommand::ToggleRefresh, "toggle_refresh", "General", "Stop / Continue", shortcut("Space"), {}},
+        {ShortcutCommand::MenuActivate, "menu_activate", "General", "Enter / activate", shortcut("Enter"), {}},
+        // Keep the historical settings id so existing custom bindings remain
+        // valid now that this command behaves as a general Escape equivalent.
+        {ShortcutCommand::Escape, "exit_point", "General", "Escape / cancel", escape, escapeAlternative},
 
         {ShortcutCommand::MaximizePanel, "maximize_panel", "Panel", "Maximize panel", maximizePanel, {}},
-        {ShortcutCommand::ResetCurrentScale, "reset_current_scale", "Panel", "Reset current scale", shortcut("Ctrl+R"), {}},
-        {ShortcutCommand::ResetAllScales, "reset_all_scales", "Panel", "Reset all scales", shortcut("Ctrl+A, R"), {}},
+        {ShortcutCommand::ResetCurrentScale, "reset_current_scale", "Panel", "Reset current scale", shortcut("Ctrl+R, C"), {}},
+        {ShortcutCommand::ResetAllScales, "reset_all_scales", "Panel", "Reset all scales", shortcut("Ctrl+R, A"), {}},
         {ShortcutCommand::ShowAllPanels, "show_all_panels", "Panel", "Show all panels", shortcut("Ctrl+A"), {}},
         {ShortcutCommand::SameXScale, "same_x_scale", "Panel", "All same X scale", shortcut("Ctrl+X"), {}},
         {ShortcutCommand::SameYScale, "same_y_scale", "Panel", "All same Y scale", shortcut("Ctrl+Y"), {}},
@@ -90,7 +96,6 @@ QVector<ShortcutBinding> defaultShortcutBindings()
 
         {ShortcutCommand::PointPrevious, "point_previous", "Point tracking", "Move Point left", pointPrevious, {}},
         {ShortcutCommand::PointNext, "point_next", "Point tracking", "Move Point right", pointNext, {}},
-        {ShortcutCommand::ExitPoint, "exit_point", "Point tracking", "Exit Point tracking", exitPoint, {}},
 
         {ShortcutCommand::PanelLeft, "panel_left", "Panel navigation", "Select panel left", panelLeft, {}},
         {ShortcutCommand::PanelDown, "panel_down", "Panel navigation", "Select panel down", panelDown, {}},
@@ -106,7 +111,6 @@ QVector<ShortcutBinding> defaultShortcutBindings()
         {ShortcutCommand::MenuDown, "menu_down", "Popup menu navigation", "Move down", menuDown, {}},
         {ShortcutCommand::MenuUp, "menu_up", "Popup menu navigation", "Move up", menuUp, {}},
         {ShortcutCommand::MenuRight, "menu_right", "Popup menu navigation", "Move right / open submenu", menuRight, {}},
-        {ShortcutCommand::MenuActivate, "menu_activate", "Popup menu navigation", "Activate selected item", shortcut("Enter"), {}},
     };
 }
 
@@ -124,20 +128,36 @@ QVector<ShortcutBinding> loadShortcutBindings(const QString& rootPath)
         const QKeySequence storedSequence = QKeySequence::fromString(
             settings.value(binding.id).toString(),
             QKeySequence::PortableText);
-        // Before Refresh had its own command, Ctrl+Shift+R was the default
-        // Reset All binding. Move that legacy default to the new layout while
-        // preserving every other customized binding.
-        const bool legacyResetDefault =
+        // Migrate earlier Reset All defaults to the current Reset-then-All
+        // sequence while preserving every other customized binding.
+        const bool outdatedResetAllDefault =
             binding.command == ShortcutCommand::ResetAllScales
-            && !hasRefreshBinding
-            && storedSequence == shortcut("Ctrl+Shift+R");
-        if (!legacyResetDefault) {
+            && ((!hasRefreshBinding
+                && storedSequence == shortcut("Ctrl+Shift+R"))
+                || storedSequence == shortcut("Ctrl+A, R")
+                || storedSequence == shortcut("Ctrl+G, A"));
+        const bool outdatedResetCurrentDefault =
+            binding.command == ShortcutCommand::ResetCurrentScale
+            && storedSequence == shortcut("Ctrl+R");
+        if (!outdatedResetAllDefault
+            && !outdatedResetCurrentDefault) {
             binding.sequence = storedSequence;
         }
-        binding.alternative = QKeySequence::fromString(
+        const QKeySequence storedAlternative = QKeySequence::fromString(
             settings.value(binding.id + QStringLiteral("_alternative"))
                 .toString(),
             QKeySequence::PortableText);
+#ifdef Q_OS_LINUX
+        const bool legacyEscapeDefault =
+            binding.command == ShortcutCommand::Escape
+            && storedSequence == shortcut("J, K")
+            && storedAlternative.isEmpty();
+        if (!legacyEscapeDefault) {
+            binding.alternative = storedAlternative;
+        }
+#else
+        binding.alternative = storedAlternative;
+#endif
     }
     settings.endGroup();
     return bindings;
@@ -180,7 +200,7 @@ QString shortcutPlatformDescription()
         "macOS defaults use native Command shortcuts, arrow keys, and Esc. You can optionally add one alternative shortcut per action.");
 #else
     return QStringLiteral(
-        "Linux defaults use Vim-style H/J/K/L navigation, including in popup menus, and J, K to exit Point tracking. You can optionally add one alternative shortcut per action.");
+        "Linux defaults use Vim-style H/J/K/L navigation, including in popup menus, and J, K as an Escape equivalent. You can optionally add one alternative shortcut per action.");
 #endif
 }
 
