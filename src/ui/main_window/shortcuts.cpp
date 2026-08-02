@@ -308,11 +308,13 @@ bool MainWindow::handleShortcutKey(QKeyEvent* event,
                 || command == ShortcutCommand::MenuRight;
             const bool navigateImmediately =
                 menuNavigation
-                || (panelNavigation && !pausedPointPlot_);
+                || panelNavigation;
             if (navigateImmediately) {
                 if (panelNavigation) {
                     pendingPanelNavigationOrigin_ =
                         PanelId {selectedColumn_, selectedRow_};
+                    pendingPanelNavigationPausedPoint_ =
+                        pausedPointPlot_;
                 }
                 triggerShortcutCommand(command);
                 pendingExactShortcut_.reset();
@@ -328,6 +330,7 @@ bool MainWindow::handleShortcutKey(QKeyEvent* event,
                 restorePendingPanelNavigation();
             } else {
                 pendingPanelNavigationOrigin_.reset();
+                pendingPanelNavigationPausedPoint_.clear();
             }
             pendingShortcutKeys_.clear();
             pendingExactShortcut_.reset();
@@ -350,6 +353,7 @@ bool MainWindow::handleShortcutKey(QKeyEvent* event,
             pendingShortcutKeys_ = std::move(keys);
             pendingExactShortcut_.reset();
             pendingPanelNavigationOrigin_.reset();
+            pendingPanelNavigationPausedPoint_.clear();
             shortcutSequenceTimer_.start();
             return 1;
         }
@@ -366,6 +370,7 @@ bool MainWindow::handleShortcutKey(QKeyEvent* event,
             restorePendingPanelNavigation();
         } else {
             pendingPanelNavigationOrigin_.reset();
+            pendingPanelNavigationPausedPoint_.clear();
         }
         pendingShortcutKeys_.clear();
         shortcutSequenceTimer_.stop();
@@ -378,6 +383,7 @@ bool MainWindow::handleShortcutKey(QKeyEvent* event,
         pendingShortcutKeys_.clear();
         pendingExactShortcut_.reset();
         pendingPanelNavigationOrigin_.reset();
+        pendingPanelNavigationPausedPoint_.clear();
         shortcutSequenceTimer_.stop();
     }
     return result != 0;
@@ -683,12 +689,19 @@ void MainWindow::restorePendingPanelNavigation()
 {
     const std::optional<PanelId> origin =
         std::exchange(pendingPanelNavigationOrigin_, std::nullopt);
+    PlotWidget* pausedPoint =
+        pendingPanelNavigationPausedPoint_.data();
+    pendingPanelNavigationPausedPoint_.clear();
     if (!origin || origin->column < 0 || origin->row < 0
         || origin->column >= plotWidgets_.size()
         || origin->row >= plotWidgets_[origin->column].size()) {
         return;
     }
     selectPlot(origin->column, origin->row);
+    if (pausedPoint && !activePointPlot_
+        && currentInteractionMode_ == InteractionMode::Point) {
+        pausedPointPlot_ = pausedPoint;
+    }
     if (singlePanelMaximized_) {
         maximizeCurrentPanel();
     }
@@ -743,6 +756,7 @@ bool MainWindow::activatePointForCurrentPanel(int seriesIndex)
         return false;
     }
     plot->setFocus(Qt::ShortcutFocusReason);
+    plot->moveCursorToActivePoint();
     return true;
 }
 
@@ -760,6 +774,7 @@ bool MainWindow::resumePausedPoint()
         return false;
     }
     plot->setFocus(Qt::ShortcutFocusReason);
+    plot->moveCursorToActivePoint();
     return true;
 }
 
@@ -810,6 +825,7 @@ void MainWindow::cancelShotEditSession()
     pendingShortcutKeys_.clear();
     pendingExactShortcut_.reset();
     pendingPanelNavigationOrigin_.reset();
+    pendingPanelNavigationPausedPoint_.clear();
     shortcutSequenceTimer_.stop();
     focusSelectedPlot();
 }
@@ -932,6 +948,7 @@ void MainWindow::openShortcutDialog()
     pendingShortcutKeys_.clear();
     pendingExactShortcut_.reset();
     pendingPanelNavigationOrigin_.reset();
+    pendingPanelNavigationPausedPoint_.clear();
     shortcutSequenceTimer_.stop();
     ShortcutDialog dialog(shortcutBindings_, this);
     if (dialog.exec() != QDialog::Accepted) {

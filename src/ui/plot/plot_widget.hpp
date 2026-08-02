@@ -52,6 +52,7 @@ public:
     bool activatePointAtViewCenter(int seriesIndex = -1);
     bool activatePointAtViewCenterForDataSeries(int ordinal);
     bool pointTrackingActive() const { return pointTrackingActive_; }
+    void moveCursorToActivePoint() const;
     bool stepActivePoint(int delta);
     int activePointSeriesIndex() const { return hoverSeriesIndex_; }
     double activePointX() const { return hoverData_.x(); }

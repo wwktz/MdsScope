@@ -6,6 +6,7 @@
 #include "helpers.hpp"
 #include "plot_widget.hpp"
 
+#include <QCursor>
 #include <QSizePolicy>
 #include <QTimer>
 
@@ -201,6 +202,15 @@ bool PlotWidget::resumePointTracking()
     emit pointXChanged(hoverData_.x());
     update();
     return true;
+}
+
+void PlotWidget::moveCursorToActivePoint() const
+{
+    if (!isVisible() || !pointTrackingActive_ || hoverText_.isEmpty()
+        || !plotRect().contains(hoverPixel_)) {
+        return;
+    }
+    QCursor::setPos(mapToGlobal(hoverPixel_.toPoint()));
 }
 
 void PlotWidget::setSelected(bool selected)

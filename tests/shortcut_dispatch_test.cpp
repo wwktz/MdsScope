@@ -115,14 +115,6 @@ public:
         window.selectPlot(column, row);
     }
 
-    static void expireShortcutSequence(MainWindow& window)
-    {
-        QMetaObject::invokeMethod(
-            &window.shortcutSequenceTimer_,
-            "timeout",
-            Qt::DirectConnection);
-    }
-
     static PlotWidget* active(const MainWindow& window)
     {
         return window.activePointPlot_;
@@ -266,6 +258,18 @@ int main(int argc, char** argv)
             && std::abs(first->activePointX() - originalX) < 1e-9,
         "J,K did not pause Point while retaining its data position");
 
+    sendKey(first, Qt::Key_J, Qt::NoModifier, QStringLiteral("j"));
+    ok &= expect(
+        ShortcutDispatchTestAccess::selectedRow(window) == 1
+            && ShortcutDispatchTestAccess::paused(window) == nullptr,
+        "J did not navigate immediately after pausing Point");
+    sendKey(third, Qt::Key_K, Qt::NoModifier, QStringLiteral("k"));
+    ok &= expect(
+        ShortcutDispatchTestAccess::selectedRow(window) == 0
+            && ShortcutDispatchTestAccess::paused(window) == first
+            && ShortcutDispatchTestAccess::markerVisible(*first),
+        "J,K rollback did not restore the paused Point panel");
+
     sendKey(first, Qt::Key_A, Qt::NoModifier, QStringLiteral("a"));
     ok &= expect(
         first->pointTrackingActive()
@@ -286,15 +290,11 @@ int main(int argc, char** argv)
     sendKey(first, Qt::Key_Escape);
     sendKey(first, Qt::Key_J, Qt::NoModifier, QStringLiteral("j"));
     ok &= expect(
-        ShortcutDispatchTestAccess::selectedRow(window) == 0,
-        "J navigated before the J,K pause sequence was resolved");
-    ShortcutDispatchTestAccess::expireShortcutSequence(window);
-    ok &= expect(
         ShortcutDispatchTestAccess::selectedColumn(window) == 0
             && ShortcutDispatchTestAccess::selectedRow(window) == 1
             && ShortcutDispatchTestAccess::paused(window) == nullptr
             && ShortcutDispatchTestAccess::markerVisible(*first),
-        "standalone J did not navigate after timeout while preserving the marker");
+        "standalone J did not navigate immediately while preserving the marker");
     sendKey(third, Qt::Key_Return,
             Qt::NoModifier, QStringLiteral("\r"));
     ok &= expect(

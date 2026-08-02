@@ -9,6 +9,7 @@
 
 #include <QHash>
 #include <QMainWindow>
+#include <QPointer>
 #include <QSet>
 #include <QTimer>
 
@@ -249,6 +250,7 @@ private:
     QList<QKeyCombination> pendingShortcutKeys_;
     std::optional<ShortcutCommand> pendingExactShortcut_;
     std::optional<PanelId> pendingPanelNavigationOrigin_;
+    QPointer<PlotWidget> pendingPanelNavigationPausedPoint_;
     QTimer shortcutSequenceTimer_;
     QTimer shotEditExitTimer_;
     QList<QKeyCombination> pendingShotEditExitKeys_;
