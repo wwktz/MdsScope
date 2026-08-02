@@ -3,7 +3,7 @@
 
 cmake_minimum_required(VERSION 3.16)
 
-project(MdsScope VERSION 5.14 LANGUAGES CXX)
+project(MdsScope VERSION 5.14.1 LANGUAGES CXX)
 
 execute_process(
     COMMAND git rev-parse --short=9 HEAD
