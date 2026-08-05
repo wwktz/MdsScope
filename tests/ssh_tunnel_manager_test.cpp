@@ -33,6 +33,11 @@ public:
     {
         return manager.tunnels_.size();
     }
+
+    static QStringList arguments(const SshSettings& settings)
+    {
+        return SshTunnelManager::commonArguments(settings, true);
+    }
 };
 
 namespace {
@@ -49,6 +54,15 @@ int main(int argc, char** argv)
 {
     QCoreApplication app(argc, argv);
     bool ok = true;
+
+    {
+        const QStringList arguments =
+            SshTunnelManagerTestAccess::arguments(SshSettings{});
+        ok &= expect(arguments.contains(QStringLiteral("ConnectTimeout=5")),
+                     "SSH connection timeout is not bounded per attempt");
+        ok &= expect(arguments.contains(QStringLiteral("ConnectionAttempts=2")),
+                     "SSH transient connection retry is not enabled");
+    }
 
     {
         SshTunnelManager manager;
