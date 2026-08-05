@@ -58,7 +58,9 @@ private:
     static bool tcpReachable(const QString& host, int port, int timeoutMs);
     static int reserveLocalPort();
     static QString sshTarget(const SshSettings& settings);
-    static QStringList commonArguments(const SshSettings& settings, bool tunnel);
+    static QStringList commonArguments(const SshSettings& settings,
+                                       bool tunnel,
+                                       int connectTimeoutSeconds);
     static void configureAskPass(QProcess* process, const SshSettings& settings);
 
     bool ensureTunnel(const QString& endpoint, QString* localEndpoint, QString* error);

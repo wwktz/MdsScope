@@ -34,9 +34,11 @@ public:
         return manager.tunnels_.size();
     }
 
-    static QStringList arguments(const SshSettings& settings)
+    static QStringList arguments(const SshSettings& settings,
+                                 int connectTimeoutSeconds)
     {
-        return SshTunnelManager::commonArguments(settings, true);
+        return SshTunnelManager::commonArguments(
+            settings, true, connectTimeoutSeconds);
     }
 };
 
@@ -56,12 +58,16 @@ int main(int argc, char** argv)
     bool ok = true;
 
     {
-        const QStringList arguments =
-            SshTunnelManagerTestAccess::arguments(SshSettings{});
-        ok &= expect(arguments.contains(QStringLiteral("ConnectTimeout=5")),
-                     "SSH connection timeout is not bounded per attempt");
-        ok &= expect(arguments.contains(QStringLiteral("ConnectionAttempts=2")),
-                     "SSH transient connection retry is not enabled");
+        for (const int timeout : {2, 4, 6}) {
+            const QStringList arguments =
+                SshTunnelManagerTestAccess::arguments(SshSettings{}, timeout);
+            ok &= expect(
+                arguments.contains(
+                    QStringLiteral("ConnectTimeout=%1").arg(timeout)),
+                "SSH progressive connection timeout is missing");
+            ok &= expect(arguments.contains(QStringLiteral("ConnectionAttempts=1")),
+                         "OpenSSH internal retry conflicts with staged retries");
+        }
     }
 
     {

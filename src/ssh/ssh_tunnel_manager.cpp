@@ -18,9 +18,35 @@
 #include <QTimer>
 #include <QUrl>
 
+#include <array>
+
 namespace {
 constexpr int kDirectReachabilityTimeoutMs = 450;
-constexpr int kSshSetupTimeoutMs = 15000;
+constexpr int kSshAttemptGraceMs = 3000;
+constexpr std::array<int, 3> kSshConnectTimeoutSeconds{2, 4, 6};
+
+bool isTransientSshFailure(const QString& message)
+{
+    const QString lower = message.toLower();
+    static const std::array<const char*, 10> markers{
+        "connection timed out",
+        "operation timed out",
+        "connection refused",
+        "connection reset",
+        "connection closed",
+        "no route to host",
+        "network is unreachable",
+        "temporary failure in name resolution",
+        "kex_exchange_identification",
+        "banner exchange",
+    };
+    for (const char* marker : markers) {
+        if (lower.contains(QString::fromLatin1(marker))) {
+            return true;
+        }
+    }
+    return false;
+}
 
 bool waitForProcessStarted(QProcess& process, int timeoutMs)
 {
@@ -152,14 +178,19 @@ QString SshTunnelManager::sshTarget(const SshSettings& settings)
     return settings.user.trimmed().isEmpty() ? host : settings.user.trimmed() + '@' + host;
 }
 
-QStringList SshTunnelManager::commonArguments(const SshSettings& settings, bool tunnel)
+QStringList SshTunnelManager::commonArguments(const SshSettings& settings,
+                                              bool tunnel,
+                                              int connectTimeoutSeconds)
 {
     QStringList args{
         QStringLiteral("-C"),
         QStringLiteral("-T"),
         QStringLiteral("-p"), QString::number(settings.port),
-        QStringLiteral("-o"), QStringLiteral("ConnectTimeout=5"),
-        QStringLiteral("-o"), QStringLiteral("ConnectionAttempts=2"),
+        QStringLiteral("-o"),
+        QStringLiteral("ConnectTimeout=%1").arg(connectTimeoutSeconds),
+        // Retries are managed here so each attempt can use the progressive
+        // 2/4/6-second timeout schedule.
+        QStringLiteral("-o"), QStringLiteral("ConnectionAttempts=1"),
         QStringLiteral("-o"), QStringLiteral("ServerAliveInterval=30"),
         QStringLiteral("-o"), QStringLiteral("ServerAliveCountMax=3"),
         QStringLiteral("-o"), QStringLiteral("NumberOfPasswordPrompts=1"),
@@ -220,33 +251,49 @@ bool SshTunnelManager::testConnection(const SshSettings& settings, QString* erro
         return false;
     }
     setState(State::Connecting, QStringLiteral("Testing SSH connection..."));
-    QProcess process;
-    configureAskPass(&process, settings);
-    QStringList args = commonArguments(settings, false);
-    args << sshTarget(settings) << QStringLiteral("true");
-    process.start(QStringLiteral("ssh"), args);
-    if (!waitForProcessStarted(process, 3000)) {
-        *error = process.errorString();
-        setState(State::Error, *error);
-        return false;
-    }
-    if (!waitForProcessFinished(process, kSshSetupTimeoutMs)) {
-        process.kill();
-        process.waitForFinished(1000);
-        *error = QStringLiteral("SSH connection timed out.");
-        setState(State::Error, *error);
-        return false;
-    }
-    if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {
-        *error = QString::fromLocal8Bit(process.readAllStandardError()).trimmed();
-        if (error->isEmpty()) {
-            *error = QStringLiteral("SSH exited with code %1.").arg(process.exitCode());
+    QString lastError;
+    for (const int connectTimeoutSeconds : kSshConnectTimeoutSeconds) {
+        QProcess process;
+        configureAskPass(&process, settings);
+        QStringList args = commonArguments(settings, false, connectTimeoutSeconds);
+        args << sshTarget(settings) << QStringLiteral("true");
+        process.start(QStringLiteral("ssh"), args);
+        if (!waitForProcessStarted(process, 3000)) {
+            lastError = QString::fromLocal8Bit(process.readAllStandardError()).trimmed();
+            if (lastError.isEmpty()) {
+                lastError = process.errorString();
+            }
+            if (process.error() == QProcess::FailedToStart
+                || !isTransientSshFailure(lastError)) {
+                break;
+            }
+            continue;
         }
-        setState(State::Error, *error);
-        return false;
+        const int attemptDeadlineMs = connectTimeoutSeconds * 1000
+                                      + kSshAttemptGraceMs;
+        if (!waitForProcessFinished(process, attemptDeadlineMs)) {
+            process.kill();
+            process.waitForFinished(1000);
+            lastError = QStringLiteral("SSH connection timed out.");
+            continue;
+        }
+        if (process.exitStatus() == QProcess::NormalExit
+            && process.exitCode() == 0) {
+            setState(State::Ready, QStringLiteral("SSH login succeeded"));
+            return true;
+        }
+        lastError = QString::fromLocal8Bit(process.readAllStandardError()).trimmed();
+        if (lastError.isEmpty()) {
+            lastError = QStringLiteral("SSH exited with code %1.").arg(process.exitCode());
+        }
+        if (!isTransientSshFailure(lastError)) {
+            break;
+        }
     }
-    setState(State::Ready, QStringLiteral("SSH login succeeded"));
-    return true;
+    *error = lastError.isEmpty() ? QStringLiteral("SSH connection failed.")
+                                 : lastError;
+    setState(State::Error, *error);
+    return false;
 }
 
 bool SshTunnelManager::ensureTunnel(const QString& endpoint, QString* localEndpoint, QString* error)
@@ -274,54 +321,79 @@ bool SshTunnelManager::ensureTunnel(const QString& endpoint, QString* localEndpo
     if (!keepConnectedState) {
         setState(State::Connecting, QStringLiteral("Connecting through SSH..."));
     }
-    auto* process = new QProcess(this);
-    configureAskPass(process, settings_);
-    QStringList args = commonArguments(settings_, true);
     const QString forwardingHost = remoteHost.contains(':')
                                        ? QStringLiteral("[%1]").arg(remoteHost)
                                        : remoteHost;
-    args << QStringLiteral("-L")
-         << QStringLiteral("127.0.0.1:%1:%2:%3").arg(localPort).arg(forwardingHost).arg(remotePort)
-         << sshTarget(settings_);
-    process->start(QStringLiteral("ssh"), args);
-    if (!waitForProcessStarted(*process, 3000)) {
-        *error = process->errorString();
-        process->deleteLater();
-        if (!keepConnectedState) {
-            setState(State::Error, *error);
+    QString lastError;
+    for (const int connectTimeoutSeconds : kSshConnectTimeoutSeconds) {
+        auto* process = new QProcess(this);
+        configureAskPass(process, settings_);
+        QStringList args = commonArguments(settings_, true, connectTimeoutSeconds);
+        args << QStringLiteral("-L")
+             << QStringLiteral("127.0.0.1:%1:%2:%3")
+                    .arg(localPort)
+                    .arg(forwardingHost)
+                    .arg(remotePort)
+             << sshTarget(settings_);
+        process->start(QStringLiteral("ssh"), args);
+        if (!waitForProcessStarted(*process, 3000)) {
+            lastError = QString::fromLocal8Bit(process->readAllStandardError()).trimmed();
+            if (lastError.isEmpty()) {
+                lastError = process->errorString();
+            }
+            const bool retry = process->error() != QProcess::FailedToStart
+                               && isTransientSshFailure(lastError);
+            delete process;
+            if (retry) {
+                continue;
+            }
+            break;
         }
-        return false;
+
+        QElapsedTimer timer;
+        timer.start();
+        const int attemptDeadlineMs = connectTimeoutSeconds * 1000
+                                      + kSshAttemptGraceMs;
+        while (timer.elapsed() < attemptDeadlineMs
+               && process->state() != QProcess::NotRunning) {
+            if (tcpReachable(QStringLiteral("127.0.0.1"), localPort, 100)) {
+                Tunnel tunnel;
+                tunnel.endpoint = endpoint;
+                tunnel.host = remoteHost;
+                tunnel.remotePort = remotePort;
+                tunnel.localPort = localPort;
+                tunnel.process = process;
+                tunnels_.insert(endpoint, tunnel);
+                connect(process, &QProcess::finished, this, [this, endpoint, process](int, QProcess::ExitStatus) {
+                    handleTunnelFinished(endpoint, process);
+                });
+                *localEndpoint = QStringLiteral("127.0.0.1:%1").arg(localPort);
+                setState(State::Connected, QStringLiteral("SSH tunnel connected"));
+                return true;
+            }
+            QEventLoop tick;
+            QTimer::singleShot(25, &tick, &QEventLoop::quit);
+            tick.exec();
+        }
+
+        const bool attemptTimedOut = process->state() != QProcess::NotRunning;
+        lastError = QString::fromLocal8Bit(process->readAllStandardError()).trimmed();
+        if (attemptTimedOut) {
+            process->kill();
+            process->waitForFinished(1000);
+            if (lastError.isEmpty()) {
+                lastError = QStringLiteral("SSH tunnel setup timed out.");
+            }
+        }
+        const bool retry = attemptTimedOut || isTransientSshFailure(lastError);
+        delete process;
+        if (!retry) {
+            break;
+        }
     }
 
-    QElapsedTimer timer;
-    timer.start();
-    while (timer.elapsed() < kSshSetupTimeoutMs
-           && process->state() != QProcess::NotRunning) {
-        if (tcpReachable(QStringLiteral("127.0.0.1"), localPort, 100)) {
-            Tunnel tunnel;
-            tunnel.endpoint = endpoint;
-            tunnel.host = remoteHost;
-            tunnel.remotePort = remotePort;
-            tunnel.localPort = localPort;
-            tunnel.process = process;
-            tunnels_.insert(endpoint, tunnel);
-            connect(process, &QProcess::finished, this, [this, endpoint, process](int, QProcess::ExitStatus) {
-                handleTunnelFinished(endpoint, process);
-            });
-            *localEndpoint = QStringLiteral("127.0.0.1:%1").arg(localPort);
-            setState(State::Connected, QStringLiteral("SSH tunnel connected"));
-            return true;
-        }
-        QEventLoop tick;
-        QTimer::singleShot(25, &tick, &QEventLoop::quit);
-        tick.exec();
-    }
-
-    const QString stderrText = QString::fromLocal8Bit(process->readAllStandardError()).trimmed();
-    process->kill();
-    process->waitForFinished(1000);
-    process->deleteLater();
-    *error = stderrText.isEmpty() ? QStringLiteral("SSH tunnel setup timed out.") : stderrText;
+    *error = lastError.isEmpty() ? QStringLiteral("SSH tunnel setup failed.")
+                                 : lastError;
     if (!keepConnectedState) {
         setState(State::Error, *error);
     }

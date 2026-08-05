@@ -9,6 +9,7 @@
 #include "mds/mds_client.hpp"
 
 #include <QTextStream>
+#include <QElapsedTimer>
 #include <QEventLoop>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -103,10 +104,14 @@ int runSshTunnelBenchmark(const QString& configPath, const QString& shotOverride
 
     LayoutConfig prepared;
     QString error;
+    QElapsedTimer tunnelTimer;
+    tunnelTimer.start();
     if (!manager.prepareLayout(source, &prepared, &error)) {
-        err << "SSH tunnel setup failed: " << error << Qt::endl;
+        err << "SSH tunnel setup failed after "
+            << tunnelTimer.elapsed() << " ms: " << error << Qt::endl;
         return 3;
     }
+    const qint64 tunnelMs = tunnelTimer.elapsed();
 
     int ok = 0;
     int empty = 0;
@@ -125,6 +130,7 @@ int runSshTunnelBenchmark(const QString& configPath, const QString& shotOverride
     }
 
     out << "ssh-tunnel"
+        << "\ttunnel_ms=" << tunnelMs
         << "\tok=" << ok
         << "\tempty=" << empty
         << "\tfailed=" << failed
