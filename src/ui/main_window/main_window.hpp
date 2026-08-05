@@ -225,8 +225,6 @@ private:
     QAction* appearanceAction_ = nullptr;
     QAction* keyboardShortcutsAction_ = nullptr;
     SshTunnelManager* sshTunnelManager_ = nullptr;
-    QString cachedApiSourceUrl_;
-    QString cachedPreparedApiUrl_;
     QToolBar* toolbar_ = nullptr;
     QWidget* recentEnvironmentSpace_ = nullptr;
     QWidget* topControls_ = nullptr;

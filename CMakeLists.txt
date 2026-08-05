@@ -3,7 +3,7 @@
 
 cmake_minimum_required(VERSION 3.16)
 
-project(MdsScope VERSION 5.14.2 LANGUAGES CXX)
+project(MdsScope VERSION 5.14.3 LANGUAGES CXX)
 
 execute_process(
     COMMAND git rev-parse --short=9 HEAD
@@ -526,6 +526,18 @@ if(MDS_SCOPE_BUILD_TESTS)
         Qt6::Core
     )
     add_test(NAME auth_payload COMMAND auth_payload_test)
+
+    add_executable(ssh_tunnel_manager_test
+        tests/ssh_tunnel_manager_test.cpp
+    )
+    mdsscope_configure_target(ssh_tunnel_manager_test)
+    set_target_properties(ssh_tunnel_manager_test PROPERTIES AUTOMOC OFF)
+    target_include_directories(ssh_tunnel_manager_test PRIVATE src)
+    target_link_libraries(ssh_tunnel_manager_test PRIVATE
+        mdsscope_ssh
+        Qt6::Core
+    )
+    add_test(NAME ssh_tunnel_manager COMMAND ssh_tunnel_manager_test)
 
     if(MDS_SCOPE_NATIVE_CREDENTIAL_TESTS)
         add_executable(credential_store_integration_test

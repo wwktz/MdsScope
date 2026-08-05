@@ -224,8 +224,6 @@ void MainWindow::fetchLatestShotAsync(bool applyLatest)
                 return;
             }
             if (latest.isEmpty()) {
-                cachedApiSourceUrl_.clear();
-                cachedPreparedApiUrl_.clear();
                 if (completion.shouldApply) {
                     refresh_->cancelDeferredInitialRefresh();
                     setStatus("Latest shot unavailable");

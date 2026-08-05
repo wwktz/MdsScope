@@ -19,6 +19,9 @@
 #include <QUrl>
 
 namespace {
+constexpr int kDirectReachabilityTimeoutMs = 450;
+constexpr int kSshSetupTimeoutMs = 15000;
+
 bool waitForProcessStarted(QProcess& process, int timeoutMs)
 {
     if (process.state() == QProcess::Running) {
@@ -226,7 +229,7 @@ bool SshTunnelManager::testConnection(const SshSettings& settings, QString* erro
         setState(State::Error, *error);
         return false;
     }
-    if (!waitForProcessFinished(process, 12000)) {
+    if (!waitForProcessFinished(process, kSshSetupTimeoutMs)) {
         process.kill();
         process.waitForFinished(1000);
         *error = QStringLiteral("SSH connection timed out.");
@@ -291,7 +294,8 @@ bool SshTunnelManager::ensureTunnel(const QString& endpoint, QString* localEndpo
 
     QElapsedTimer timer;
     timer.start();
-    while (timer.elapsed() < 9000 && process->state() != QProcess::NotRunning) {
+    while (timer.elapsed() < kSshSetupTimeoutMs
+           && process->state() != QProcess::NotRunning) {
         if (tcpReachable(QStringLiteral("127.0.0.1"), localPort, 100)) {
             Tunnel tunnel;
             tunnel.endpoint = endpoint;
@@ -301,16 +305,7 @@ bool SshTunnelManager::ensureTunnel(const QString& endpoint, QString* localEndpo
             tunnel.process = process;
             tunnels_.insert(endpoint, tunnel);
             connect(process, &QProcess::finished, this, [this, endpoint, process](int, QProcess::ExitStatus) {
-                const auto current = tunnels_.find(endpoint);
-                if (current != tunnels_.end() && current->process == process) {
-                    tunnels_.erase(current);
-                    if (tunnels_.isEmpty()) {
-                        setState(State::Error, QStringLiteral("SSH tunnel disconnected"));
-                    } else {
-                        setState(State::Connected, QStringLiteral("SSH tunnel connected"));
-                    }
-                }
-                process->deleteLater();
+                handleTunnelFinished(endpoint, process);
             });
             *localEndpoint = QStringLiteral("127.0.0.1:%1").arg(localPort);
             setState(State::Connected, QStringLiteral("SSH tunnel connected"));
@@ -330,6 +325,24 @@ bool SshTunnelManager::ensureTunnel(const QString& endpoint, QString* localEndpo
         setState(State::Error, *error);
     }
     return false;
+}
+
+void SshTunnelManager::handleTunnelFinished(const QString& endpoint, QProcess* process)
+{
+    const auto current = tunnels_.find(endpoint);
+    if (current != tunnels_.end() && current->process == process) {
+        tunnels_.erase(current);
+        if (tunnels_.isEmpty()) {
+            // Forwarding processes are disposable and are recreated on demand.
+            // Their asynchronous exit is not, by itself, a failed connection
+            // attempt and must not leave the toolbar in a stale error state.
+            setState(State::Ready,
+                     QStringLiteral("SSH tunnel closed; it will reconnect when needed"));
+        } else {
+            setState(State::Connected, QStringLiteral("SSH tunnel connected"));
+        }
+    }
+    process->deleteLater();
 }
 
 bool SshTunnelManager::prepareLayout(const LayoutConfig& source, LayoutConfig* prepared, QString* error)
@@ -381,7 +394,8 @@ bool SshTunnelManager::prepareLayout(const LayoutConfig& source, LayoutConfig* p
                     signal.serverIp = localEndpoint;
                     continue;
                 }
-                if (settings_.mode == SshMode::Auto && tcpReachable(host, port, 450)) {
+                if (settings_.mode == SshMode::Auto
+                    && tcpReachable(host, port, kDirectReachabilityTimeoutMs)) {
                     mapped.insert(endpoint, endpoint);
                     continue;
                 }
@@ -460,7 +474,10 @@ bool SshTunnelManager::prepareUrlImpl(const QString& source,
         && existing->process->state() != QProcess::NotRunning) {
         localEndpoint = QStringLiteral("127.0.0.1:%1").arg(existing->localPort);
     } else {
-        if (allowDirect && settings_.mode == SshMode::Auto && tcpReachable(url.host(), remotePort, 450)) {
+        if (allowDirect && settings_.mode == SshMode::Auto
+            && tcpReachable(url.host(),
+                            remotePort,
+                            kDirectReachabilityTimeoutMs)) {
             return true;
         }
         if (!ensureTunnel(endpoint, &localEndpoint, error)) {

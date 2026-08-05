@@ -13,10 +13,6 @@ void MainWindow::openSshDialog()
     SshDialog dialog(sshTunnelManager_, this);
     dialog.setWindowIcon(appIcon());
     dialog.exec();
-    // Saving or testing SSH settings rebuilds the tunnel manager. Do not reuse
-    // an API URL prepared with the previous settings when the user logs in.
-    cachedApiSourceUrl_.clear();
-    cachedPreparedApiUrl_.clear();
     updateSshActionIcon();
 }
 
@@ -45,27 +41,11 @@ bool MainWindow::prepareSshUrl(const QString& source, QString* prepared)
         *prepared = source;
         return true;
     }
-    // A direct URL remains valid independently of SSH state. For a forwarded
-    // URL, let SshTunnelManager verify the endpoint-specific QProcess before
-    // reusing it: another live tunnel can keep the manager's aggregate state
-    // Connected even after this API tunnel has exited.
-    if (!cachedPreparedApiUrl_.isEmpty()
-        && cachedApiSourceUrl_ == source
-        && cachedPreparedApiUrl_ == source) {
-        *prepared = cachedPreparedApiUrl_;
-        return true;
-    }
-    cachedApiSourceUrl_.clear();
-    cachedPreparedApiUrl_.clear();
     QString error;
     if (sshTunnelManager_->prepareUrl(source, prepared, &error)) {
-        cachedApiSourceUrl_ = source;
-        cachedPreparedApiUrl_ = *prepared;
         updateSshActionIcon();
         return true;
     }
-    cachedApiSourceUrl_.clear();
-    cachedPreparedApiUrl_.clear();
     updateSshActionIcon();
     setStatus(error.isEmpty() ? QStringLiteral("SSH API tunnel failed") : error);
     return false;
@@ -84,7 +64,7 @@ void MainWindow::updateSshActionIcon()
         tooltip += QStringLiteral(": disabled or not configured");
         break;
     case SshTunnelManager::State::Ready:
-        tooltip += QStringLiteral(": configured");
+        tooltip += QStringLiteral(": configured; connects when needed");
         break;
     case SshTunnelManager::State::Connecting:
         tooltip += QStringLiteral(": connecting");
@@ -94,6 +74,10 @@ void MainWindow::updateSshActionIcon()
         break;
     case SshTunnelManager::State::Error:
         tooltip += QStringLiteral(": connection failed");
+        if (!sshTunnelManager_->lastError().isEmpty()) {
+            tooltip += QStringLiteral(" — ")
+                       + sshTunnelManager_->lastError().simplified().left(160);
+        }
         break;
     }
     sshAction_->setToolTip(tooltip);

@@ -10,6 +10,7 @@
 #include <QHash>
 
 class QProcess;
+class SshTunnelManagerTestAccess;
 
 class SshTunnelManager final : public QObject {
     Q_OBJECT
@@ -43,6 +44,8 @@ signals:
     void preparationFinished();
 
 private:
+    friend class SshTunnelManagerTestAccess;
+
     struct Tunnel {
         QString endpoint;
         QString host;
@@ -60,6 +63,7 @@ private:
 
     bool ensureTunnel(const QString& endpoint, QString* localEndpoint, QString* error);
     bool prepareUrlImpl(const QString& source, QString* prepared, QString* error, bool allowDirect);
+    void handleTunnelFinished(const QString& endpoint, QProcess* process);
     void setState(State state, const QString& detail = {});
 
     SshSettings settings_;

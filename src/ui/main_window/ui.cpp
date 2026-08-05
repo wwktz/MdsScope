@@ -585,8 +585,6 @@ void MainWindow::buildUi()
     updateLoginActionIcon();
     sshAction_ = toolbar->addAction(sshIcon(0), "SSH remote access", this, &MainWindow::openSshDialog);
     connect(sshTunnelManager_, &SshTunnelManager::stateChanged, this, [this] {
-        cachedApiSourceUrl_.clear();
-        cachedPreparedApiUrl_.clear();
         updateSshActionIcon();
     });
     updateSshActionIcon();
@@ -1801,10 +1799,6 @@ void MainWindow::scheduleTopInfoUpdate(const QString& shot)
             if (!shotWorkflow_->completeSummaryFetch(
                     generation, trimmedShot, ok, summary)) {
                 return;
-            }
-            if (!ok) {
-                cachedApiSourceUrl_.clear();
-                cachedPreparedApiUrl_.clear();
             }
             updateTopInfoLabels();
         }, Qt::QueuedConnection);
