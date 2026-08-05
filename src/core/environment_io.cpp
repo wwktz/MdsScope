@@ -648,8 +648,10 @@ LayoutConfig parseEnvironment(const QString& path, QString* error)
     return parseWebscpEnvironment(path, error);
 }
 
-bool writeEnvironmentToml(const LayoutConfig& config, const QString& path, QString* error)
+bool writeEnvironmentToml(const LayoutConfig& sourceConfig, const QString& path, QString* error)
 {
+    LayoutConfig config = sourceConfig;
+    deduplicateLayoutSignals(&config);
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         if (error) {
@@ -752,11 +754,13 @@ bool writeEnvironmentToml(const LayoutConfig& config, const QString& path, QStri
     return true;
 }
 
-bool writeEnvironmentWebscp(const LayoutConfig& config,
+bool writeEnvironmentWebscp(const LayoutConfig& sourceConfig,
                             const QString& path,
                             const QString& dataPath,
                             QString* error)
 {
+    LayoutConfig config = sourceConfig;
+    deduplicateLayoutSignals(&config);
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         if (error) {

@@ -452,6 +452,18 @@ if(MDS_SCOPE_BUILD_TESTS)
     set_tests_properties(plot_helpers PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    add_executable(environment_io_test
+        tests/environment_io_test.cpp
+    )
+    mdsscope_configure_target(environment_io_test)
+    set_target_properties(environment_io_test PROPERTIES AUTOMOC OFF)
+    target_include_directories(environment_io_test PRIVATE src)
+    target_link_libraries(environment_io_test PRIVATE
+        mdsscope_core
+        Qt6::Core
+    )
+    add_test(NAME environment_io COMMAND environment_io_test)
+
     add_executable(shortcut_settings_test
         tests/shortcut_settings_test.cpp
         src/ui/main_window/shortcut_settings.cpp

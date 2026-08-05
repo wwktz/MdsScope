@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 void writeLine(QTextStream& out, const QString& key, const QString& value)
 {
@@ -185,6 +186,59 @@ QString effectiveSignalShot(const PlotSpec& plot, const SignalSpec& sig)
     return shot.isEmpty() ? plot.shot.trimmed() : shot;
 }
 
+namespace {
+QString canonicalShotExpression(const QString& expression)
+{
+    const QStringList shots = expandedShotList(expression);
+    return shots.isEmpty()
+               ? expression.trimmed()
+               : shots.join(QChar(0x1e));
+}
+
+QString signalCurveIdentity(const PlotSpec& plot, const SignalSpec& sig)
+{
+    return QStringList {
+        canonicalShotExpression(effectiveSignalShot(plot, sig)),
+        normalizedMdsSignal(sig.yExpr),
+        sig.xExpr.trimmed(),
+        sig.experiment.trimmed(),
+        sig.serverIp.trimmed(),
+    }.join(QChar(0x1f));
+}
+}
+
+void deduplicatePlotSignals(PlotSpec* plot)
+{
+    if (!plot || plot->signalSpecs.size() < 2) {
+        return;
+    }
+    QSet<QString> seen;
+    QVector<SignalSpec> unique;
+    unique.reserve(plot->signalSpecs.size());
+    for (SignalSpec& sig : plot->signalSpecs) {
+        const QString identity = signalCurveIdentity(*plot, sig);
+        if (seen.contains(identity)) {
+            continue;
+        }
+        seen.insert(identity);
+        unique.push_back(std::move(sig));
+    }
+    plot->signalSpecs = std::move(unique);
+    normalizePresetColors(plot->signalSpecs);
+}
+
+void deduplicateLayoutSignals(LayoutConfig* config)
+{
+    if (!config) {
+        return;
+    }
+    for (QVector<PlotSpec>& column : config->columns) {
+        for (PlotSpec& plot : column) {
+            deduplicatePlotSignals(&plot);
+        }
+    }
+}
+
 QStringList expandedShotList(const QString& expression)
 {
     constexpr int kMaxExpandedShots = 128;
@@ -265,6 +319,7 @@ LayoutConfig expandedShotLayout(const LayoutConfig& config)
             plot.signalSpecs = std::move(expandedSignals);
         }
     }
+    deduplicateLayoutSignals(&expanded);
     return expanded;
 }
 
