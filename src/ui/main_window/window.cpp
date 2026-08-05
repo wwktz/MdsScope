@@ -38,7 +38,7 @@ MainWindow::MainWindow(QString rootPath, QWidget* parent)
     globalRateMode_ = defaultRateMode_;
     shortcutBindings_ = loadShortcutBindings(rootPath_);
     shortcutSequenceTimer_.setSingleShot(true);
-    shortcutSequenceTimer_.setInterval(500);
+    shortcutSequenceTimer_.setInterval(1000);
     connect(&shortcutSequenceTimer_,
             &QTimer::timeout,
             this,
@@ -46,11 +46,6 @@ MainWindow::MainWindow(QString rootPath, QWidget* parent)
         pendingShortcutKeys_.clear();
         pendingPanelNavigationOrigin_.reset();
         pendingPanelNavigationPausedPoint_.clear();
-        const std::optional<ShortcutCommand> command =
-            std::exchange(pendingExactShortcut_, std::nullopt);
-        if (command && shortcutCommandEnabled(*command)) {
-            triggerShortcutCommand(*command);
-        }
     });
     shotEditExitTimer_.setSingleShot(true);
     shotEditExitTimer_.setInterval(1000);
@@ -58,6 +53,11 @@ MainWindow::MainWindow(QString rootPath, QWidget* parent)
             &QTimer::timeout,
             this,
             [this] { pendingShotEditExitKeys_.clear(); });
+    deferredPanelRefreshTimer_.setSingleShot(true);
+    connect(&deferredPanelRefreshTimer_,
+            &QTimer::timeout,
+            this,
+            &MainWindow::refreshNextDeferredPanel);
     buildUi();
     qApp->installEventFilter(this);
     applyUiFont();

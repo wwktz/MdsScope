@@ -231,8 +231,34 @@ void PlotWidget::setLargeDisplayMode(bool enabled)
         return;
     }
     largeDisplayMode_ = enabled;
-    invalidatePlotCache();
+    // Each display mode owns its base render. Data/view/style changes dirty
+    // both through invalidatePlotCache(); changing only the mode may therefore
+    // reuse a previously rendered frame at the matching size.
+    polylineCacheDirty_ = true;
     update();
+}
+
+bool PlotWidget::deferRegularCacheRefresh()
+{
+    regularCacheRefreshDeferred_ = !regularBaseCache_.isNull()
+                                   && regularBaseCacheSize_.isValid();
+    return regularCacheRefreshDeferred_;
+}
+
+void PlotWidget::resumeDeferredRegularCacheRefresh()
+{
+    if (!regularCacheRefreshDeferred_) {
+        return;
+    }
+    regularCacheRefreshDeferred_ = false;
+    if (!largeDisplayMode_ && regularBaseCacheDirty_ && isVisible()) {
+        repaint();
+    }
+}
+
+void PlotWidget::cancelDeferredRegularCacheRefresh()
+{
+    regularCacheRefreshDeferred_ = false;
 }
 
 void PlotWidget::refreshStyle()
@@ -318,6 +344,7 @@ void PlotWidget::rebuildLegendCache()
 
 void PlotWidget::invalidatePlotCache()
 {
-    baseCacheDirty_ = true;
+    regularBaseCacheDirty_ = true;
+    largeBaseCacheDirty_ = true;
     polylineCacheDirty_ = true;
 }

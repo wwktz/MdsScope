@@ -5,16 +5,18 @@
 
 #include "core/mds_helpers.hpp"
 
-#include <QtConcurrent>
-
 #include <QAbstractSocket>
 #include <QFuture>
 #include <QMutex>
 #include <QMutexLocker>
-#include <QThreadPool>
+#include <QObject>
+#include <QPromise>
+#include <QThread>
 
 #include <algorithm>
+#include <array>
 #include <limits>
+#include <type_traits>
 #include <utility>
 
 namespace mds_client_internal {
@@ -33,35 +35,64 @@ std::atomic_int& reconnectCostEstimateStorage()
     return estimateMs;
 }
 
-QThreadPool*& groupFetchPoolStorage()
+struct GroupFetchLane {
+    QThread* thread = nullptr;
+    QObject* dispatcher = nullptr;
+};
+
+std::array<GroupFetchLane, kGroupFetchThreadLimit>& groupFetchLaneStorage()
 {
-    static QThreadPool* pool = nullptr;
-    return pool;
+    static std::array<GroupFetchLane, kGroupFetchThreadLimit> lanes{};
+    return lanes;
 }
 
-QMutex& groupFetchPoolMutex()
+QMutex& groupFetchLaneMutex()
 {
     static QMutex mutex;
     return mutex;
 }
 
-QThreadPool* groupFetchPool()
+GroupFetchLane groupFetchLane(int lane)
 {
-    QMutexLocker locker(&groupFetchPoolMutex());
-    QThreadPool*& pool = groupFetchPoolStorage();
-    if (!pool) {
-        pool = new QThreadPool();
-        pool->setMaxThreadCount(kGroupFetchThreadLimit);
-        // MDS sockets are cached in worker-thread local storage.  Qt expires
-        // idle pool threads after 30 seconds by default, which silently drops
-        // the sockets and makes a later configuration load cold again.  Keep
-        // these dedicated workers alive for the lifetime of the client pool;
-        // shutdownWorkers() still closes every socket explicitly on exit.
-        pool->setExpiryTimeout(-1);
+    lane = std::clamp(lane, 0, kGroupFetchThreadLimit - 1);
+    QMutexLocker locker(&groupFetchLaneMutex());
+    GroupFetchLane& worker = groupFetchLaneStorage()[lane];
+    if (!worker.thread) {
+        worker.thread = new QThread();
+        worker.thread->setObjectName(
+            QStringLiteral("MdsConnectionLane%1").arg(lane));
+        worker.dispatcher = new QObject();
+        worker.dispatcher->moveToThread(worker.thread);
+        worker.thread->start();
     }
-    return pool;
+    return worker;
 }
 
+template <typename Function>
+auto runOnGroupFetchLane(int lane, Function&& function)
+    -> QFuture<std::invoke_result_t<std::decay_t<Function>>>
+{
+    using Callable = std::decay_t<Function>;
+    using Result = std::invoke_result_t<Callable>;
+    const GroupFetchLane worker = groupFetchLane(lane);
+    auto promise = std::make_shared<QPromise<Result>>();
+    auto callable = std::make_shared<Callable>(
+        std::forward<Function>(function));
+    promise->start();
+    QFuture<Result> future = promise->future();
+    QMetaObject::invokeMethod(
+        worker.dispatcher,
+        [promise, callable] {
+            if constexpr (std::is_void_v<Result>) {
+                (*callable)();
+            } else {
+                promise->addResult((*callable)());
+            }
+            promise->finish();
+        },
+        Qt::QueuedConnection);
+    return future;
+}
 
 MdsIpClient::MdsIpClient(DataReadMode readMode,
                          ResultCallback callback,
@@ -144,30 +175,32 @@ void MdsIpClient::clearCurrentThreadConnections()
 
 void MdsIpClient::shutdownWorkers()
 {
-        QThreadPool* pool = groupFetchPoolStorage();
-        if (!pool) {
-            return;
-        }
-        QVector<QFuture<void>> futures;
-        futures.reserve(kGroupFetchThreadLimit);
-        QSemaphore ready;
-        QSemaphore release;
         for (int i = 0; i < kGroupFetchThreadLimit; ++i) {
-            futures.push_back(QtConcurrent::run(pool, [&ready, &release] {
-                ready.release();
-                release.acquire();
+            GroupFetchLane worker;
+            {
+                QMutexLocker locker(&groupFetchLaneMutex());
+                worker = groupFetchLaneStorage()[i];
+            }
+            if (!worker.thread || !worker.dispatcher) {
+                continue;
+            }
+            QFuture<void> future = runOnGroupFetchLane(i, [] {
                 clearCurrentThreadConnections();
-            }));
-        }
-        ready.acquire(kGroupFetchThreadLimit);
-        release.release(kGroupFetchThreadLimit);
-        for (auto& future : futures) {
+            });
             future.waitForFinished();
+            QMetaObject::invokeMethod(
+                worker.dispatcher,
+                [dispatcher = worker.dispatcher] {
+                    dispatcher->moveToThread(nullptr);
+                },
+                Qt::BlockingQueuedConnection);
+            worker.thread->quit();
+            worker.thread->wait();
+            delete worker.dispatcher;
+            delete worker.thread;
+            QMutexLocker locker(&groupFetchLaneMutex());
+            groupFetchLaneStorage()[i] = {};
         }
-        pool->clear();
-        pool->waitForDone();
-        delete pool;
-        groupFetchPoolStorage() = nullptr;
     }
 
 QVector<LoadedSignal> MdsIpClient::fetchAll(const LayoutConfig& snapshot) const
@@ -235,7 +268,7 @@ QVector<LoadedSignal> MdsIpClient::fetchAll(const LayoutConfig& snapshot) const
             futures.reserve(count);
             for (int i = 0; i < count; ++i) {
                 QVector<NativeRequest> chunk = std::move(chunks[start + i]);
-                futures.push_back(QtConcurrent::run(groupFetchPool(), [this, chunk = std::move(chunk)] {
+                futures.push_back(runOnGroupFetchLane(i, [this, chunk = std::move(chunk)] {
                     return fetchGroupResults(chunk);
                 }));
             }
@@ -299,7 +332,7 @@ void MdsIpClient::warmConnections(const LayoutConfig& snapshot) const
             QSemaphore handshakeSlots(8);
             for (int i = 0; i < kMaxGlobalSockets; ++i) {
                 QVector<NativeRequest> warmChunk{request};
-                futures.push_back(QtConcurrent::run(groupFetchPool(), [this, &ready, &release, &handshakeSlots, warmChunk = std::move(warmChunk)] {
+                futures.push_back(runOnGroupFetchLane(i, [this, &ready, &release, &handshakeSlots, warmChunk = std::move(warmChunk)] {
                     ready.release();
                     release.acquire();
                     handshakeSlots.acquire();
@@ -710,7 +743,7 @@ void MdsIpClient::retryTransientFailures(const QHash<int, NativeRequest>& reques
             for (int i = 0; i < count; ++i) {
                 QVector<NativeRequest> single;
                 single.push_back(retryRequests[start + i]);
-                futures.push_back(QtConcurrent::run(groupFetchPool(), [this, single = std::move(single)] {
+                futures.push_back(runOnGroupFetchLane(i, [this, single = std::move(single)] {
                     return fetchGroupResults(single);
                 }));
             }

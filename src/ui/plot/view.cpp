@@ -289,11 +289,30 @@ QRectF PlotWidget::dataBounds() const
                 maxY = std::max(maxY, s.uniformMaxY);
             }
         }
-        for (const QPointF& p : s.points) {
-            minX = std::min(minX, p.x());
-            maxX = std::max(maxX, p.x());
-            minY = std::min(minY, p.y());
-            maxY = std::max(maxY, p.y());
+        if (!s.points.isEmpty()) {
+            // Explicit MDS timebases are monotonic (ascending or descending),
+            // which is also the invariant used by sortedPointIndexRange() and
+            // the display decimator. Their X bounds are therefore the two end
+            // points. Resolve Y bounds through the min/max block index built
+            // by setSeries() instead of rescanning every Full-rate sample when
+            // a hidden panel first becomes visible.
+            const QPointF& first = s.points.first();
+            const QPointF& last = s.points.last();
+            minX = std::min(minX, std::min(first.x(), last.x()));
+            maxX = std::max(maxX, std::max(first.x(), last.x()));
+
+            int minIndex = -1;
+            int maxIndex = -1;
+            if (findIndexedYExtrema(
+                    s,
+                    0,
+                    static_cast<int>(s.points.size()) - 1,
+                    [&](int index) { return s.points[index].y(); },
+                    &minIndex,
+                    &maxIndex)) {
+                minY = std::min(minY, s.points[minIndex].y());
+                maxY = std::max(maxY, s.points[maxIndex].y());
+            }
         }
     }
     const bool fixedMinX = spec_.customXRange && std::isfinite(spec_.xmin);

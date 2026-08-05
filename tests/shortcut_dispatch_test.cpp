@@ -8,6 +8,7 @@
 #include <QDialog>
 #include <QFocusEvent>
 #include <QKeyEvent>
+#include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
 #include <QTemporaryDir>
@@ -176,6 +177,45 @@ public:
                && plot.hoverSeriesIndex_ >= 0
                && plot.syncedPoint_.visible;
     }
+
+    static void maximizeCurrent(MainWindow& window)
+    {
+        window.maximizeCurrentPanel();
+    }
+
+    static QString statusText(const MainWindow& window)
+    {
+        return window.statusLabel_ ? window.statusLabel_->text()
+                                   : QString();
+    }
+
+    static int sequenceTimeout(const MainWindow& window)
+    {
+        return window.shortcutSequenceTimer_.interval();
+    }
+
+    static bool sequencePending(const MainWindow& window)
+    {
+        return window.shortcutSequenceTimer_.isActive()
+               || !window.pendingShortcutKeys_.isEmpty();
+    }
+
+    static bool panelMaximized(const MainWindow& window)
+    {
+        return window.singlePanelMaximized_;
+    }
+
+    static bool regularFrameReusable(const PlotWidget& plot)
+    {
+        return !plot.regularBaseCacheDirty_
+               && plot.regularBaseCacheSize_ == plot.size()
+               && !plot.regularBaseCache_.isNull();
+    }
+
+    static bool regularFrameDirty(const PlotWidget& plot)
+    {
+        return plot.regularBaseCacheDirty_;
+    }
 };
 
 namespace {
@@ -245,6 +285,34 @@ int main(int argc, char** argv)
         window, first, second, third);
 
     bool ok = true;
+    QPixmap frame(first->size());
+    first->render(&frame);
+    first->setLargeDisplayMode(true);
+    first->resize(1100, 700);
+    frame = QPixmap(first->size());
+    first->render(&frame);
+    first->setLargeDisplayMode(false);
+    first->resize(640, 360);
+    ok &= expect(
+        ShortcutDispatchTestAccess::regularFrameReusable(*first),
+        "returning from Max discarded the reusable regular plot frame");
+    first->refreshStyle();
+    ok &= expect(first->deferRegularCacheRefresh(),
+                 "regular plot frame could not be deferred");
+    frame = QPixmap(first->size());
+    first->render(&frame);
+    ok &= expect(
+        ShortcutDispatchTestAccess::regularFrameDirty(*first),
+        "deferred plot frame unexpectedly performed the expensive redraw");
+    first->cancelDeferredRegularCacheRefresh();
+    frame = QPixmap(first->size());
+    first->render(&frame);
+    ok &= expect(
+        ShortcutDispatchTestAccess::regularFrameReusable(*first),
+        "regular plot frame did not refresh after leaving deferred mode");
+    ok &= expect(
+        ShortcutDispatchTestAccess::sequenceTimeout(window) == 1000,
+        "multi-key shortcut timeout is too short");
     ok &= expect(
         ShortcutDispatchTestAccess::activateCurrent(window),
         "Ctrl+P-equivalent activation failed");
@@ -387,6 +455,60 @@ int main(int argc, char** argv)
     ok &= expect(connected != nullptr,
                  "could not build a connected production plot");
     if (connected) {
+        ShortcutDispatchTestAccess::setZoomMode(window);
+        connected->applyView(QRectF(0.5, 1.5, 0.5, 0.5));
+        ShortcutDispatchTestAccess::maximizeCurrent(window);
+        sendKey(connected,
+                Qt::Key_R,
+                Qt::ControlModifier,
+                QStringLiteral("r"));
+        sendKey(connected,
+                Qt::Key_C,
+                Qt::ControlModifier,
+                QStringLiteral("c"));
+        ok &= expect(
+            !connected->hasView()
+                && ShortcutDispatchTestAccess::statusText(window)
+                       == QStringLiteral(
+                           "Reset current panel to auto scale"),
+            "Ctrl+R,Ctrl+C did not reset a maximized panel");
+        ok &= expect(
+            !ShortcutDispatchTestAccess::sequencePending(window),
+            "completed Ctrl+R,C remained pending");
+
+        connected->applyView(QRectF(0.5, 1.5, 0.5, 0.5));
+        sendKey(connected,
+                Qt::Key_R,
+                Qt::ControlModifier,
+                QStringLiteral("r"));
+        sendKey(connected,
+                Qt::Key_A,
+                Qt::ControlModifier,
+                QStringLiteral("a"));
+        ok &= expect(
+            !connected->hasView()
+                && ShortcutDispatchTestAccess::statusText(window)
+                       == QStringLiteral(
+                           "Reset all panels to auto scale"),
+            "Ctrl+R,Ctrl+A did not reset scales immediately");
+        ok &= expect(
+            !ShortcutDispatchTestAccess::sequencePending(window),
+            "completed Ctrl+R,A remained pending");
+
+        sendKey(connected,
+                Qt::Key_A,
+                Qt::ControlModifier,
+                QStringLiteral("a"));
+        ok &= expect(
+            !ShortcutDispatchTestAccess::panelMaximized(window)
+                && ShortcutDispatchTestAccess::statusText(window)
+                       == QStringLiteral("Show all panels"),
+            "Ctrl+A did not show all panels immediately");
+        ok &= expect(
+            !ShortcutDispatchTestAccess::sequencePending(window),
+            "completed Ctrl+A remained pending");
+
+        ShortcutDispatchTestAccess::setPointMode(window);
         connected->selected();
         ok &= expect(
             ShortcutDispatchTestAccess::active(window) == nullptr,

@@ -147,6 +147,8 @@ private:
     void resetScales();
     void maximizeCurrentPanel();
     void showAllPanels();
+    void refreshNextDeferredPanel();
+    void cancelDeferredPanelRefreshes();
     void showPanelContextMenu(PlotWidget* plot,
                               int column,
                               int row,
@@ -246,11 +248,12 @@ private:
     QVector<QVector<PlotWidget*>> plotWidgets_;
     QVector<ShortcutBinding> shortcutBindings_;
     QList<QKeyCombination> pendingShortcutKeys_;
-    std::optional<ShortcutCommand> pendingExactShortcut_;
     std::optional<PanelId> pendingPanelNavigationOrigin_;
     QPointer<PlotWidget> pendingPanelNavigationPausedPoint_;
     QTimer shortcutSequenceTimer_;
     QTimer shotEditExitTimer_;
+    QTimer deferredPanelRefreshTimer_;
+    QList<QPointer<PlotWidget>> deferredPanelRefreshes_;
     QList<QKeyCombination> pendingShotEditExitKeys_;
     QVector<QShortcut*> shotInputShortcuts_;
     bool dispatchingPopupMenuKey_ = false;

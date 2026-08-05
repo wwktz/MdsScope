@@ -301,26 +301,18 @@ bool MainWindow::handleShortcutKey(QKeyEvent* event,
                 || command == ShortcutCommand::PanelDown
                 || command == ShortcutCommand::PanelUp
                 || command == ShortcutCommand::PanelRight;
-            const bool menuNavigation =
-                command == ShortcutCommand::MenuLeft
-                || command == ShortcutCommand::MenuDown
-                || command == ShortcutCommand::MenuUp
-                || command == ShortcutCommand::MenuRight;
-            const bool navigateImmediately =
-                menuNavigation
-                || panelNavigation;
-            if (navigateImmediately) {
-                if (panelNavigation) {
-                    pendingPanelNavigationOrigin_ =
-                        PanelId {selectedColumn_, selectedRow_};
-                    pendingPanelNavigationPausedPoint_ =
-                        pausedPointPlot_;
-                }
-                triggerShortcutCommand(command);
-                pendingExactShortcut_.reset();
+            if (panelNavigation) {
+                pendingPanelNavigationOrigin_ =
+                    PanelId {selectedColumn_, selectedRow_};
+                pendingPanelNavigationPausedPoint_ =
+                    pausedPointPlot_;
             } else {
-                pendingExactShortcut_ = command;
+                pendingPanelNavigationOrigin_.reset();
+                pendingPanelNavigationPausedPoint_.clear();
             }
+            // A complete binding always fires on the completing key event.
+            // Keep its keys only to allow a longer binding with this prefix.
+            triggerShortcutCommand(command);
             shortcutSequenceTimer_.start();
             return 1;
         }
@@ -333,7 +325,6 @@ bool MainWindow::handleShortcutKey(QKeyEvent* event,
                 pendingPanelNavigationPausedPoint_.clear();
             }
             pendingShortcutKeys_.clear();
-            pendingExactShortcut_.reset();
             shortcutSequenceTimer_.stop();
             const bool repeatable =
                 command == ShortcutCommand::PanelLeft
@@ -351,7 +342,6 @@ bool MainWindow::handleShortcutKey(QKeyEvent* event,
         }
         if (partial) {
             pendingShortcutKeys_ = std::move(keys);
-            pendingExactShortcut_.reset();
             pendingPanelNavigationOrigin_.reset();
             pendingPanelNavigationPausedPoint_.clear();
             shortcutSequenceTimer_.start();
@@ -364,8 +354,23 @@ bool MainWindow::handleShortcutKey(QKeyEvent* event,
     keys.push_back(key);
     int result = tryKeys(keys);
     if (result == 0 && !pendingShortcutKeys_.isEmpty()) {
-        const std::optional<ShortcutCommand> delayed =
-            std::exchange(pendingExactShortcut_, std::nullopt);
+        // Users commonly keep the prefix modifiers held for the continuation
+        // of a multi-key shortcut (Ctrl+R, Ctrl+C instead of Ctrl+R, C).
+        // Prefer an explicitly configured modified continuation, then retry
+        // after removing only the modifiers inherited from the prefix.
+        Qt::KeyboardModifiers relaxedModifiers = modifiers;
+        relaxedModifiers &=
+            ~pendingShortcutKeys_.constFirst().keyboardModifiers();
+        const QKeyCombination relaxedKey(
+            relaxedModifiers,
+            static_cast<Qt::Key>(event->key()));
+        if (relaxedKey != key) {
+            keys = pendingShortcutKeys_;
+            keys.push_back(relaxedKey);
+            result = tryKeys(keys);
+        }
+    }
+    if (result == 0 && !pendingShortcutKeys_.isEmpty()) {
         if (key.key() == Qt::Key_Escape) {
             restorePendingPanelNavigation();
         } else {
@@ -374,14 +379,10 @@ bool MainWindow::handleShortcutKey(QKeyEvent* event,
         }
         pendingShortcutKeys_.clear();
         shortcutSequenceTimer_.stop();
-        if (delayed && shortcutCommandEnabled(*delayed)) {
-            triggerShortcutCommand(*delayed);
-        }
         result = tryKeys({key});
     }
     if (result == 0) {
         pendingShortcutKeys_.clear();
-        pendingExactShortcut_.reset();
         pendingPanelNavigationOrigin_.reset();
         pendingPanelNavigationPausedPoint_.clear();
         shortcutSequenceTimer_.stop();
@@ -823,7 +824,6 @@ void MainWindow::cancelShotEditSession()
     pendingShotEditExitKeys_.clear();
     shotEditExitTimer_.stop();
     pendingShortcutKeys_.clear();
-    pendingExactShortcut_.reset();
     pendingPanelNavigationOrigin_.reset();
     pendingPanelNavigationPausedPoint_.clear();
     shortcutSequenceTimer_.stop();
@@ -946,7 +946,6 @@ void MainWindow::rebuildShotInputShortcuts()
 void MainWindow::openShortcutDialog()
 {
     pendingShortcutKeys_.clear();
-    pendingExactShortcut_.reset();
     pendingPanelNavigationOrigin_.reset();
     pendingPanelNavigationPausedPoint_.clear();
     shortcutSequenceTimer_.stop();

@@ -146,6 +146,9 @@ void PlotWidget::updatePointReadoutPlacement(PointReadout& readout) const
                                 .adjusted(-2, -2, 2, 2));
     }
 
+    const QImage& curveOccupancyMask = largeDisplayMode_
+                                          ? largeCurveOccupancyMask_
+                                          : regularCurveOccupancyMask_;
     std::array<double, 4> scores{};
     std::array<bool, 4> backgrounds{};
     const bool preferRight = readout.pixel.x() <= available.center().x();
@@ -162,10 +165,10 @@ void PlotWidget::updatePointReadoutPlacement(PointReadout& readout) const
             overlapArea += overlap.width() * overlap.height();
         }
         int curvePixels = 0;
-        if (!curveOccupancyMask_.isNull()) {
-            const QRect sampleRect = rect.toAlignedRect().intersected(curveOccupancyMask_.rect());
+        if (!curveOccupancyMask.isNull()) {
+            const QRect sampleRect = rect.toAlignedRect().intersected(curveOccupancyMask.rect());
             for (int y = sampleRect.top(); y <= sampleRect.bottom(); ++y) {
-                const QRgb* scanLine = reinterpret_cast<const QRgb*>(curveOccupancyMask_.constScanLine(y));
+                const QRgb* scanLine = reinterpret_cast<const QRgb*>(curveOccupancyMask.constScanLine(y));
                 for (int x = sampleRect.left(); x <= sampleRect.right(); ++x) {
                     curvePixels += qAlpha(scanLine[x]) != 0 ? 1 : 0;
                 }
@@ -341,24 +344,45 @@ void PlotWidget::paintEvent(QPaintEvent* event)
     painter.setClipRegion(event->region());
     const qreal dpr = devicePixelRatioF();
     const QSize pixmapSize(qCeil(width() * dpr), qCeil(height() * dpr));
+    QPixmap& baseCache = largeDisplayMode_ ? largeBaseCache_
+                                           : regularBaseCache_;
+    QSize& baseCacheSize = largeDisplayMode_ ? largeBaseCacheSize_
+                                             : regularBaseCacheSize_;
+    bool& baseCacheDirty = largeDisplayMode_ ? largeBaseCacheDirty_
+                                             : regularBaseCacheDirty_;
+    const bool drawDeferredRegularFrame =
+        !largeDisplayMode_ && regularCacheRefreshDeferred_
+        && baseCacheDirty && !baseCache.isNull()
+        && baseCacheSize.isValid();
     // Reallocate the backing pixmap only when the device size actually changes
     // (widget resize or dpr change). During pan/zoom the size is stable and
-    // only baseCacheDirty_ is set, so the buffer is reused and cleared in place
+    // only the active dirty flag is set, so the buffer is reused in place.
+    // Regular and maximized frames use separate buffers so returning to All
+    // Panels can reuse the exact frame that was visible before maximizing.
     // (refcount is 1 between frames — the prior drawPixmap released its ref),
     // avoiding a full-window alloc/free every frame.
-    if (baseCache_.isNull() || baseCache_.size() != pixmapSize) {
-        baseCache_ = QPixmap(pixmapSize);
-        baseCache_.setDevicePixelRatio(dpr);
-        baseCacheDirty_ = true;
+    if (!drawDeferredRegularFrame
+        && (baseCache.isNull() || baseCache.size() != pixmapSize)) {
+        baseCache = QPixmap(pixmapSize);
+        baseCache.setDevicePixelRatio(dpr);
+        baseCacheDirty = true;
     }
-    if (baseCacheDirty_ || baseCacheSize_ != size()) {
-        baseCache_.fill(Qt::transparent);
-        QPainter cachePainter(&baseCache_);
+    if (!drawDeferredRegularFrame
+        && (baseCacheDirty || baseCacheSize != size())) {
+        baseCache.fill(Qt::transparent);
+        QPainter cachePainter(&baseCache);
         renderBasePlot(cachePainter);
-        baseCacheSize_ = size();
-        baseCacheDirty_ = false;
+        baseCacheSize = size();
+        baseCacheDirty = false;
     }
-    painter.drawPixmap(0, 0, baseCache_);
+    if (drawDeferredRegularFrame && baseCacheSize != size()) {
+        painter.drawPixmap(QRectF(rect()),
+                           baseCache,
+                           QRectF(QPointF(0, 0),
+                                  baseCache.deviceIndependentSize()));
+    } else {
+        painter.drawPixmap(0, 0, baseCache);
+    }
     drawSelectionBorder(painter);
     drawSyncedPoint(painter);
     drawZoomRubberBand(painter);
@@ -402,11 +426,14 @@ void PlotWidget::renderBasePlot(QPainter& painter) const
         }
     }
 
-    if (curveOccupancyMask_.size() != size()) {
-        curveOccupancyMask_ = QImage(size(), QImage::Format_ARGB32_Premultiplied);
+    QImage& curveOccupancyMask = largeDisplayMode_
+                                    ? largeCurveOccupancyMask_
+                                    : regularCurveOccupancyMask_;
+    if (curveOccupancyMask.size() != size()) {
+        curveOccupancyMask = QImage(size(), QImage::Format_ARGB32_Premultiplied);
     }
-    curveOccupancyMask_.fill(Qt::transparent);
-    QPainter occupancyPainter(&curveOccupancyMask_);
+    curveOccupancyMask.fill(Qt::transparent);
+    QPainter occupancyPainter(&curveOccupancyMask);
     occupancyPainter.setRenderHint(QPainter::Antialiasing, false);
     occupancyPainter.setClipRect(pr.adjusted(1, 1, -1, -1));
     occupancyPainter.setPen(QPen(Qt::white, 1));

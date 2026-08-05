@@ -119,14 +119,6 @@ QVector<SignalFetchResult> MdsIpClient::fetchGroupResults(const QVector<NativeRe
             }
 
             socketPtr = cached->socket.get();
-            if (openOnly) {
-                traceMdsLine(QString("profile_prewarm socket_reused=%1 connect_ms=%2 handshake_ms=%3 server=%4")
-                                 .arg(usedCachedConnection ? 1 : 0)
-                                 .arg(connectMs)
-                                 .arg(handshakeMs)
-                                 .arg(serverKey(firstSig)));
-                return {};
-            }
             reusedOpenTree = cached->currentTree.compare(firstSig.experiment.trimmed(), Qt::CaseInsensitive) == 0
                              && cached->currentShot == firstPlot.shot.trimmed();
             if (reusedOpenTree) {
@@ -190,6 +182,18 @@ QVector<SignalFetchResult> MdsIpClient::fetchGroupResults(const QVector<NativeRe
             emitResults(requests, errorResults);
             return errorResults;
         }
+        if (openOnly) {
+            traceMdsLine(QString("profile_prewarm socket_reused=%1 tree_reused=%2 connect_ms=%3 handshake_ms=%4 open_ms=%5 server=%6 tree=%7 shot=%8")
+                             .arg(usedCachedConnection ? 1 : 0)
+                             .arg(reusedOpenTree ? 1 : 0)
+                             .arg(connectMs)
+                             .arg(handshakeMs)
+                             .arg(openMs)
+                             .arg(serverKey(firstSig))
+                             .arg(firstSig.experiment)
+                             .arg(firstPlot.shot));
+            return {};
+        }
         QTcpSocket& socket = *socketPtr;
         traceMdsLine(QString("group_open_ms=%1 tree=%2 shot=%3 count=%4")
                          .arg(groupTimer.elapsed())
@@ -204,12 +208,13 @@ QVector<SignalFetchResult> MdsIpClient::fetchGroupResults(const QVector<NativeRe
                          .arg(firstSig.experiment)
                          .arg(firstPlot.shot)
                          .arg(requests.size()));
-        traceMdsLine(QString("group_open_cache socket_reused=%1 tree_reused=%2 tree=%3 shot=%4 count=%5")
+        traceMdsLine(QString("group_open_cache socket_reused=%1 tree_reused=%2 tree=%3 shot=%4 count=%5 server=%6")
                          .arg(usedCachedConnection ? 1 : 0)
                          .arg(reusedOpenTree ? 1 : 0)
                          .arg(firstSig.experiment)
                          .arg(firstPlot.shot)
-                         .arg(requests.size()));
+                         .arg(requests.size())
+                         .arg(serverKey(firstSig)));
 
         for (int i = 0; i < requests.size(); ++i) {
             if (isCanceled()) {

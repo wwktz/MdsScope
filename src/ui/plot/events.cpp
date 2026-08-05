@@ -195,7 +195,16 @@ void PlotWidget::wheelEvent(QWheelEvent* event)
 void PlotWidget::resizeEvent(QResizeEvent* event)
 {
     QWidget::resizeEvent(event);
-    invalidatePlotCache();
+    // A mode switch can return to a size whose fully rendered frame is already
+    // cached. Preserve that frame; only a genuinely new size needs a redraw.
+    QSize& cacheSize = largeDisplayMode_ ? largeBaseCacheSize_
+                                         : regularBaseCacheSize_;
+    bool& cacheDirty = largeDisplayMode_ ? largeBaseCacheDirty_
+                                         : regularBaseCacheDirty_;
+    if (cacheSize != event->size()) {
+        cacheDirty = true;
+    }
+    polylineCacheDirty_ = true;
 }
 
 void PlotWidget::leaveEvent(QEvent*)

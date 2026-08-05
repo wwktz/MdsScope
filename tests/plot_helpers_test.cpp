@@ -7,6 +7,7 @@
 #include <QApplication>
 
 #include <cmath>
+#include <utility>
 
 namespace {
 bool near(double lhs, double rhs)
@@ -91,5 +92,32 @@ int main(int argc, char** argv)
     if (plot.activatePointAtViewCenterForDataSeries(2)) {
         return 9;
     }
-    return plot.activatePointAtViewCenter(8) ? 10 : 0;
+    if (plot.activatePointAtViewCenter(8)) {
+        return 10;
+    }
+
+    PlotWidget indexedBoundsPlot;
+    PlotSpec indexedBoundsSpec;
+    indexedBoundsSpec.signalSpecs.resize(1);
+    indexedBoundsPlot.setSpec(indexedBoundsSpec);
+    SignalSeries indexedSeries;
+    indexedSeries.points.reserve(2048);
+    for (int i = 0; i < 2048; ++i) {
+        double y = 2.0;
+        if (i == 500) {
+            y = -50.0;
+        } else if (i == 1500) {
+            y = 100.0;
+        }
+        indexedSeries.points.push_back(QPointF(2047.0 - i, y));
+    }
+    indexedBoundsPlot.setSeries(0, std::move(indexedSeries));
+    const QRectF indexedView = indexedBoundsPlot.currentView();
+    if (!near(indexedView.left(), -20.47)
+        || !near(indexedView.right(), 2067.47)
+        || !near(indexedView.top(), -56.0)
+        || !near(indexedView.bottom(), 106.0)) {
+        return 11;
+    }
+    return 0;
 }

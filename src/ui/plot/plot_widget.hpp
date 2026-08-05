@@ -36,6 +36,9 @@ public:
     void clearSeriesPreservingView();
     void setSelected(bool selected);
     void setLargeDisplayMode(bool enabled);
+    bool deferRegularCacheRefresh();
+    void resumeDeferredRegularCacheRefresh();
+    void cancelDeferredRegularCacheRefresh();
     void refreshStyle();
     void setInteractionMode(InteractionMode mode);
     void resetScale(bool repaint = true);
@@ -151,10 +154,19 @@ private:
     QPointF hoverData_;
     QString hoverText_;
     PointReadout syncedPoint_;
-    mutable QPixmap baseCache_;
-    mutable QImage curveOccupancyMask_;
-    mutable QSize baseCacheSize_;
-    mutable bool baseCacheDirty_ = true;
+    // Keep the regular and maximized renders separately. Switching back to
+    // the grid normally restores the plot to its previous pixel size, so the
+    // already-rendered regular frame can be shown immediately instead of
+    // synchronously rebuilding a large data envelope on the first paint.
+    mutable QPixmap regularBaseCache_;
+    mutable QPixmap largeBaseCache_;
+    mutable QImage regularCurveOccupancyMask_;
+    mutable QImage largeCurveOccupancyMask_;
+    mutable QSize regularBaseCacheSize_;
+    mutable QSize largeBaseCacheSize_;
+    mutable bool regularBaseCacheDirty_ = true;
+    mutable bool largeBaseCacheDirty_ = true;
+    bool regularCacheRefreshDeferred_ = false;
     mutable QVector<QVector<QPoint>> polylineCache_;
     mutable QRectF polylineCacheRect_;
     mutable QRectF polylineCacheView_;

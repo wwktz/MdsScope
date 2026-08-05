@@ -54,6 +54,7 @@ bool signalDataSourcesEqualIgnoringRate(const QVector<SignalSpec>& lhs, const QV
 
 void MainWindow::rebuildGrid()
 {
+    cancelDeferredPanelRefreshes();
     const int previousRows = gridLayout_->rowCount();
     const int previousColumns = gridLayout_->columnCount();
     while (QLayoutItem* item = gridLayout_->takeAt(0)) {
@@ -557,6 +558,7 @@ void MainWindow::maximizeCurrentPanel()
     if (!currentPlotWidget()) {
         return;
     }
+    cancelDeferredPanelRefreshes();
     singlePanelMaximized_ = true;
     maximizedColumn_ = selectedColumn_;
     maximizedRow_ = selectedRow_;
@@ -588,6 +590,15 @@ void MainWindow::maximizeCurrentPanel()
 
 void MainWindow::showAllPanels()
 {
+    cancelDeferredPanelRefreshes();
+    const bool updatesEnabled =
+        gridHost_ ? gridHost_->updatesEnabled() : true;
+    if (gridHost_ && updatesEnabled) {
+        // Revealing each panel can otherwise schedule a full layout and paint
+        // before the next panel is restored. Apply the visibility transition
+        // as one batch and repaint the completed grid once.
+        gridHost_->setUpdatesEnabled(false);
+    }
     singlePanelMaximized_ = false;
     maximizedColumn_ = -1;
     maximizedRow_ = -1;
@@ -606,6 +617,9 @@ void MainWindow::showAllPanels()
         gridLayout_->setColumnStretch(c, 1);
         for (PlotWidget* plot : col) {
             if (plot) {
+                if (plot->deferRegularCacheRefresh()) {
+                    deferredPanelRefreshes_.push_back(plot);
+                }
                 plot->setLargeDisplayMode(false);
                 plot->show();
             }
@@ -613,5 +627,42 @@ void MainWindow::showAllPanels()
     }
     gridHost_->setMinimumSize(QSize(0, 0));
     gridHost_->updateGeometry();
+    if (gridHost_ && updatesEnabled) {
+        gridHost_->setUpdatesEnabled(true);
+        gridHost_->update();
+    }
     setStatus("Show all panels");
+    if (!deferredPanelRefreshes_.isEmpty()) {
+        // Let the compositor present the restored grid from the existing
+        // regular-size frames first. Expensive Full-data redraws then run one
+        // panel per event-loop turn instead of blocking Ctrl+A in one batch.
+        deferredPanelRefreshTimer_.start(24);
+    }
+}
+
+void MainWindow::refreshNextDeferredPanel()
+{
+    while (!deferredPanelRefreshes_.isEmpty()) {
+        QPointer<PlotWidget> plot = deferredPanelRefreshes_.takeFirst();
+        if (!plot) {
+            continue;
+        }
+        plot->resumeDeferredRegularCacheRefresh();
+        if (!deferredPanelRefreshes_.isEmpty()) {
+            deferredPanelRefreshTimer_.start(8);
+        }
+        return;
+    }
+}
+
+void MainWindow::cancelDeferredPanelRefreshes()
+{
+    deferredPanelRefreshTimer_.stop();
+    for (const QPointer<PlotWidget>& plot :
+         std::as_const(deferredPanelRefreshes_)) {
+        if (plot) {
+            plot->cancelDeferredRegularCacheRefresh();
+        }
+    }
+    deferredPanelRefreshes_.clear();
 }
