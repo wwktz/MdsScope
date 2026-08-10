@@ -16,6 +16,7 @@ class QPainter;
 class QPaintEvent;
 class QResizeEvent;
 class QWheelEvent;
+class PlotWidgetTestAccess;
 class ShortcutDispatchTestAccess;
 
 class PlotWidget final : public QWidget {
@@ -26,7 +27,7 @@ public:
 
     void setFontSettings(FontSettings settings);
     void setSpec(PlotSpec spec);
-    void setFetchSpec(PlotSpec spec);
+    void setReadModes(const PlotSpec& spec);
     void setShot(QString shot);
     const PlotSpec& spec() const { return spec_; }
     bool hasSeriesData(int index) const;
@@ -76,6 +77,7 @@ protected:
     void leaveEvent(QEvent*) override;
 
 private:
+    friend class PlotWidgetTestAccess;
     friend class ShortcutDispatchTestAccess;
 
     QRectF plotRect() const;
@@ -127,6 +129,7 @@ private:
     QRect selectionBorderDirtyRect() const;
     QRect zoomRubberBandDirtyRect(const QRectF& band) const;
     QRect syncedPointDirtyRect(const PointReadout& readout) const;
+    void invalidateBaseCaches();
     void invalidatePlotCache();
     void scheduleUpdate();
     void schedulePointHoverUpdate(const QPointF& pixelPos);

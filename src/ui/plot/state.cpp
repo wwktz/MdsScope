@@ -48,17 +48,34 @@ void PlotWidget::setSpec(PlotSpec spec)
     update();
 }
 
-void PlotWidget::setFetchSpec(PlotSpec spec)
+void PlotWidget::setReadModes(const PlotSpec& spec)
 {
-    // Fetch-only fields (shot/Rate/source) do not change how the already
-    // displayed series is rendered. Avoid invalidating Full plot caches while
-    // a replacement request is merely being scheduled.
-    spec_ = std::move(spec);
+    // Rate is fetch-only. Copy only the two rate fields so this no-redraw fast
+    // path can never silently accept a title, legend, color, visibility, shot,
+    // range, or source change that does require rebuilding display state.
+    Q_ASSERT(spec_.signalSpecs.size() == spec.signalSpecs.size());
+    if (spec_.signalSpecs.size() != spec.signalSpecs.size()) {
+        return;
+    }
+    for (int i = 0; i < spec_.signalSpecs.size(); ++i) {
+        spec_.signalSpecs[i].readMode = spec.signalSpecs[i].readMode;
+        spec_.signalSpecs[i].readModeExplicit =
+            spec.signalSpecs[i].readModeExplicit;
+    }
 }
 
 void PlotWidget::setShot(QString shot)
 {
+    if (spec_.shot == shot) {
+        return;
+    }
     spec_.shot = std::move(shot);
+    // The effective shot is part of every non-overridden legend label. Keep
+    // the fast shot-change path, but refresh the cached text and both rendered
+    // panel sizes so they cannot continue showing the previous shot number.
+    rebuildLegendCache();
+    invalidateBaseCaches();
+    update();
 }
 
 bool PlotWidget::hasSeriesData(int index) const
@@ -342,9 +359,14 @@ void PlotWidget::rebuildLegendCache()
     }
 }
 
-void PlotWidget::invalidatePlotCache()
+void PlotWidget::invalidateBaseCaches()
 {
     regularBaseCacheDirty_ = true;
     largeBaseCacheDirty_ = true;
+}
+
+void PlotWidget::invalidatePlotCache()
+{
+    invalidateBaseCaches();
     polylineCacheDirty_ = true;
 }

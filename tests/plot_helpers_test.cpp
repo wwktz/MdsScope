@@ -9,6 +9,36 @@
 #include <cmath>
 #include <utility>
 
+class PlotWidgetTestAccess {
+public:
+    static const QStringList& legendLabels(const PlotWidget& plot)
+    {
+        return plot.legendLabels_;
+    }
+
+    static bool baseCachesDirty(const PlotWidget& plot)
+    {
+        return plot.regularBaseCacheDirty_ && plot.largeBaseCacheDirty_;
+    }
+
+    static bool anyBaseCacheDirty(const PlotWidget& plot)
+    {
+        return plot.regularBaseCacheDirty_ || plot.largeBaseCacheDirty_;
+    }
+
+    static void markRenderCachesClean(PlotWidget& plot)
+    {
+        plot.regularBaseCacheDirty_ = false;
+        plot.largeBaseCacheDirty_ = false;
+        plot.polylineCacheDirty_ = false;
+    }
+
+    static bool polylineCacheDirty(const PlotWidget& plot)
+    {
+        return plot.polylineCacheDirty_;
+    }
+};
+
 namespace {
 bool near(double lhs, double rhs)
 {
@@ -118,6 +148,51 @@ int main(int argc, char** argv)
         || !near(indexedView.top(), -56.0)
         || !near(indexedView.bottom(), 106.0)) {
         return 11;
+    }
+
+    PlotWidget shotLegendPlot;
+    PlotSpec shotLegendSpec;
+    shotLegendSpec.shot = QStringLiteral("100");
+    shotLegendSpec.signalSpecs.resize(2);
+    shotLegendSpec.signalSpecs[0].yExpr = QStringLiteral("\\signal_a");
+    shotLegendSpec.signalSpecs[1].yExpr = QStringLiteral("signal_b");
+    shotLegendSpec.signalSpecs[1].shot = QStringLiteral("fixed");
+    shotLegendPlot.setSpec(shotLegendSpec);
+    PlotWidgetTestAccess::markRenderCachesClean(shotLegendPlot);
+    shotLegendPlot.setShot(QStringLiteral("101"));
+    const QStringList& shotLegendLabels =
+        PlotWidgetTestAccess::legendLabels(shotLegendPlot);
+    if (shotLegendLabels
+            != QStringList{QStringLiteral("signal_a 101"),
+                           QStringLiteral("signal_b fixed")}
+        || !PlotWidgetTestAccess::baseCachesDirty(shotLegendPlot)
+        || PlotWidgetTestAccess::polylineCacheDirty(shotLegendPlot)) {
+        return 12;
+    }
+
+    PlotSpec rateUpdate = shotLegendPlot.spec();
+    rateUpdate.title = QStringLiteral("must not leak into display state");
+    rateUpdate.shot = QStringLiteral("must not replace shot");
+    rateUpdate.signalSpecs[0].hidden = true;
+    rateUpdate.signalSpecs[0].colorName = QStringLiteral("red");
+    rateUpdate.signalSpecs[0].readMode = DataReadMode::Full;
+    rateUpdate.signalSpecs[0].readModeExplicit = true;
+    PlotWidgetTestAccess::markRenderCachesClean(shotLegendPlot);
+    shotLegendPlot.setReadModes(rateUpdate);
+    if (shotLegendPlot.spec().title
+            == QStringLiteral("must not leak into display state")
+        || shotLegendPlot.spec().shot != QStringLiteral("101")
+        || shotLegendPlot.spec().signalSpecs[0].hidden
+        || shotLegendPlot.spec().signalSpecs[0].colorName
+               == QStringLiteral("red")
+        || shotLegendPlot.spec().signalSpecs[0].readMode
+               != DataReadMode::Full
+        || !shotLegendPlot.spec().signalSpecs[0].readModeExplicit
+        || PlotWidgetTestAccess::anyBaseCacheDirty(shotLegendPlot)
+        || PlotWidgetTestAccess::polylineCacheDirty(shotLegendPlot)
+        || PlotWidgetTestAccess::legendLabels(shotLegendPlot)
+               != shotLegendLabels) {
+        return 13;
     }
     return 0;
 }

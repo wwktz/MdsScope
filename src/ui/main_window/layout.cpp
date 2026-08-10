@@ -215,7 +215,7 @@ void MainWindow::syncDisplayConfig()
                                 == plotRefreshSignature(normalized);
                     }
                     if (rateOnly) {
-                        plotWidgets_[c][r]->setFetchSpec(
+                        plotWidgets_[c][r]->setReadModes(
                             displayConfig_.columns[c][r]);
                     } else if (shotOnly) {
                         plotWidgets_[c][r]->setShot(
