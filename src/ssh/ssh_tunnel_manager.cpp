@@ -23,7 +23,10 @@
 namespace {
 constexpr int kDirectReachabilityTimeoutMs = 450;
 constexpr int kSshAttemptGraceMs = 3000;
-constexpr std::array<int, 3> kSshConnectTimeoutSeconds{2, 4, 6};
+// Give an overlay network such as Tailscale enough time to restore a cold
+// peer path without killing the first SSH process mid-handshake.  The timeout
+// is only an upper bound: a warm path still completes immediately.
+constexpr std::array<int, 2> kSshConnectTimeoutSeconds{6, 6};
 
 bool isTransientSshFailure(const QString& message)
 {
@@ -188,8 +191,8 @@ QStringList SshTunnelManager::commonArguments(const SshSettings& settings,
         QStringLiteral("-p"), QString::number(settings.port),
         QStringLiteral("-o"),
         QStringLiteral("ConnectTimeout=%1").arg(connectTimeoutSeconds),
-        // Retries are managed here so each attempt can use the progressive
-        // 2/4/6-second timeout schedule.
+        // Retries are managed here so both full-length attempts remain under
+        // the manager's control.
         QStringLiteral("-o"), QStringLiteral("ConnectionAttempts=1"),
         QStringLiteral("-o"), QStringLiteral("ServerAliveInterval=30"),
         QStringLiteral("-o"), QStringLiteral("ServerAliveCountMax=3"),

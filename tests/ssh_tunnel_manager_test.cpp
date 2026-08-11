@@ -58,16 +58,14 @@ int main(int argc, char** argv)
     bool ok = true;
 
     {
-        for (const int timeout : {2, 4, 6}) {
-            const QStringList arguments =
-                SshTunnelManagerTestAccess::arguments(SshSettings{}, timeout);
-            ok &= expect(
-                arguments.contains(
-                    QStringLiteral("ConnectTimeout=%1").arg(timeout)),
-                "SSH progressive connection timeout is missing");
-            ok &= expect(arguments.contains(QStringLiteral("ConnectionAttempts=1")),
-                         "OpenSSH internal retry conflicts with staged retries");
-        }
+        constexpr int timeout = 6;
+        const QStringList arguments =
+            SshTunnelManagerTestAccess::arguments(SshSettings{}, timeout);
+        ok &= expect(
+            arguments.contains(QStringLiteral("ConnectTimeout=6")),
+            "SSH full connection timeout is missing");
+        ok &= expect(arguments.contains(QStringLiteral("ConnectionAttempts=1")),
+                     "OpenSSH internal retry conflicts with managed retries");
     }
 
     {
